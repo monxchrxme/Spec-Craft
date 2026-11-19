@@ -229,7 +229,7 @@ function activate(d) {
   document.body.classList.remove("show-side");
   render();
   nav();
-  viewport.scrollTop = 0;
+  viewport.scrollTop = source.scrollTop = 0;
   save();
 }
 function outline() {
@@ -264,15 +264,24 @@ function highlight(i) {
   const active = headings.filter((b) => Number(b.dataset.idx) <= i).at(-1);
   headings.forEach((b) => b.classList.toggle("active", b === active));
 }
-viewport.onscroll = () => {
-  if (mode === "source") return;
+function visibleBlock() {
   const top = viewport.getBoundingClientRect().top + 55;
-  let active = 0;
-  for (const b of host.children) {
-    if (b.getBoundingClientRect().top > top) break;
-    active = Number(b.dataset.idx);
+  let index = 0;
+  for (const block of host.children) {
+    if (block.getBoundingClientRect().top > top) break;
+    index = Number(block.dataset.idx);
   }
-  highlight(active);
+  return index;
+}
+function insertionBlock() {
+  const current = host.children[selected]?.getBoundingClientRect();
+  const bounds = viewport.getBoundingClientRect();
+  return current && current.bottom > bounds.top && current.top < bounds.bottom
+    ? selected
+    : visibleBlock();
+}
+viewport.onscroll = () => {
+  if (mode !== "source") highlight(visibleBlock());
 };
 function styles() {
   const p = $(".paper"),
@@ -321,6 +330,7 @@ function closeGraph(restore = true) {
   }
 }
 function render() {
+  const scrollTop = viewport.scrollTop;
   closeGraph(false);
   editor = tableEdit = null;
   $("#empty-workspace").hidden = !!doc;
@@ -336,7 +346,6 @@ function render() {
   }
   parts = parse();
   selected = Math.min(selected, Math.max(0, parts.length - 1));
-  host.replaceChildren();
   styles();
   document.body.classList.toggle("read-view", mode === "read");
   $("#workspace")
@@ -349,16 +358,60 @@ function render() {
   host.hidden = mode === "source";
   source.hidden = mode !== "source";
   if (mode === "source") {
-    if (source.value !== doc.body) source.value = doc.body;
-  } else parts.forEach((p, i) => host.append(block(p, i)));
+    if (source.value !== doc.body) {
+      const top = source.scrollTop;
+      source.value = doc.body;
+      source.scrollTop = top;
+    }
+    host.replaceChildren();
+  } else {
+    const blocks = document.createDocumentFragment();
+    parts.forEach((p, i) => blocks.append(block(p, i)));
+    host.replaceChildren(blocks);
+  }
   outline();
   icons();
+  viewport.scrollTop = scrollTop;
   $("#wordcount").textContent =
     (
       doc.body
         .replace(/^`{3,}studio-diagram[^\n]*\n[\s\S]*?^`{3,}\s*$/gm, "")
         .match(/[\p{L}\p{N}]+/gu) || []
     ).length + " слов";
+}
+function deleteBlockButton(index, label, className) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.innerHTML = icon("trash-2");
+  if (className === "table-remove") button.append(label);
+  button.onmousedown = (event) => event.preventDefault();
+  button.onclick = (event) => {
+    event.stopPropagation();
+    const entry = parts[index];
+    if (!entry || mode !== "edit") return;
+    const scrollTop = viewport.scrollTop;
+    const length = doc.body.length;
+    const editingBefore =
+      editor?.i < index ? editor.end - parts[editor.i].end : 0;
+    const cellBefore = tableEdit?.i < index;
+    flush();
+    const start =
+      entry.start + editingBefore + (cellBefore ? doc.body.length - length : 0);
+    const nextIndex = parts.findIndex((part) => part.start === start);
+    if (nextIndex < 0) return;
+    const { end } = parts[nextIndex];
+    const nextStart = parts[nextIndex + 1]?.start ?? doc.body.length;
+    const gap = doc.body.slice(end, nextStart);
+    patch(start, /^\s*$/.test(gap) ? nextStart : end, "");
+    selected = nextIndex;
+    render();
+    viewport.scrollTop = scrollTop;
+    notice("Блок удалён. Действие можно отменить.");
+  };
+  return button;
 }
 function block(p, i) {
   const box = document.createElement("div");
@@ -407,9 +460,18 @@ function block(p, i) {
             },
           },
         );
+        panel
+          .querySelector("header")
+          .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
+        icons();
       };
       box.openGraph = edit;
-      box.append(diagramView(g, { edit: mode === "read" ? undefined : edit }));
+      const card = diagramView(g, { edit: mode === "read" ? undefined : edit });
+      if (mode === "edit")
+        card
+          .querySelector("header")
+          .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
+      box.append(card);
       return box;
     } catch (err) {
       box.textContent = "Ошибка схемы · " + err.message;
@@ -422,6 +484,7 @@ function block(p, i) {
   if (mode === "edit") {
     box.tabIndex = 0;
     box.title = "Нажмите, чтобы редактировать";
+    box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools")) return;
       if (e.target.closest("a") && (e.metaKey || e.ctrlKey)) return;
@@ -443,6 +506,7 @@ function editBlock(i, selectAll = false) {
   const p = parts[i],
     box = host.children[i];
   if (!p || !box) return;
+  selected = i;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
   ta.spellcheck = !!doc.style?.spellcheck;
@@ -483,7 +547,8 @@ function editBlock(i, selectAll = false) {
   box.replaceChildren(toolbar, ta);
   icons();
   ta.style.height = Math.max(52, ta.scrollHeight + 4) + "px";
-  ta.focus();
+  ta.focus({ preventScroll: true });
+  ta.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (selectAll) ta.select();
   else ta.setSelectionRange(ta.value.length, ta.value.length);
   ta.oninput = () => {
@@ -648,7 +713,7 @@ function buildTable(box, p, i) {
             data.rows.push(Array(width).fill(""));
           values.forEach((value, dc) => (data.rows[r + dr][c + dc] = value));
         }
-        update();
+        update(r, c);
       };
       cell.onblur = () => {
         if (tableEdit?.cell === cell) {
@@ -670,28 +735,39 @@ function buildTable(box, p, i) {
           e.preventDefault();
           cell.blur();
           data.rows.push(data.rows[0].map(() => ""));
-          update();
-          host.children[i]?.querySelector("tr:last-child td")?.focus();
+          update(data.rows.length - 1, 0);
         }
       };
     }),
   );
   const actions = document.createElement("div");
   actions.className = "table-tools";
-  function update() {
-    finishCell();
+  function update(row, column) {
+    const top = viewport.scrollTop;
+    const left = box.querySelector(".table-scroll").scrollLeft;
     patch(parts[i].start, parts[i].end, tableText(data));
-    render();
+    parts = parse();
+    const next = block(parts[i], i);
+    box.replaceWith(next);
+    next.querySelector(".table-scroll").scrollLeft = left;
+    viewport.scrollTop = top;
+    const cell = next.querySelector("table").rows[row]?.cells[column];
+    cell?.focus({ preventScroll: true });
+    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    icons();
   }
   for (const [name, act] of [
     [
       "+ Строка",
-      () =>
+      () => {
+        const row = Math.min(data.rows.length, activeRow + 1);
         data.rows.splice(
-          Math.max(1, activeRow + 1),
+          row,
           0,
           data.rows[0].map(() => ""),
-        ),
+        );
+        return [row, activeCol];
+      },
     ],
     [
       "+ Столбец",
@@ -700,33 +776,40 @@ function buildTable(box, p, i) {
           r.splice(activeCol + 1, 0, j ? "" : "Столбец"),
         );
         data.align.splice(activeCol + 1, 0, "");
+        return [Math.min(activeRow, data.rows.length - 1), activeCol + 1];
       },
     ],
     [
       "− Строка",
       () => {
-        if (activeRow > 0 && activeRow < data.rows.length)
-          data.rows.splice(activeRow, 1);
+        if (activeRow < 1 || activeRow >= data.rows.length) return;
+        data.rows.splice(activeRow, 1);
+        return [Math.min(activeRow, data.rows.length - 1), activeCol];
       },
     ],
     [
       "− Столбец",
       () => {
-        if (data.rows[0].length > 1) {
-          data.rows.forEach((r) => r.splice(activeCol, 1));
-          data.align.splice(activeCol, 1);
-        }
+        if (data.rows[0].length <= 1) return;
+        data.rows.forEach((r) => r.splice(activeCol, 1));
+        data.align.splice(activeCol, 1);
+        return [
+          Math.min(activeRow, data.rows.length - 1),
+          Math.min(activeCol, data.rows[0].length - 1),
+        ];
       },
     ],
   ]) {
     const b = document.createElement("button");
     b.textContent = name;
     b.onclick = () => {
-      act();
-      update();
+      finishCell();
+      const target = act();
+      if (target) update(...target);
     };
     actions.append(b);
   }
+  actions.append(deleteBlockButton(i, "Удалить таблицу", "table-remove"));
   box.append(actions);
 }
 source.onfocus = () => {
@@ -761,7 +844,7 @@ function setMode(next) {
     source.setSelectionRange(offset, offset);
   } else host.children[selected]?.scrollIntoView({ block: "nearest" });
 }
-function insertBlock(type, idx = selected) {
+function insertBlock(type, idx = insertionBlock()) {
   flush();
   const item = blocksToInsert[type];
   if (!item) return;
@@ -788,7 +871,7 @@ function insertBlock(type, idx = selected) {
     parts.findIndex((p) => p.start >= pos && p.end > pos),
   );
   if (mode === "source") {
-    source.focus();
+    source.focus({ preventScroll: true });
     source.setSelectionRange(pos + add.length, pos + add.length);
   } else {
     host.children[selected]?.scrollIntoView({ block: "nearest" });
@@ -833,6 +916,7 @@ function option(id, label, symbol) {
   );
 }
 function insertDialog() {
+  const index = insertionBlock();
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
@@ -857,7 +941,7 @@ function insertDialog() {
     const k = e.target.closest("[data-id]")?.dataset.id;
     if (k) {
       modal.close();
-      insertBlock(k);
+      insertBlock(k, index);
     }
   };
 }

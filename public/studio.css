@@ -797,6 +797,9 @@ select {
     padding: 0 8px;
   }
   .controls .tool {
+    padding: 6px;
+  }
+  .controls [data-action="redo"] {
     display: none;
   }
   .paper {
@@ -1358,5 +1361,53 @@ body:has(.inline-graph) .paper {
   }
   .review-scroll {
     padding: 10px;
+  }
+}
+
+@media screen {
+  #blocks .table-scroll :is(th, td) {
+    min-width: 7.5rem;
+    height: calc(1lh + 16px);
+  }
+}
+.block-remove,
+.diagram-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex: none;
+  color: var(--muted);
+}
+.block-remove {
+  position: absolute;
+  top: 0;
+  right: -29px;
+  opacity: 0;
+}
+.block:hover > .block-remove,
+.block:focus-within > .block-remove {
+  opacity: 1;
+}
+.table-tools .table-remove,
+.block-remove:hover,
+.diagram-remove:hover {
+  color: #8b2841;
+}
+@media (hover: none), (max-width: 760px) {
+  .block:has(> .block-remove) {
+    padding-right: 10px;
+  }
+  .block-remove {
+    opacity: 1;
+    right: -14px;
+    width: 24px;
+  }
+}
+@media (max-width: 360px) {
+  .controls .insert {
+    margin-left: 2px;
+  }
+  .controls .insert svg {
+    display: none;
   }
 }
