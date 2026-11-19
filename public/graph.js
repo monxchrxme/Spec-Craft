@@ -54,8 +54,9 @@ export const shapes = {
   ellipse: "Эллипс",
   database: "База данных",
   component: "Компонент",
+  umlClass: "UML · Класс",
 };
-const colors = {
+export const colors = {
   fill: "#ece8fb",
   stroke: "#8b7bbd",
   text: "#322b46",
@@ -74,7 +75,7 @@ const safeColor = (v, d) => (/^#[a-f0-9]{6}$/i.test(v) ? v : d);
 const num = (v, d, min, max) =>
   Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : d;
 const clone = (v) => structuredClone(v);
-const uid = (prefix) => prefix + crypto.randomUUID().slice(0, 8);
+export const uid = (prefix) => prefix + crypto.randomUUID().slice(0, 8);
 const el = (tag, attrs = {}, text) => {
   const n = document.createElementNS(ns, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -125,6 +126,36 @@ export function normalize(raw) {
       throw Error("ID связей должны быть уникальны.");
     edgeIds.add(e.id);
   }
+  if (
+    g.layout !== undefined &&
+    (!g.layout || typeof g.layout !== "object" || Array.isArray(g.layout))
+  )
+    throw Error("layout должен быть объектом с настройками блока.");
+  if (g.modules !== undefined) {
+    if (!Array.isArray(g.modules)) throw Error("modules должен быть массивом.");
+    const moduleIds = new Set();
+    for (const m of g.modules) {
+      if (
+        !m ||
+        typeof m.id !== "string" ||
+        !m.id ||
+        moduleIds.has(m.id) ||
+        typeof m.title !== "string"
+      )
+        throw Error("Проверьте название и уникальный ID модуля.");
+      moduleIds.add(m.id);
+    }
+    if (g.nodes.some((n) => n.moduleId && !moduleIds.has(n.moduleId)))
+      throw Error("Фигура ссылается на отсутствующий модуль.");
+  }
+  for (const n of g.nodes) {
+    if (n.shape === "umlClass") {
+      for (const key of ["attributes", "methods"])
+        if (n[key] !== undefined && typeof n[key] !== "string")
+          throw Error("Поля и методы UML-класса задаются текстом.");
+      n.height = Math.min(1500, Math.max(n.height, classRows(n).minHeight));
+    }
+  }
   return g;
 }
 function bounds(g) {
@@ -158,7 +189,7 @@ function port(n, side) {
     bottom: [n.x + n.width / 2, n.y + n.height],
   }[side];
 }
-function anchors(a, b, e) {
+export function anchors(a, b, e) {
   const dx = b.x + b.width / 2 - a.x - a.width / 2,
     dy = b.y + b.height / 2 - a.y - a.height / 2;
   const horiz = Math.abs(dx) > Math.abs(dy);
@@ -175,6 +206,65 @@ function anchors(a, b, e) {
       ),
   ];
 }
+function classRows(n) {
+  const size = num(n.fontSize, 15, 9, 64),
+    spacing = Math.ceil(size * 1.3);
+  const attrs = (n.attributes || "").split("\n"),
+    methods = (n.methods || "").split("\n");
+  const header = spacing + 12,
+    divider = header + attrs.length * spacing + 8;
+  return {
+    size,
+    spacing,
+    attrs,
+    methods,
+    header,
+    divider,
+    minHeight: divider + methods.length * spacing + 8,
+  };
+}
+export function frameLayout(g) {
+  const l = g.layout || {};
+  return {
+    width: num(l.width, 100, 25, 100),
+    height: num(l.height, 0, 0, 1400),
+    align: ["center", "right"].includes(l.align) ? l.align : "left",
+    fit: ["contain", "width"].includes(l.fit) ? l.fit : "actual",
+  };
+}
+export function styleFrame(card, g) {
+  const layout = frameLayout(g);
+  card.classList.toggle("auto-frame", !layout.height);
+  card.dataset.align = layout.align;
+  card.style.width = layout.width + "%";
+  card.style.marginInlineStart = layout.align === "left" ? "0" : "auto";
+  card.style.marginInlineEnd = layout.align === "right" ? "0" : "auto";
+  card.style.setProperty(
+    "--frame-height",
+    layout.height ? Math.max(150, layout.height) + "px" : "auto",
+  );
+  if (layout.height)
+    card.style.setProperty(
+      "--view-height",
+      Math.max(150, layout.height) + "px",
+    );
+  else card.style.removeProperty("--view-height");
+}
+// Each control point is on the curve, so existing hand-routed paths stay editable.
+function curvePath(points) {
+  const pair = (p) => p.join(" ");
+  let d = "M " + pair(points[0]);
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i],
+      b = points[i + 1],
+      before = points[i - 1] || a,
+      after = points[i + 2] || b;
+    const c1 = a.map((v, j) => v + (b[j] - before[j]) / 6);
+    const c2 = b.map((v, j) => v - (after[j] - a[j]) / 6);
+    d += " C " + pair(c1) + " " + pair(c2) + " " + pair(b);
+  }
+  return d;
+}
 export function draw(g, options = {}) {
   const box = bounds(g),
     editor = !!options.editor,
@@ -184,7 +274,7 @@ export function draw(g, options = {}) {
   const svg = el("svg", {
     xmlns: ns,
     viewBox: editor
-      ? "0 0 " + w + " " + h
+      ? "-20 -36 " + w + " " + h
       : [
           box.x - pad,
           box.y - pad,
@@ -201,6 +291,44 @@ export function draw(g, options = {}) {
   const defs = el("defs");
   svg.append(defs);
   const nodes = new Map(g.nodes.map((n) => [n.id, n]));
+  for (const module of g.modules || []) {
+    const members = g.nodes.filter((n) => n.moduleId === module.id);
+    if (!members.length) continue;
+    const b = bounds({ nodes: members, edges: [] }),
+      color = safeColor(module.color, "#7b72bc");
+    const x = b.x - 16,
+      y = b.y - 32;
+    const layer = el("g", {
+      "data-module": module.id,
+      style: editor ? "cursor:move" : "",
+    });
+    layer.append(
+      el("rect", {
+        x,
+        y,
+        width: b.r - x + 16,
+        height: b.b - y + 16,
+        rx: 12,
+        fill: color,
+        "fill-opacity": 0.09,
+        stroke: color,
+        "stroke-width": options.module === module.id ? 3 : 1.3,
+      }),
+      el(
+        "text",
+        {
+          x: x + 10,
+          y: y + 17,
+          fill: color,
+          "font-family": "system-ui",
+          "font-weight": "600",
+          "font-size": 13,
+        },
+        module.title,
+      ),
+    );
+    svg.append(layer);
+  }
   for (const e of g.edges) {
     const a = nodes.get(e.from),
       b = nodes.get(e.to),
@@ -209,14 +337,22 @@ export function draw(g, options = {}) {
       marker = uid("arrow");
     const arrow = el("marker", {
       id: marker,
-      viewBox: "0 0 10 10",
-      refX: 9,
+      viewBox: "-1 -1 12 12",
+      refX: 10,
       refY: 5,
-      markerWidth: 6,
-      markerHeight: 6,
+      markerWidth: 9,
+      markerHeight: 9,
       orient: "auto-start-reverse",
     });
-    arrow.append(el("path", { d: "M0 0 L10 5 L0 10 z", fill: col }));
+    const diamond = ["composition", "aggregation"].includes(e.arrow);
+    arrow.append(
+      el("path", {
+        d: diamond ? "M0 5 L5 1 L10 5 L5 9 Z" : "M0 0 L10 5 L0 10 Z",
+        fill: ["inheritance", "aggregation"].includes(e.arrow) ? "white" : col,
+        stroke: col,
+        "stroke-width": 1,
+      }),
+    );
     defs.append(arrow);
     let mid = (e.points || [])
       .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
@@ -229,7 +365,7 @@ export function draw(g, options = {}) {
         [x, y],
         [end[0], y],
       ];
-    } else if (!mid.length && e.route !== "straight") {
+    } else if (!mid.length && !["straight", "curve"].includes(e.route)) {
       const horizontal = start[0] === a.x || start[0] === a.x + a.width;
       const mx = (start[0] + end[0]) / 2,
         my = (start[1] + end[1]) / 2;
@@ -244,21 +380,42 @@ export function draw(g, options = {}) {
           ];
     }
     const pts = [start, ...mid, end],
-      d = pts.map((p) => p.join(",")).join(" "),
       group = el("g", {
         "data-edge": e.id,
         style: editor ? "cursor:pointer" : "",
       });
+    let path = "M " + pts.map((p) => p.join(" ")).join(" L ");
+    if (e.route === "curve") {
+      if (pts.length > 2) path = curvePath(pts);
+      else {
+        const bend = Math.max(
+          35,
+          Math.hypot(end[0] - start[0], end[1] - start[1]) * 0.35,
+        );
+        function control(n, p) {
+          if (p[0] === n.x) return [p[0] - bend, p[1]];
+          if (p[0] === n.x + n.width) return [p[0] + bend, p[1]];
+          return [p[0], p[1] + (p[1] === n.y ? -bend : bend)];
+        }
+        path =
+          "M " +
+          start.join(" ") +
+          " C " +
+          [control(a, start), control(b, end), end]
+            .map((p) => p.join(" "))
+            .join(" ");
+      }
+    }
     group.append(
-      el("polyline", {
-        points: d,
+      el("path", {
+        d: path,
         fill: "none",
         stroke: "transparent",
         "stroke-width": 16,
       }),
     );
-    const line = el("polyline", {
-      points: d,
+    const line = el("path", {
+      d: path,
       fill: "none",
       stroke: col,
       "stroke-width": options.edge === e.id ? 3.5 : num(e.weight, 1.6, 1, 8),
@@ -400,8 +557,35 @@ export function draw(g, options = {}) {
     lines.forEach((line, i) =>
       text.append(el("tspan", { x: w / 2, dy: i ? size * 1.12 : 0 }, line)),
     );
+    if (n.shape === "umlClass") {
+      const c = classRows(n);
+      text.setAttribute("y", c.header / 2);
+      for (const [y, lines] of [
+        [c.header, c.attrs],
+        [c.divider, c.methods],
+      ]) {
+        group.append(
+          el("line", { x1: 0, x2: w, y1: y, y2: y, stroke: attrs.stroke }),
+        );
+        lines.forEach((v, i) =>
+          group.append(
+            el(
+              "text",
+              {
+                x: 8,
+                y: y + 4 + (i + 0.78) * c.spacing,
+                fill: safeColor(n.textColor, colors.text),
+                "font-size": c.size,
+                "font-family": "system-ui",
+              },
+              v,
+            ),
+          ),
+        );
+      }
+    }
     group.append(text);
-    if (editor && options.node === n.id) {
+    if (editor && options.selected?.has(n.id)) {
       group.append(
         el("rect", {
           x: -4,
@@ -447,354 +631,4 @@ export function draw(g, options = {}) {
       );
   }
   return svg;
-}
-export function graphEditor(raw, modal, onSave) {
-  let graph = normalize(raw),
-    node = null,
-    edge = null,
-    link = null,
-    connecting = false,
-    zoom = 0.9,
-    snap = false,
-    drag = null,
-    dirty = false;
-  const history = [],
-    future = [];
-  modal.className = "graph-dialog";
-  modal.innerHTML =
-    '<div class="dialog-head"><h2>Редактор схемы</h2><button data-close aria-label="Закрыть">✕</button></div><div class="graph-tools"><select aria-label="Фигура">' +
-    Object.entries(shapes)
-      .map(([k, v]) => '<option value="' + k + '">' + v + "</option>")
-      .join("") +
-    '</select><button data-cmd="add">+ Фигура</button><button data-cmd="connect">Связать</button><button data-cmd="snap" aria-pressed="false">По сетке</button><button data-cmd="undo" aria-label="Отменить действие">↶</button><button data-cmd="redo" aria-label="Повторить действие">↷</button><span class="spacer"></span><button data-cmd="svg" title="Скачать схему как SVG">SVG</button><button data-cmd="minus" aria-label="Уменьшить">−</button><output></output><button data-cmd="plus" aria-label="Увеличить">+</button></div><div class="graph-shell"><div class="graph-stage graph-bg"></div><div class="props"></div></div><div class="graph-foot"><span role="status"></span><span class="spacer"></span><button class="primary" data-cmd="save">Применить</button></div>';
-  const stage = modal.querySelector(".graph-stage"),
-    props = modal.querySelector(".props"),
-    hint = modal.querySelector("[role=status]");
-  const current = () =>
-    graph.nodes.find((n) => n.id === node) ||
-    graph.edges.find((e) => e.id === edge) ||
-    graph;
-  function checkpoint() {
-    history.push(clone(graph));
-    if (history.length > 80) history.shift();
-    future.length = 0;
-    dirty = true;
-  }
-  function render() {
-    stage.replaceChildren(draw(graph, { editor: true, zoom, node, edge }));
-    modal.querySelector("output").textContent = Math.round(zoom * 100) + "%";
-    modal.querySelector("[data-cmd=undo]").disabled = !history.length;
-    modal.querySelector("[data-cmd=redo]").disabled = !future.length;
-    modal
-      .querySelector("[data-cmd=connect]")
-      .setAttribute("aria-pressed", connecting);
-    hint.textContent = connecting
-      ? link
-        ? "Выберите конечную фигуру"
-        : "Выберите начальную фигуру"
-      : "Перетаскивайте фигуры и точки маршрута";
-  }
-  function field(label, key, kind, def, opts) {
-    const l = document.createElement("label");
-    l.textContent = label;
-    const inp = document.createElement(
-      opts ? "select" : kind === "textarea" ? "textarea" : "input",
-    );
-    if (inp.tagName === "INPUT") inp.type = kind;
-    if (opts)
-      for (const [val, name] of Object.entries(opts))
-        inp.add(new Option(name, val));
-    inp.value = current()[key] ?? def;
-    inp.onchange = () => {
-      const v = kind === "number" ? Number(inp.value) : inp.value;
-      if (kind === "number" && !Number.isFinite(v)) return;
-      checkpoint();
-      current()[key] = v;
-      graph = normalize(graph);
-      render();
-      inspector();
-    };
-    l.append(inp);
-    props.append(l);
-  }
-  function action(label, fn) {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.onclick = fn;
-    props.append(b);
-  }
-  function inspector() {
-    props.replaceChildren();
-    const picker = document.createElement("select");
-    picker.setAttribute("aria-label", "Выбрать элемент схемы");
-    picker.add(new Option("Вся схема", ""));
-    graph.nodes.forEach((n, i) =>
-      picker.add(new Option(n.label || n.id, "n" + i)),
-    );
-    graph.edges.forEach((e, i) =>
-      picker.add(
-        new Option("Связь · " + (e.label || e.from + " → " + e.to), "e" + i),
-      ),
-    );
-    picker.value = node
-      ? "n" + graph.nodes.findIndex((n) => n.id === node)
-      : edge
-        ? "e" + graph.edges.findIndex((e) => e.id === edge)
-        : "";
-    picker.onchange = () => {
-      const key = picker.value,
-        idx = Number(key.slice(1));
-      node = key.startsWith("n") ? graph.nodes[idx].id : null;
-      edge = key.startsWith("e") ? graph.edges[idx].id : null;
-      refresh();
-    };
-    props.append(picker);
-    const head = document.createElement("h3");
-    head.textContent = node ? "Фигура" : edge ? "Связь" : "Схема";
-    props.append(head);
-    if (node) {
-      field("Подпись", "label", "textarea", "");
-      field("Форма", "shape", "text", "process", shapes);
-      for (const [name, k, d] of [
-        ["Заливка", "fill", colors.fill],
-        ["Обводка", "stroke", colors.stroke],
-        ["Цвет текста", "textColor", colors.text],
-      ])
-        field(name, k, "color", d);
-      for (const [name, k, d] of [
-        ["Шрифт, px", "fontSize", 15],
-        ["Ширина", "width", 140],
-        ["Высота", "height", 60],
-        ["Скругление", "radius", 7],
-        ["Толщина обводки", "weight", 1.6],
-      ])
-        field(name, k, "number", d);
-      action("Дублировать фигуру", () => {
-        checkpoint();
-        const original = current();
-        const copy = {
-          ...clone(original),
-          id: uid("n"),
-          x: original.x + 30,
-          y: original.y + 30,
-        };
-        graph.nodes.push(copy);
-        node = copy.id;
-        refresh();
-      });
-    } else if (edge) {
-      field("Подпись", "label", "text", "");
-      field("Цвет линии", "color", "color", colors.edge);
-      const sides = {
-        auto: "Авто",
-        left: "Слева",
-        right: "Справа",
-        top: "Сверху",
-        bottom: "Снизу",
-      };
-      field("Начало", "fromSide", "text", "auto", sides);
-      field("Конец", "toSide", "text", "auto", sides);
-      field("Маршрут", "route", "text", "orthogonal", {
-        orthogonal: "Ломаная",
-        straight: "Прямая",
-      });
-      field("Наконечник", "arrow", "text", "end", {
-        end: "Стрелка",
-        none: "Без стрелки",
-      });
-      field("Толщина", "weight", "number", 1.6);
-      field("Сдвиг подписи X", "labelX", "number", 7);
-      field("Сдвиг подписи Y", "labelY", "number", -7);
-      action(current().dashed ? "Сплошная линия" : "Пунктирная линия", () => {
-        checkpoint();
-        current().dashed = !current().dashed;
-        refresh();
-      });
-      action("Добавить точку изгиба", () => {
-        const e = current(),
-          a = graph.nodes.find((n) => n.id === e.from),
-          b = graph.nodes.find((n) => n.id === e.to),
-          [s, t] = anchors(a, b, e);
-        checkpoint();
-        const p = e.points?.at(-1) || { x: s[0], y: s[1] };
-        (e.points ??= []).push({
-          x: (p.x + t[0]) / 2,
-          y: (p.y + t[1]) / 2 + 22,
-        });
-        refresh();
-      });
-      if (current().points?.length)
-        action("Сбросить точки", () => {
-          checkpoint();
-          delete current().points;
-          refresh();
-        });
-    } else {
-      field("Название", "title", "text", "Блок-схема");
-      const p = document.createElement("p");
-      p.textContent =
-        "Выберите фигуру или стрелку, чтобы настроить её свойства.";
-      props.append(p);
-    }
-    if (node || edge)
-      action(node ? "Удалить фигуру" : "Удалить связь", () => {
-        checkpoint();
-        if (node) {
-          graph.nodes = graph.nodes.filter((n) => n.id !== node);
-          graph.edges = graph.edges.filter(
-            (e) => e.from !== node && e.to !== node,
-          );
-        } else graph.edges = graph.edges.filter((e) => e.id !== edge);
-        node = edge = null;
-        refresh();
-      });
-  }
-  function refresh() {
-    render();
-    inspector();
-  }
-  function close() {
-    if (!dirty || confirm("Закрыть схему без сохранения изменений?"))
-      modal.close();
-  }
-  modal.querySelector("[data-close]").onclick = close;
-  modal.oncancel = (e) => {
-    e.preventDefault();
-    close();
-  };
-  modal.onclick = (e) => {
-    const cmd = e.target.closest("[data-cmd]")?.dataset.cmd;
-    if (!cmd) return;
-    if (cmd === "svg") {
-      const content = new XMLSerializer().serializeToString(draw(graph)),
-        url = URL.createObjectURL(
-          new Blob([content], { type: "image/svg+xml" }),
-        );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = (graph.title || "Схема") + ".svg";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return;
-    }
-    if (cmd === "save") {
-      onSave(graph);
-      modal.close();
-      return;
-    }
-    if (cmd === "add") {
-      checkpoint();
-      const id = uid("n"),
-        shape = modal.querySelector(".graph-tools select").value;
-      graph.nodes.push({
-        id,
-        label: shapes[shape],
-        shape,
-        x: Math.round(
-          stage.scrollLeft / zoom + 45 + (graph.nodes.length % 4) * 30,
-        ),
-        y: Math.round(
-          stage.scrollTop / zoom + 45 + (graph.nodes.length % 5) * 45,
-        ),
-        width: 140,
-        height: 60,
-      });
-      node = id;
-      edge = null;
-    }
-    if (cmd === "snap") {
-      snap = !snap;
-      modal
-        .querySelector('[data-cmd="snap"]')
-        .setAttribute("aria-pressed", String(snap));
-    }
-    if (cmd === "connect") {
-      connecting = !connecting;
-      link = null;
-    }
-    if (cmd === "plus") zoom = Math.min(2.5, zoom + 0.15);
-    if (cmd === "minus") zoom = Math.max(0.25, zoom - 0.15);
-    if (cmd === "undo" && history.length) {
-      future.push(clone(graph));
-      graph = history.pop();
-      node = edge = link = null;
-    }
-    if (cmd === "redo" && future.length) {
-      history.push(clone(graph));
-      graph = future.pop();
-      node = edge = link = null;
-    }
-    refresh();
-  };
-  stage.onpointerdown = (e) => {
-    if (e.button !== 0) return;
-    const n = e.target.closest("[data-node]")?.dataset.node,
-      ed = e.target.closest("[data-edge]")?.dataset.edge;
-    if (connecting && n) {
-      if (link) {
-        checkpoint();
-        const id = uid("e");
-        graph.edges.push({ id, from: link, to: n });
-        edge = id;
-        node = link = null;
-        connecting = false;
-      } else {
-        link = node = n;
-        edge = null;
-      }
-      refresh();
-      return;
-    }
-    node = n || null;
-    edge = ed || null;
-    const obj = current(),
-      point = e.target.dataset.point,
-      resize = e.target.hasAttribute("data-size");
-    if (node || point !== undefined) {
-      const p = point !== undefined ? obj.points[Number(point)] : obj;
-      drag = {
-        id: e.pointerId,
-        x: e.clientX,
-        y: e.clientY,
-        ox: p.x,
-        oy: p.y,
-        w: obj.width,
-        h: obj.height,
-        point,
-        resize,
-        started: false,
-      };
-      stage.setPointerCapture(e.pointerId);
-    }
-    refresh();
-  };
-  stage.onpointermove = (e) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dx = (e.clientX - drag.x) / zoom,
-      dy = (e.clientY - drag.y) / zoom;
-    if (!drag.started) {
-      if (Math.abs(dx) + Math.abs(dy) < 3) return;
-      checkpoint();
-      drag.started = true;
-    }
-    const obj = current();
-    const round = (v) => (snap ? Math.round(v / 14) * 14 : Math.round(v));
-    if (drag.resize) {
-      obj.width = Math.max(45, round(drag.w + dx));
-      obj.height = Math.max(28, round(drag.h + dy));
-    } else {
-      const p = drag.point === undefined ? obj : obj.points[Number(drag.point)];
-      p.x = Math.max(0, round(drag.ox + dx));
-      p.y = Math.max(0, round(drag.oy + dy));
-    }
-    render();
-  };
-  stage.onpointerup = stage.onpointercancel = () => {
-    if (drag) {
-      drag = null;
-      inspector();
-    }
-  };
-  refresh();
-  modal.showModal();
 }

@@ -1,8 +1,8 @@
 // Reading controls change only the viewport. The diagram stored in Markdown
 // keeps its original coordinates and scale.
-import { draw } from "./graph.js";
+import { draw, frameLayout, styleFrame } from "./graph.js";
 
-export function diagramView(graph, { edit, expand, close } = {}) {
+export function diagramView(graph, { edit } = {}) {
   const card = document.createElement("section");
   card.className = "diagram-card";
   const title = graph.title || "Блок-схема";
@@ -28,8 +28,24 @@ export function diagramView(graph, { edit, expand, close } = {}) {
     header.append(button);
   }
   addAction("Изменить", "sliders-horizontal", edit);
+  let expanded = false;
+  const expand = () => {
+    expanded = !expanded;
+    card.classList.toggle("diagram-expanded", expanded);
+    expandButton.lastChild.textContent = expanded ? "Свернуть" : "Развернуть";
+    expandButton.setAttribute("aria-expanded", String(expanded));
+    card.scrollIntoView({ block: "nearest" });
+  };
   addAction("Развернуть", "maximize-2", expand);
-  addAction("Закрыть", "x", close);
+  const expandButton = header.lastElementChild;
+  expandButton.setAttribute("aria-expanded", "false");
+  card.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && expanded) {
+      expand();
+      expandButton.focus();
+    }
+  });
+  styleFrame(card, graph);
   const frame = card.querySelector(".diagram-window");
   frame.setAttribute("aria-label", "Просмотр схемы «" + title + "»");
   const svg = draw(graph);
@@ -51,10 +67,13 @@ export function diagramView(graph, { edit, expand, close } = {}) {
       (viewport.top + frame.clientHeight / 2 - previous.top) /
       (previous.height || height);
     const fitting = value === "fit";
-    const factor = fitting ? 1 : Math.max(0.1, Math.min(4, value));
+    const widthFit = value === "width";
+    const factor = fitting || widthFit ? 1 : Math.max(0.1, Math.min(4, value));
     svg.style.width = factor * width + "px";
     card.classList.toggle("fit-diagram", fitting);
-    reset.textContent = fitting ? "1:1" : Math.round(factor * 100) + "%";
+    card.classList.toggle("width-diagram", widthFit);
+    reset.textContent =
+      fitting || widthFit ? "1:1" : Math.round(factor * 100) + "%";
     reset.setAttribute("aria-label", "Масштаб 100%");
     minus.disabled = !fitting && factor <= 0.1;
     plus.disabled = !fitting && factor >= 4;
@@ -93,6 +112,7 @@ export function diagramView(graph, { edit, expand, close } = {}) {
   frame.onlostpointercapture = () => {
     pan = null;
   };
-  scale(1);
+  const fitMode = frameLayout(graph).fit;
+  scale(fitMode === "contain" ? "fit" : fitMode === "width" ? "width" : 1);
   return card;
 }

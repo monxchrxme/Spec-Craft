@@ -527,16 +527,6 @@ main {
   background: var(--lavender);
   color: var(--accent);
 }
-.diagram-reader {
-  width: 96vw;
-  max-width: 96vw;
-}
-.diagram-reader .diagram-card {
-  --view-height: 70dvh;
-}
-.diagram-reader .diagram-window {
-  min-height: var(--view-height);
-}
 .file-row {
   display: flex;
   align-items: center;
@@ -689,10 +679,6 @@ select {
   font-size: 14px;
   z-index: 10;
 }
-.graph-dialog {
-  width: min(1400px, 98vw);
-  max-width: 98vw;
-}
 .graph-tools {
   display: flex;
   gap: 5px;
@@ -704,10 +690,6 @@ select {
 .graph-tools button[aria-pressed="true"] {
   background: var(--lavender);
   color: var(--accent);
-}
-.graph-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 215px;
 }
 .graph-stage {
   overflow: auto;
@@ -840,9 +822,6 @@ select {
   .topbar .primary {
     padding: 7px;
   }
-  .graph-shell {
-    grid-template-columns: 1fr;
-  }
   .props {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -864,9 +843,6 @@ select {
   }
   .topbar #filename {
     max-width: 42%;
-  }
-  .graph-dialog {
-    max-height: 96dvh;
   }
 }
 @media print {
@@ -949,4 +925,176 @@ select {
 }
 .props > select {
   width: 100%;
+}
+
+/* The document remains the editing surface. Inspectors use a sibling column. */
+.graph-dock,
+#modal[open] {
+  position: static;
+  flex: 0 0 clamp(230px, 21vw, 330px);
+  margin: 0;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: white;
+  box-shadow: none;
+  overflow: auto;
+}
+#modal[open] {
+  flex-basis: clamp(270px, 27vw, 410px);
+}
+.graph-dock > header {
+  padding: 19px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 650;
+}
+.graph-dock .props {
+  border: 0;
+  max-height: none;
+  display: flex;
+  overflow: visible;
+}
+.props details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.props details label {
+  margin-top: 10px;
+}
+.props summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.props button {
+  border: 1px solid var(--line);
+}
+.props textarea {
+  width: 100%;
+  min-height: 50px;
+  resize: vertical;
+}
+.inline-graph {
+  background: white;
+  border-color: #a7a0d4;
+}
+.inline-graph .diagram-title strong {
+  flex: 1;
+}
+.inline-graph .graph-tools {
+  gap: 3px;
+}
+.inline-graph .graph-tools button,
+.inline-graph .graph-tools select {
+  font-size: 13px;
+  padding: 5px 7px;
+}
+.inline-graph .graph-stage {
+  height: var(--frame-height, min(55vh, 520px));
+  min-height: 160px;
+}
+.graph-placement.auto-frame .graph-stage {
+  height: min(55vh, 520px);
+}
+.graph-foot .frame-grip {
+  touch-action: none;
+  cursor: nwse-resize;
+  font-size: 12px;
+  color: var(--muted);
+}
+.diagram-window {
+  height: var(--frame-height, auto);
+}
+.width-diagram .diagram-window > svg {
+  width: 100% !important;
+}
+.diagram-expanded {
+  width: 100% !important;
+  --view-height: 78dvh !important;
+}
+.diagram-expanded .diagram-window {
+  height: var(--view-height);
+}
+.paper:has(.diagram-expanded) {
+  max-width: none;
+  padding-inline: 16px;
+}
+body:has(.inline-graph) #scroll {
+  padding-inline: clamp(8px, 1.4vw, 26px);
+}
+body:has(.inline-graph) .paper {
+  padding-inline: clamp(12px, 2vw, 32px);
+}
+@media (min-width: 761px) and (max-width: 1130px) {
+  #workspace:has(.graph-dock:not([hidden])) .sidebar,
+  #workspace:has(#modal[open]) .sidebar {
+    width: 155px;
+  }
+}
+@media (max-width: 760px) {
+  #workspace:has(.graph-dock:not([hidden])),
+  #workspace:has(#modal[open]) {
+    flex-direction: column;
+  }
+  #workspace > main {
+    min-height: 0;
+  }
+  .graph-dock,
+  #modal[open] {
+    width: 100%;
+    height: auto;
+    flex: 0 0 min(35dvh, 290px);
+    border-top: 1px solid var(--line);
+  }
+  #modal[open] {
+    flex-basis: min(48dvh, 420px);
+  }
+  .graph-dock > header {
+    padding: 8px 13px;
+  }
+  .graph-dock .props {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .props details,
+  .props h3 {
+    grid-column: 1/-1;
+  }
+  .inline-graph .graph-stage {
+    min-height: 140px;
+  }
+}
+@media print {
+  .print-surface .diagram-window {
+    height: auto;
+    max-height: none;
+  }
+}
+
+.graph-placement {
+  border-inline: 1px solid var(--line);
+}
+.graph-placement[data-align="right"] .frame-grip {
+  order: -1;
+  cursor: nesw-resize;
+}
+.graph-foot {
+  flex-wrap: wrap;
+}
+.graph-foot span:first-child {
+  overflow-wrap: anywhere;
+}
+@media print {
+  .print-surface .diagram-card:not(.auto-frame) .diagram-window {
+    height: min(var(--frame-height), 220mm);
+  }
+  .print-surface .diagram-card:not(.auto-frame) .diagram-window > svg {
+    height: 100%;
+  }
 }

@@ -1,5 +1,6 @@
 import { diagramView } from "./diagram-view.js";
-import { normalize, graphEditor, escapeHtml as esc } from "./graph.js";
+import { graphEditor } from "./graph-editor.js";
+import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
@@ -197,6 +198,8 @@ function switchDoc(d) {
   activate(d);
 }
 function activate(d) {
+  closeGraph();
+  if (modal.open) modal.close();
   doc = d;
   selected = 0;
   document.body.classList.remove("show-side");
@@ -263,7 +266,23 @@ function styles() {
   );
   p.style.setProperty("--doc-leading", Number(s.leading) || 1.65);
 }
+let inlineGraph = null;
+function closeGraph(restore = true) {
+  if (!inlineGraph) return;
+  const session = inlineGraph;
+  session.publish?.();
+  inlineGraph = null;
+  const dock = $("#graph-dock");
+  dock.hidden = true;
+  dock.querySelector(".props").replaceChildren();
+  if (restore && session.panel.isConnected) {
+    const p = parts[session.index];
+    if (p) session.panel.parentElement.replaceWith(block(p, session.index));
+    icons();
+  }
+}
 function render() {
+  closeGraph(false);
   editor = tableEdit = null;
   $("#empty-workspace").hidden = !!doc;
   $(".paper").hidden = !doc;
@@ -315,25 +334,33 @@ function block(p, i) {
       const edit = () => {
         if (mode === "read") return;
         flush();
-        resetModal();
-        const entry = parts[i];
-        graphEditor(g, modal, (next) => {
-          patch(entry.start, entry.end, fence(next));
-          render();
-        });
+        if (modal.open) modal.close();
+        const target = host.children[i],
+          panel = document.createElement("section");
+        target.replaceChildren(panel);
+        const dock = $("#graph-dock");
+        dock.hidden = false;
+        const session = { index: i, panel };
+        inlineGraph = session;
+        selected = i;
+        session.publish = graphEditor(
+          normalize(JSON.parse(parts[i].t.content)),
+          panel,
+          dock.querySelector(".props"),
+          (next) => {
+            if (inlineGraph !== session) return;
+            const entry = parts[i];
+            const serialized = fence(next).replace(
+              /\n/g,
+              doc.body.includes("\r\n") ? "\r\n" : "\n",
+            );
+            patch(entry.start, entry.end, serialized);
+            parts = parse();
+          },
+          () => closeGraph(),
+        );
       };
-      const expand = () => {
-        flush();
-        resetModal();
-        modal.className = "diagram-reader";
-        modal.setAttribute("aria-label", g.title || "Просмотр схемы");
-        modal.append(diagramView(g, { close: () => modal.close() }));
-        icons();
-        modal.showModal();
-      };
-      box.append(
-        diagramView(g, { edit: mode === "read" ? undefined : edit, expand }),
-      );
+      box.append(diagramView(g, { edit: mode === "read" ? undefined : edit }));
       return box;
     } catch (err) {
       box.textContent = "Ошибка схемы · " + err.message;
@@ -455,6 +482,7 @@ function liveBlock() {
   editor.end = start + value.length;
 }
 function flush() {
+  closeGraph();
   if (editor) {
     liveBlock();
     editor = null;
@@ -529,6 +557,7 @@ function buildTable(box, p, i) {
         "Строка " + (r + 1) + ", столбец " + (c + 1),
       );
       cell.onfocus = () => {
+        closeGraph();
         finishCell();
         selected = i;
         activeCol = c;
@@ -716,6 +745,7 @@ function resetModal() {
 }
 function dialog(title, html) {
   flush();
+  document.body.classList.remove("show-side");
   resetModal();
   modal.innerHTML =
     '<div class="dialog-head"><h2>' +
@@ -727,7 +757,7 @@ function dialog(title, html) {
     "</div>";
   modal.querySelector("[data-close]").onclick = () => modal.close();
   icons();
-  if (!modal.open) modal.showModal();
+  if (!modal.open) modal.show();
   return modal.querySelector(".dialog-body");
 }
 function option(id, label, symbol) {
@@ -1141,6 +1171,16 @@ $("#file-input").onchange = async (e) => {
   e.target.value = "";
 };
 document.addEventListener("keydown", (e) => {
+  if (modal.open && e.key === "Escape") {
+    modal.close();
+    e.preventDefault();
+    return;
+  }
+  if (inlineGraph && e.key === "Escape") {
+    closeGraph();
+    e.preventDefault();
+    return;
+  }
   if (modal.open || !doc) return;
   const cmd = e.ctrlKey || e.metaKey;
   if (cmd && e.key.toLowerCase() === "s") {
@@ -1155,7 +1195,11 @@ document.addEventListener("keydown", (e) => {
     !e.target.closest("textarea,input,[contenteditable]")
   ) {
     e.preventDefault();
-    undo(e.shiftKey);
+    if (inlineGraph) {
+      inlineGraph.panel
+        .querySelector(e.shiftKey ? '[data-cmd="redo"]' : '[data-cmd="undo"]')
+        .click();
+    } else undo(e.shiftKey);
   }
   if (
     e.key === "/" &&
@@ -1171,17 +1215,15 @@ function syncFile(id) {
   const incoming = raw ? JSON.parse(raw) : null;
   if (savedRecords.get(id) === raw) return;
   const active = id === doc?.id;
-  if (active && modal.open && modal.classList.contains("graph-dialog")) {
-    // Let Apply finish first. A concurrent deletion or edit then preserves
-    // the edited diagram as a conflict copy through the ordinary save path.
-    modal.addEventListener("close", () => syncFile(id), { once: true });
-    return;
-  }
   if (active) {
     if (
       incoming &&
       !incoming.trashed &&
-      (editor || tableEdit || modal.open || document.activeElement === source)
+      (editor ||
+        tableEdit ||
+        inlineGraph ||
+        modal.open ||
+        document.activeElement === source)
     )
       return;
     flush();
@@ -1205,11 +1247,13 @@ window.addEventListener("storage", (event) => {
   if (event.key?.startsWith(prefix)) syncFile(event.key.slice(prefix.length));
 });
 window.addEventListener("pagehide", () => {
+  inlineGraph?.publish?.();
   if (tableEdit) finishCell();
   save();
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    inlineGraph?.publish?.();
     if (tableEdit) finishCell(true);
     save();
   }
