@@ -73,6 +73,37 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
         graph.nodes.some((n) => n.moduleId === m.id),
       );
   }
+  function deleteSelection() {
+    if (drag || (!selected.size && !edge)) return;
+    checkpoint();
+    if (selected.size) {
+      graph.nodes = graph.nodes.filter((n) => !selected.has(n.id));
+      graph.edges = graph.edges.filter(
+        (e) => !selected.has(e.from) && !selected.has(e.to),
+      );
+    } else graph.edges = graph.edges.filter((e) => e.id !== edge);
+    if (selected.has(link)) link = null;
+    tidyModules();
+    select([]);
+    refresh();
+  }
+  function handleDelete(e) {
+    if (
+      !["Backspace", "Delete"].includes(e.key) ||
+      e.isComposing ||
+      e.ctrlKey ||
+      e.metaKey ||
+      e.shiftKey ||
+      e.altKey ||
+      e.target.closest("input,textarea,select,[contenteditable]")
+    )
+      return;
+    if (!selected.size && !edge) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) deleteSelection();
+  }
+  panel.onkeydown = props.onkeydown = handleDelete;
   function publish() {
     if (!dirty) return;
     dirty = false;
@@ -209,6 +240,7 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
       } else select(key.startsWith("n") ? [graph.nodes[idx].id] : []);
       edge = key.startsWith("e") ? graph.edges[idx].id : null;
       refresh();
+      stage.focus({ preventScroll: true });
     };
     props.append(picker);
     const head = document.createElement("h3");
@@ -423,18 +455,7 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
           : node || activeModule
             ? "Удалить фигуру"
             : "Удалить связь",
-        () => {
-          checkpoint();
-          if (selected.size) {
-            graph.nodes = graph.nodes.filter((n) => !selected.has(n.id));
-            graph.edges = graph.edges.filter(
-              (e) => !selected.has(e.from) && !selected.has(e.to),
-            );
-          } else graph.edges = graph.edges.filter((e) => e.id !== edge);
-          tidyModules();
-          select([]);
-          refresh();
-        },
+        deleteSelection,
       );
     const details = document.createElement("details");
     details.open = frameSettingsOpen;
@@ -639,7 +660,10 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
       .flatMap((e) => e.points || []);
   }
   stage.onpointerdown = (e) => {
-    if (e.button !== 0 || drag) return;
+    if (e.button !== 0 || drag || !e.target.closest("svg")) return;
+    // Redrawing replaces the pressed SVG node. Keep keyboard focus on the canvas.
+    e.preventDefault();
+    stage.focus({ preventScroll: true });
     if (panMode) {
       drag = {
         type: "pan",

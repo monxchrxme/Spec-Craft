@@ -95,7 +95,8 @@ export function diagramView(graph, { edit } = {}) {
   fit.onclick = () => scale("fit");
   let pan = null;
   frame.onpointerdown = (e) => {
-    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    if (e.pointerType !== "mouse" || e.button !== 0 || !svg.contains(e.target))
+      return;
     pan = {
       x: e.clientX,
       y: e.clientY,

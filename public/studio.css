@@ -1098,3 +1098,44 @@ body:has(.inline-graph) .paper {
     height: 100%;
   }
 }
+
+.style-form {
+  display: grid;
+  gap: 12px;
+}
+.dialog-body label.style-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.style-check input {
+  width: auto;
+}
+.side-utilities .mobile-style {
+  display: none;
+}
+@media (max-width: 760px) {
+  .side-utilities .mobile-style {
+    display: flex;
+  }
+}
+.paper .block + .block {
+  margin-top: var(--paragraph-gap, 12px);
+}
+.paper .block > :is(p, ul, ol, blockquote) {
+  max-width: var(--reading-width, none);
+}
+.paper .block p {
+  text-align: var(--prose-align, left);
+}
+.paper mark {
+  background: #fff0a8;
+  color: inherit;
+  border-radius: 2px;
+}
+
+.paper :is(#source, .source-edit) {
+  font-size: var(--doc-size, 16px);
+  line-height: var(--doc-leading, 1.65);
+  tab-size: inherit;
+}

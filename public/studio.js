@@ -7,11 +7,13 @@ const $ = (s) => document.querySelector(s),
   host = $("#blocks"),
   source = $("#source"),
   viewport = $("#scroll");
-const md = window.markdownit({
-  html: false,
-  linkify: false,
-  typographer: false,
-});
+const md = window
+  .markdownit({
+    html: false,
+    linkify: false,
+    typographer: false,
+  })
+  .use(window.markdownitMark);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
@@ -257,7 +259,9 @@ function styles() {
     "--doc-font",
     s.font === "serif"
       ? 'Georgia,"Times New Roman",serif'
-      : 'Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+      : s.font === "mono"
+        ? "ui-monospace, Menlo, Consolas, monospace"
+        : 'Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
   );
   p.style.setProperty("--doc-size", (Number(s.size) || 16) + "px");
   p.style.setProperty(
@@ -265,6 +269,18 @@ function styles() {
     /^#[a-f\d]{6}$/i.test(s.accent) ? s.accent : "#6353bb",
   );
   p.style.setProperty("--doc-leading", Number(s.leading) || 1.65);
+  p.style.setProperty("--paragraph-gap", (Number(s.gap) || 12) + "px");
+  p.style.setProperty(
+    "--reading-width",
+    s.lineLength ? Number(s.lineLength) + "ch" : "none",
+  );
+  p.style.setProperty(
+    "--prose-align",
+    s.align === "justify" ? "justify" : "left",
+  );
+  p.style.tabSize = Number(s.tabSize) || 4;
+  source.spellcheck = !!s.spellcheck;
+  source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
 function closeGraph(restore = true) {
@@ -274,6 +290,7 @@ function closeGraph(restore = true) {
   inlineGraph = null;
   const dock = $("#graph-dock");
   dock.hidden = true;
+  dock.querySelector(".props").onkeydown = null;
   dock.querySelector(".props").replaceChildren();
   if (restore && session.panel.isConnected) {
     const p = parts[session.index];
@@ -396,6 +413,7 @@ function editBlock(i, selectAll = false) {
   if (!p || !box) return;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
+  ta.spellcheck = !!doc.style?.spellcheck;
   ta.setAttribute("aria-label", "Редактировать блок Markdown");
   ta.value = p.text;
   editor = { i, ta, baseline: p.text, start: p.start, end: p.end };
@@ -404,6 +422,8 @@ function editBlock(i, selectAll = false) {
   for (const [label, mark, symbol] of [
     ["Полужирный", "**", "bold"],
     ["Курсив", "*", "italic"],
+    ["Зачёркнутый", "~~", "strikethrough"],
+    ["Маркер", "==", "highlighter"],
     ["Строчный код", String.fromCharCode(96), "code"],
     ["Ссылка", "link", "link"],
   ]) {
@@ -450,6 +470,16 @@ function editBlock(i, selectAll = false) {
     }, 0);
   };
   ta.onkeydown = (e) => {
+    const shortcut =
+      (e.ctrlKey || e.metaKey) &&
+      !e.altKey &&
+      !e.shiftKey &&
+      { b: "Полужирный", i: "Курсив" }[e.key.toLowerCase()];
+    if (shortcut) {
+      e.preventDefault();
+      toolbar.querySelector('[aria-label="' + shortcut + '"]').click();
+      return;
+    }
     if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
       e.preventDefault();
       flush();
@@ -998,34 +1028,111 @@ function printDoc() {
 function exportDialog() {
   const b = dialog(
     "Экспорт документа",
-    option("md", "Скачать Markdown (.md)", "file-text") +
-      option("pdf", "Печать / сохранить PDF", "printer"),
+    option("pdf", "Скачать PDF", "file-down") +
+      '<label class="style-check"><input type="checkbox" checked name="largeSheets">Увеличивать лист для крупных схем</label>' +
+      option("md", "Скачать Markdown (.md)", "file-text") +
+      option("print", "Печать", "printer") +
+      '<p role="status" hidden></p>',
   );
-  b.onclick = (e) => {
-    const id = e.target.closest("[data-id]")?.dataset.id;
-    if (!id) return;
+  b.onclick = async (e) => {
+    const target = e.target.closest("[data-id]");
+    if (!target) return;
+    if (target.dataset.id === "pdf") {
+      const data = structuredClone(doc),
+        blocks = parse(),
+        enlarge = b.querySelector("[name=largeSheets]").checked;
+      const status = b.querySelector("[role=status]");
+      target.disabled = true;
+      status.hidden = false;
+      status.textContent = "Подготовка PDF…";
+      try {
+        const { exportPdf } = await import("./pdf-export.js");
+        const blob = await exportPdf(blocks, md, data, enlarge);
+        download(
+          data.name.replace(/\.md$/i, "") + ".pdf",
+          blob,
+          "application/pdf",
+        );
+        if (b.isConnected) modal.close();
+      } catch (error) {
+        status.textContent = "Не удалось создать PDF. " + error.message;
+      } finally {
+        target.disabled = false;
+      }
+      return;
+    }
     modal.close();
-    if (id === "md") download(doc.name, doc.body);
+    if (target.dataset.id === "md") download(doc.name, doc.body);
     else printDoc();
   };
 }
 function styleDialog() {
   const s = doc.style || {};
-  const b = dialog(
-    "Оформление документа",
-    '<label>Шрифт<select id="font"><option value="sans">Без засечек</option><option value="serif">С засечками</option></select></label><label>Размер текста<select id="font-size">' +
-      [14, 16, 18, 20].map((v) => "<option>" + v + "</option>").join("") +
-      '</select></label><label>Цвет акцента<input type="color" id="accent"></label><button class="primary">Применить</button>',
+  const body = dialog("Оформление документа", "");
+  const options = [
+    [
+      "font",
+      "Шрифт текста",
+      "sans",
+      { sans: "Без засечек", serif: "С засечками", mono: "Моноширинный" },
+    ],
+    ["size", "Размер текста, px", 16, [14, 15, 16, 17, 18, 20, 22, 24]],
+    ["leading", "Межстрочный интервал", 1.65, [1.25, 1.45, 1.65, 1.85, 2]],
+    ["gap", "Интервал между абзацами, px", 12, [6, 10, 12, 16, 20, 24]],
+    [
+      "lineLength",
+      "Ширина строки для чтения",
+      0,
+      {
+        0: "Вся ширина",
+        55: "Узкая · 55 знаков",
+        70: "Средняя · 70 знаков",
+        85: "Широкая · 85 знаков",
+      },
+    ],
+    [
+      "align",
+      "Выравнивание абзацев",
+      "left",
+      { left: "По левому краю", justify: "По ширине" },
+    ],
+    ["tabSize", "Ширина табуляции", 4, [2, 4, 8]],
+  ];
+  const form = document.createElement("form");
+  form.className = "style-form";
+  body.append(form);
+  for (const [key, label, initial, values] of options) {
+    const wrap = document.createElement("label");
+    wrap.textContent = label;
+    const input = document.createElement("select");
+    input.name = key;
+    for (const [v, title] of Array.isArray(values)
+      ? values.map((x) => [x, x])
+      : Object.entries(values))
+      input.add(new Option(title, v));
+    input.value = s[key] ?? initial;
+    wrap.append(input);
+    form.append(wrap);
+  }
+  form.insertAdjacentHTML(
+    "beforeend",
+    '<label>Цвет акцента<input type="color" name="accent"></label><label class="style-check"><input type="checkbox" name="wrap">Перенос строк в исходнике</label><label class="style-check"><input type="checkbox" name="spellcheck">Проверка орфографии при вводе</label><button class="primary">Применить</button>',
   );
-  $("#font").value = s.font || "sans";
-  $("#font-size").value = s.size || 16;
-  $("#accent").value = s.accent || "#6353bb";
-  b.querySelector("button").onclick = () => {
+  form.elements.accent.value = s.accent || "#6353bb";
+  form.elements.wrap.checked = s.wrap !== false;
+  form.elements.spellcheck.checked = !!s.spellcheck;
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const fields = new FormData(form);
     doc.style = {
-      font: $("#font").value,
-      size: Number($("#font-size").value),
-      accent: $("#accent").value,
+      ...s,
+      accent: fields.get("accent"),
+      wrap: fields.has("wrap"),
+      spellcheck: fields.has("spellcheck"),
     };
+    for (const [key, , initial] of options)
+      doc.style[key] =
+        typeof initial === "number" ? Number(fields.get(key)) : fields.get(key);
     styles();
     save();
     modal.close();
