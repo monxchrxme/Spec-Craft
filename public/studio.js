@@ -45,18 +45,34 @@ function newDoc(name, body, kind = "Markdown") {
   return { id: crypto.randomUUID(), name, body, kind, style: {}, updated: 0 };
 }
 const availableDocs = () => [...docs.values()].filter((d) => !d.trashed);
+function readDocument(id, raw) {
+  try {
+    const record = JSON.parse(raw);
+    if (
+      record?.id === id &&
+      typeof record.body === "string" &&
+      typeof record.name === "string"
+    )
+      return record;
+  } catch {
+    // A damaged record must not prevent other documents from loading.
+  }
+  return null;
+}
 let firstVisit = true;
 try {
   firstVisit = localStorage.getItem(sessionKey) === null;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k?.startsWith(prefix)) continue;
-    const raw = localStorage.getItem(k),
-      d = JSON.parse(raw);
-    if (typeof d?.body === "string" && d.id && typeof d.name === "string") {
-      docs.set(d.id, d);
-      savedRecords.set(d.id, raw);
+    const raw = localStorage.getItem(k);
+    const record = readDocument(k.slice(prefix.length), raw);
+    if (!record) {
+      loaded = false;
+      continue;
     }
+    docs.set(record.id, record);
+    savedRecords.set(record.id, raw);
   }
   doc =
     availableDocs().find((d) => d.id === localStorage.getItem(sessionKey)) ||
@@ -84,8 +100,9 @@ function save() {
       const base = savedRecords.get(doc.id);
       const raw = localStorage.getItem(prefix + doc.id);
       if (base !== undefined && raw !== base) {
-        if (raw) {
-          docs.set(doc.id, JSON.parse(raw));
+        const incoming = readDocument(doc.id, raw);
+        if (incoming) {
+          docs.set(doc.id, incoming);
           savedRecords.set(doc.id, raw);
         } else {
           docs.delete(doc.id);
@@ -887,7 +904,11 @@ function updateFile(id, mutate) {
       notice("Файл уже удалён.");
       return false;
     }
-    const latest = JSON.parse(raw);
+    const latest = readDocument(id, raw);
+    if (!latest) {
+      notice("Не удалось прочитать сохранённый файл.");
+      return false;
+    }
     const next = mutate(latest);
     if (next) {
       writeRecord(next);
@@ -1526,8 +1547,12 @@ document.addEventListener("keydown", (e) => {
 });
 function syncFile(id) {
   const raw = localStorage.getItem(prefix + id);
-  const incoming = raw ? JSON.parse(raw) : null;
   if (savedRecords.get(id) === raw) return;
+  const incoming = readDocument(id, raw);
+  if (raw !== null && !incoming) {
+    notice("Не удалось прочитать изменение из другой вкладки.");
+    return;
+  }
   const active = id === doc?.id;
   if (active) {
     if (

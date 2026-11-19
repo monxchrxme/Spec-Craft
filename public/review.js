@@ -42,16 +42,25 @@ export async function reviewRequest(share, input) {
   const headers = {};
   if (share.owner) headers["X-Review-Owner"] = share.owner;
   if (input) headers["Content-Type"] = "application/json";
+  const url = "/api/review?id=" + encodeURIComponent(share.id);
+  const options = {
+    method: input ? "POST" : "GET",
+    headers,
+    body: input ? JSON.stringify(input) : undefined,
+    cache: "no-store",
+  };
   let response;
-  try {
-    response = await fetch("/api/review?id=" + encodeURIComponent(share.id), {
-      method: input ? "POST" : "GET",
-      headers,
-      body: input ? JSON.stringify(input) : undefined,
-      cache: "no-store",
-    });
-  } catch {
-    throw Error("Не удалось подключиться к согласованию. Проверьте сеть.");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch(url, options);
+    } catch {
+      throw Error("Не удалось подключиться к согласованию. Проверьте сеть.");
+    }
+    if (![502, 503, 504].includes(response.status) || attempt === 2) break;
+    // Publication and feedback mutations reuse the same identifiers on retry.
+    await new Promise((resolve) =>
+      setTimeout(resolve, 300 * (attempt + 1) + Math.random() * 200),
+    );
   }
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.snapshot)
@@ -109,10 +118,10 @@ export function showReview({ share, parse, renderMarkdown, onClose }) {
     active = share.owner ? "all" : "document",
     timer,
     busy = false,
-    revision = 0,
-    pending;
+    revision = 0;
   const markers = new Map(),
-    drafts = new Map();
+    drafts = new Map(),
+    pending = new Map();
   const closeLink = share.owner
     ? button(
         "Закрыть доступ по ссылке",
@@ -387,6 +396,7 @@ export function showReview({ share, parse, renderMarkdown, onClose }) {
   }
   form.onsubmit = async (event) => {
     event.preventDefault();
+    if (busy) return;
     const input = {
       action: "comment",
       target: active,
@@ -395,15 +405,17 @@ export function showReview({ share, parse, renderMarkdown, onClose }) {
     };
     if (!input.text || !input.author) return;
     const signature = JSON.stringify(input);
-    if (signature !== pending?.signature)
-      pending = { signature, id: crypto.randomUUID() };
-    const sent = await mutate({ ...input, requestId: pending.id });
+    const previous = pending.get(input.target);
+    const requestId =
+      previous?.signature === signature ? previous.id : crypto.randomUUID();
+    pending.set(input.target, { signature, id: requestId });
+    const sent = await mutate({ ...input, requestId });
     if (sent) {
       if (active === input.target && note.value.trim() === input.text)
         note.value = "";
       if (drafts.get(input.target)?.trim() === input.text)
         drafts.delete(input.target);
-      pending = null;
+      pending.delete(input.target);
     }
   };
   refresh(true);
