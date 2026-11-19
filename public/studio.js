@@ -1,4 +1,5 @@
-import { normalize, draw, graphEditor, escapeHtml as esc } from "./graph.js";
+import { diagramView } from "./diagram-view.js";
+import { normalize, graphEditor, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
@@ -16,7 +17,7 @@ const prefix = "buro:doc:",
 const icon = (n) => '<i aria-hidden="true" data-lucide="' + n + '"></i>';
 const docs = new Map(),
   history = new Map(),
-  revision = new Map();
+  savedRecords = new Map();
 let doc,
   mode = "edit",
   parts = [],
@@ -35,55 +36,66 @@ function notice(s) {
 function newDoc(name, body, kind = "Markdown") {
   return { id: crypto.randomUUID(), name, body, kind, style: {}, updated: 0 };
 }
+const availableDocs = () => [...docs.values()].filter((d) => !d.trashed);
+let firstVisit = true;
 try {
+  firstVisit = localStorage.getItem(sessionKey) === null;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k?.startsWith(prefix)) continue;
-    const d = JSON.parse(localStorage.getItem(k));
+    const raw = localStorage.getItem(k),
+      d = JSON.parse(raw);
     if (typeof d?.body === "string" && d.id && typeof d.name === "string") {
       docs.set(d.id, d);
-      revision.set(d.id, d.updated);
+      savedRecords.set(d.id, raw);
     }
   }
   doc =
-    docs.get(localStorage.getItem(sessionKey)) || docs.values().next().value;
+    availableDocs().find((d) => d.id === localStorage.getItem(sessionKey)) ||
+    availableDocs()[0];
 } catch {
   loaded = false;
 }
-if (!doc) {
+if (!doc && firstVisit && !docs.size) {
   const e = examples.spec;
   doc = newDoc(e.name, e.body, e.label);
   docs.set(doc.id, doc);
 }
+function writeRecord(d) {
+  const record = { ...d, updated: Date.now() };
+  const raw = JSON.stringify(record);
+  localStorage.setItem(prefix + d.id, raw);
+  Object.assign(d, record);
+  savedRecords.set(d.id, raw);
+  docs.set(d.id, d);
+}
 function save() {
   clearTimeout(timer);
   try {
-    const k = prefix + doc.id,
-      raw = localStorage.getItem(k);
-    if (raw) {
-      const old = JSON.parse(raw);
-      if (old.updated !== revision.get(doc.id)) {
-        const conflict = newDoc(
-          doc.name.replace(/\.md$/i, "") + " (копия).md",
-          doc.body,
-          doc.kind,
-        );
-        conflict.style = doc.style;
-        docs.set(old.id, old);
-        revision.set(old.id, old.updated);
-        doc = conflict;
-        docs.set(doc.id, doc);
+    if (doc && JSON.stringify(doc) !== savedRecords.get(doc.id)) {
+      const base = savedRecords.get(doc.id);
+      const raw = localStorage.getItem(prefix + doc.id);
+      if (base !== undefined && raw !== base) {
+        if (raw) {
+          docs.set(doc.id, JSON.parse(raw));
+          savedRecords.set(doc.id, raw);
+        } else {
+          docs.delete(doc.id);
+          savedRecords.delete(doc.id);
+        }
+        doc = { ...doc, id: crypto.randomUUID(), name: copyName(doc.name) };
         notice("Файл изменён в другой вкладке. Ваши правки сохранены в копии.");
+        docs.set(doc.id, doc);
         nav();
       }
+      writeRecord(doc);
     }
-    doc.updated = Date.now();
-    localStorage.setItem(prefix + doc.id, JSON.stringify(doc));
-    revision.set(doc.id, doc.updated);
-    localStorage.setItem(sessionKey, doc.id);
-    $("#save").textContent = "Сохранено на устройстве";
+    localStorage.setItem(sessionKey, doc?.id || "");
+    $("#save").textContent = doc ? "Сохранено на устройстве" : "";
+    return true;
   } catch {
     $("#save").textContent = "Локальное сохранение недоступно · скачайте .md";
+    return false;
   }
 }
 function changed() {
@@ -150,23 +162,41 @@ function parse() {
 function nav() {
   const files = $("#files");
   files.replaceChildren();
-  for (const d of docs.values()) {
+  for (const d of availableDocs()) {
     const b = document.createElement("button");
     b.className = "file";
-    b.setAttribute("aria-current", String(d.id === doc.id));
+    b.setAttribute("aria-current", String(d.id === doc?.id));
     b.innerHTML = icon("file-text") + '<span class="file-name"></span>';
     b.lastChild.textContent = d.name;
     b.title = d.name;
     b.onclick = () => switchDoc(d);
-    files.append(b);
+    const row = document.createElement("div");
+    row.className = "file-row";
+    const menu = document.createElement("button");
+    menu.className = "file-menu";
+    menu.title = "Действия с файлом " + d.name;
+    menu.setAttribute("aria-label", menu.title);
+    menu.innerHTML = icon("ellipsis");
+    menu.onclick = () => fileActions(d.id);
+    row.append(b, menu);
+    files.append(row);
   }
-  $("#filename").textContent = doc.name;
-  $("#kind").textContent = doc.kind;
+  $("#filename").textContent = doc?.name || "";
+  $("#kind").textContent = doc?.kind || "";
+  $("#trash-count").textContent =
+    [...docs.values()].filter((d) => d.trashed).length || "";
+  for (const b of document.querySelectorAll(
+    '[data-action="ai"],[data-action="style"],[data-action="export"],#filename',
+  ))
+    b.disabled = !doc;
   icons();
 }
 function switchDoc(d) {
   flush();
   save();
+  activate(d);
+}
+function activate(d) {
   doc = d;
   selected = 0;
   document.body.classList.remove("show-side");
@@ -235,6 +265,17 @@ function styles() {
 }
 function render() {
   editor = tableEdit = null;
+  $("#empty-workspace").hidden = !!doc;
+  $(".paper").hidden = !doc;
+  $(".controls").hidden = !doc;
+  if (!doc) {
+    parts = [];
+    host.replaceChildren();
+    source.value = "";
+    $("#outline").replaceChildren();
+    $("#wordcount").textContent = "";
+    return;
+  }
   parts = parse();
   selected = Math.min(selected, Math.max(0, parts.length - 1));
   host.replaceChildren();
@@ -271,15 +312,6 @@ function block(p, i) {
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
-      box.innerHTML =
-        '<div class="diagram-card"><div class="diagram-title">' +
-        icon("workflow") +
-        '<span></span><span class="spacer"></span><button>' +
-        icon("sliders-horizontal") +
-        'Изменить</button></div><div class="graph-bg"></div></div>';
-      box.querySelector(".diagram-title span").textContent =
-        g.title || "Блок-схема";
-      box.querySelector(".graph-bg").append(draw(g));
       const edit = () => {
         if (mode === "read") return;
         flush();
@@ -290,8 +322,18 @@ function block(p, i) {
           render();
         });
       };
-      box.querySelector("button").onclick = edit;
-      box.ondblclick = edit;
+      const expand = () => {
+        flush();
+        resetModal();
+        modal.className = "diagram-reader";
+        modal.setAttribute("aria-label", g.title || "Просмотр схемы");
+        modal.append(diagramView(g, { close: () => modal.close() }));
+        icons();
+        modal.showModal();
+      };
+      box.append(
+        diagramView(g, { edit: mode === "read" ? undefined : edit, expand }),
+      );
       return box;
     } catch (err) {
       box.textContent = "Ошибка схемы · " + err.message;
@@ -666,6 +708,7 @@ function insertBlock(type, idx = selected) {
   }
 }
 function resetModal() {
+  modal.removeAttribute("aria-label");
   modal.onclick = null;
   modal.oncancel = null;
   modal.className = "";
@@ -746,6 +789,139 @@ function nameOf(s) {
       .replace(/[\\/:*?"<>|]/g, "-")
       .replace(/\.md$/i, "") || "Документ") + ".md"
   );
+}
+function copyName(name) {
+  const stem = name.replace(/\.md$/i, "");
+  const names = new Set(availableDocs().map((d) => d.name));
+  let count = 1;
+  while (true) {
+    const candidate =
+      stem + (count === 1 ? " (копия)" : " (копия " + count + ")") + ".md";
+    if (!names.has(candidate)) return candidate;
+    count++;
+  }
+}
+// File actions may target a background document. Read its latest saved state
+// before changing metadata so edits made in another tab are preserved.
+function updateFile(id, mutate) {
+  flush();
+  if (doc?.id === id && !save()) return false;
+  try {
+    const raw = localStorage.getItem(prefix + id);
+    if (!raw) {
+      notice("Файл уже удалён.");
+      return false;
+    }
+    const latest = JSON.parse(raw);
+    const next = mutate(latest);
+    if (next) {
+      writeRecord(next);
+      if (doc?.id === id) doc = next;
+    } else {
+      localStorage.removeItem(prefix + id);
+      docs.delete(id);
+      savedRecords.delete(id);
+      history.delete(id);
+    }
+    return true;
+  } catch {
+    notice("Не удалось сохранить изменение на устройстве.");
+    return false;
+  }
+}
+function fileActions(id) {
+  const d = docs.get(id);
+  if (!d || d.trashed) return;
+  const body = dialog(
+    d.name,
+    option("rename", "Переименовать", "pencil") +
+      option("copy", "Создать копию", "copy") +
+      option("trash", "Переместить в корзину", "trash-2"),
+  );
+  body.onclick = (event) => {
+    const action = event.target.closest("[data-id]")?.dataset.id;
+    if (action && (!docs.has(id) || docs.get(id).trashed)) {
+      modal.close();
+      notice("Файл удалён в другой вкладке.");
+      return;
+    }
+    if (action === "rename") return renameFile(id);
+    if (action === "copy") {
+      const next = {
+        ...structuredClone(docs.get(id)),
+        id: crypto.randomUUID(),
+        name: copyName(docs.get(id).name),
+      };
+      modal.close();
+      docs.set(next.id, next);
+      switchDoc(next);
+    }
+    if (
+      action === "trash" &&
+      updateFile(id, (latest) => ({ ...latest, trashed: true }))
+    ) {
+      modal.close();
+      if (doc?.id === id) activate(availableDocs()[0]);
+      else nav();
+      notice("Документ перемещён в корзину");
+    }
+  };
+}
+function renameFile(id) {
+  const body = dialog(
+    "Имя файла",
+    '<label>Название<input></label><button class="primary">Сохранить</button>',
+  );
+  const input = body.querySelector("input");
+  input.value = docs.get(id).name;
+  body.querySelector("button").onclick = () => {
+    if (
+      updateFile(id, (latest) => ({ ...latest, name: nameOf(input.value) }))
+    ) {
+      modal.close();
+      nav();
+    }
+  };
+}
+function trashDialog() {
+  const body = dialog("Корзина", "");
+  const trash = [...docs.values()].filter((d) => d.trashed);
+  if (!trash.length) body.textContent = "Корзина пуста.";
+  for (const d of trash) {
+    const row = document.createElement("div");
+    row.className = "trash-row";
+    row.innerHTML =
+      '<strong></strong><div><button>Восстановить</button><button class="danger">Удалить навсегда</button></div>';
+    row.querySelector("strong").textContent = d.name;
+    const [restore, remove] = row.querySelectorAll("button");
+    restore.onclick = () => {
+      if (!updateFile(d.id, (latest) => ({ ...latest, trashed: false })))
+        return;
+      modal.close();
+      if (!doc) activate(docs.get(d.id));
+      else nav();
+      notice("Документ восстановлен");
+    };
+    remove.onclick = () => {
+      const confirm = dialog(
+        "Удалить документ навсегда?",
+        '<p></p><div class="dialog-actions"><button>Отмена</button><button class="danger">Удалить навсегда</button></div>',
+      );
+      confirm.querySelector("p").textContent =
+        "Вы удаляете «" +
+        d.name +
+        "» из хранилища этого браузера. Восстановление из корзины станет недоступно.";
+      const [cancel, apply] = confirm.querySelectorAll("button");
+      cancel.onclick = trashDialog;
+      apply.onclick = () => {
+        if (!updateFile(d.id, (latest) => (latest.trashed ? null : latest)))
+          return;
+        nav();
+        trashDialog();
+      };
+    };
+    body.append(row);
+  }
 }
 function newDialog() {
   const b = dialog(
@@ -945,20 +1121,8 @@ const actions = {
   append: () => insertBlock("paragraph", parts.length - 1),
   undo: () => undo(false),
   redo: () => undo(true),
-  rename: () => {
-    const b = dialog(
-        "Имя файла",
-        '<label>Название<input></label><button class="primary">Сохранить</button>',
-      ),
-      inp = b.querySelector("input");
-    inp.value = doc.name;
-    b.querySelector("button").onclick = () => {
-      doc.name = nameOf(inp.value);
-      nav();
-      save();
-      modal.close();
-    };
-  },
+  rename: () => renameFile(doc.id),
+  trash: trashDialog,
 };
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-action],[data-mode]");
@@ -977,7 +1141,7 @@ $("#file-input").onchange = async (e) => {
   e.target.value = "";
 };
 document.addEventListener("keydown", (e) => {
-  if (modal.open) return;
+  if (modal.open || !doc) return;
   const cmd = e.ctrlKey || e.metaKey;
   if (cmd && e.key.toLowerCase() === "s") {
     e.preventDefault();
@@ -1001,6 +1165,44 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     insertDialog();
   }
+});
+function syncFile(id) {
+  const raw = localStorage.getItem(prefix + id);
+  const incoming = raw ? JSON.parse(raw) : null;
+  if (savedRecords.get(id) === raw) return;
+  const active = id === doc?.id;
+  if (active && modal.open && modal.classList.contains("graph-dialog")) {
+    // Let Apply finish first. A concurrent deletion or edit then preserves
+    // the edited diagram as a conflict copy through the ordinary save path.
+    modal.addEventListener("close", () => syncFile(id), { once: true });
+    return;
+  }
+  if (active) {
+    if (
+      incoming &&
+      !incoming.trashed &&
+      (editor || tableEdit || modal.open || document.activeElement === source)
+    )
+      return;
+    flush();
+    if (JSON.stringify(doc) !== savedRecords.get(id) && !save()) return;
+  }
+  if (incoming) {
+    docs.set(id, incoming);
+    savedRecords.set(id, raw);
+  } else {
+    docs.delete(id);
+    savedRecords.delete(id);
+    history.delete(id);
+  }
+  if (id === doc?.id) {
+    if (modal.open) modal.close();
+    activate(incoming && !incoming.trashed ? incoming : availableDocs()[0]);
+  } else if (!doc && incoming && !incoming.trashed) activate(incoming);
+  else nav();
+}
+window.addEventListener("storage", (event) => {
+  if (event.key?.startsWith(prefix)) syncFile(event.key.slice(prefix.length));
 });
 window.addEventListener("pagehide", () => {
   if (tableEdit) finishCell();

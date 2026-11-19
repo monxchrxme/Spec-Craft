@@ -52,6 +52,8 @@ export const shapes = {
   decision: "Условие",
   data: "Данные",
   ellipse: "Эллипс",
+  database: "База данных",
+  component: "Компонент",
 };
 const colors = {
   fill: "#ece8fb",
@@ -195,7 +197,7 @@ export function draw(g, options = {}) {
   if (editor) {
     svg.setAttribute("width", w * options.zoom);
     svg.setAttribute("height", h * options.zoom);
-  } else svg.classList.add("thumbnail");
+  }
   const defs = el("defs");
   svg.append(defs);
   const nodes = new Map(g.nodes.map((n) => [n.id, n]));
@@ -348,7 +350,34 @@ export function draw(g, options = {}) {
         ry: h / 2,
         ...attrs,
       });
-    else
+    else if (n.shape === "database") {
+      const ry = Math.min(10, h / 6);
+      shape = el("g");
+      shape.append(
+        el("path", {
+          d: `M 0 ${ry} A ${w / 2} ${ry} 0 0 1 ${w} ${ry} V ${h - ry} A ${w / 2} ${ry} 0 0 1 0 ${h - ry} Z`,
+          ...attrs,
+        }),
+        el("path", {
+          ...attrs,
+          fill: "none",
+          d: `M 0 ${ry} A ${w / 2} ${ry} 0 0 0 ${w} ${ry}`,
+        }),
+      );
+    } else if (n.shape === "component") {
+      shape = el("g");
+      shape.append(
+        el("rect", {
+          x: 5,
+          width: w - 5,
+          height: h,
+          rx: num(n.radius, 5, 0, 100),
+          ...attrs,
+        }),
+      );
+      for (const y of [h * 0.25, h * 0.65])
+        shape.append(el("rect", { x: 0, y, width: 12, height: 7, ...attrs }));
+    } else
       shape = el("rect", {
         width: w,
         height: h,
@@ -399,6 +428,24 @@ export function draw(g, options = {}) {
     }
     svg.append(group);
   }
+  if (!editor && g.nodes.length) {
+    // Include offset edge labels, long captions and self-loops in exports and previews.
+    svg.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    document.body.append(svg);
+    const ink = svg.getBBox();
+    svg.remove();
+    svg.removeAttribute("style");
+    if (ink.width && ink.height)
+      svg.setAttribute(
+        "viewBox",
+        [
+          ink.x - pad,
+          ink.y - pad,
+          ink.width + 2 * pad,
+          ink.height + 2 * pad,
+        ].join(" "),
+      );
+  }
   return svg;
 }
 export function graphEditor(raw, modal, onSave) {
@@ -408,6 +455,7 @@ export function graphEditor(raw, modal, onSave) {
     link = null,
     connecting = false,
     zoom = 0.9,
+    snap = false,
     drag = null,
     dirty = false;
   const history = [],
@@ -418,7 +466,7 @@ export function graphEditor(raw, modal, onSave) {
     Object.entries(shapes)
       .map(([k, v]) => '<option value="' + k + '">' + v + "</option>")
       .join("") +
-    '</select><button data-cmd="add">+ Фигура</button><button data-cmd="connect">Связать</button><button data-cmd="undo" aria-label="Отменить действие">↶</button><button data-cmd="redo" aria-label="Повторить действие">↷</button><span class="spacer"></span><button data-cmd="svg" title="Скачать схему как SVG">SVG</button><button data-cmd="minus" aria-label="Уменьшить">−</button><output></output><button data-cmd="plus" aria-label="Увеличить">+</button></div><div class="graph-shell"><div class="graph-stage graph-bg"></div><div class="props"></div></div><div class="graph-foot"><span role="status"></span><span class="spacer"></span><button class="primary" data-cmd="save">Применить</button></div>';
+    '</select><button data-cmd="add">+ Фигура</button><button data-cmd="connect">Связать</button><button data-cmd="snap" aria-pressed="false">По сетке</button><button data-cmd="undo" aria-label="Отменить действие">↶</button><button data-cmd="redo" aria-label="Повторить действие">↷</button><span class="spacer"></span><button data-cmd="svg" title="Скачать схему как SVG">SVG</button><button data-cmd="minus" aria-label="Уменьшить">−</button><output></output><button data-cmd="plus" aria-label="Увеличить">+</button></div><div class="graph-shell"><div class="graph-stage graph-bg"></div><div class="props"></div></div><div class="graph-foot"><span role="status"></span><span class="spacer"></span><button class="primary" data-cmd="save">Применить</button></div>';
   const stage = modal.querySelector(".graph-stage"),
     props = modal.querySelector(".props"),
     hint = modal.querySelector("[role=status]");
@@ -521,6 +569,19 @@ export function graphEditor(raw, modal, onSave) {
         ["Толщина обводки", "weight", 1.6],
       ])
         field(name, k, "number", d);
+      action("Дублировать фигуру", () => {
+        checkpoint();
+        const original = current();
+        const copy = {
+          ...clone(original),
+          id: uid("n"),
+          x: original.x + 30,
+          y: original.y + 30,
+        };
+        graph.nodes.push(copy);
+        node = copy.id;
+        refresh();
+      });
     } else if (edge) {
       field("Подпись", "label", "text", "");
       field("Цвет линии", "color", "color", colors.edge);
@@ -641,6 +702,12 @@ export function graphEditor(raw, modal, onSave) {
       node = id;
       edge = null;
     }
+    if (cmd === "snap") {
+      snap = !snap;
+      modal
+        .querySelector('[data-cmd="snap"]')
+        .setAttribute("aria-pressed", String(snap));
+    }
     if (cmd === "connect") {
       connecting = !connecting;
       link = null;
@@ -711,13 +778,14 @@ export function graphEditor(raw, modal, onSave) {
       drag.started = true;
     }
     const obj = current();
+    const round = (v) => (snap ? Math.round(v / 14) * 14 : Math.round(v));
     if (drag.resize) {
-      obj.width = Math.max(45, Math.round(drag.w + dx));
-      obj.height = Math.max(28, Math.round(drag.h + dy));
+      obj.width = Math.max(45, round(drag.w + dx));
+      obj.height = Math.max(28, round(drag.h + dy));
     } else {
       const p = drag.point === undefined ? obj : obj.points[Number(drag.point)];
-      p.x = Math.max(0, Math.round(drag.ox + dx));
-      p.y = Math.max(0, Math.round(drag.oy + dy));
+      p.x = Math.max(0, round(drag.ox + dx));
+      p.y = Math.max(0, round(drag.oy + dy));
     }
     render();
   };

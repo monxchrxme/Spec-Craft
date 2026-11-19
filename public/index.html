@@ -27,12 +27,6 @@
         >
           <i data-lucide="layout-template"></i></button
         ><button
-          data-action="ai"
-          title="Задание для ИИ"
-          aria-label="Задание для ИИ"
-        >
-          <i data-lucide="sparkles"></i></button
-        ><button
           class="rail-bottom"
           data-action="style"
           title="Оформление документа"
@@ -66,6 +60,12 @@
           </div>
           <div id="outline"></div>
         </section>
+        <div class="side-utilities">
+          <button data-action="ai"><i data-lucide="sparkles"></i>Для ИИ</button>
+          <button data-action="trash">
+            <i data-lucide="trash-2"></i>Корзина <span id="trash-count"></span>
+          </button>
+        </div>
         <div class="local">
           <i data-lucide="hard-drive"></i> Локальное пространство
         </div>
@@ -85,8 +85,6 @@
             title="Переименовать файл"
           ></button
           ><span class="spacer"></span
-          ><button id="ai-btn" data-action="ai">
-            <i data-lucide="sparkles"></i><span>Для ИИ</span></button
           ><button class="primary" data-action="export">
             <i data-lucide="download"></i><span>Экспорт</span>
           </button>
@@ -119,6 +117,12 @@
           </button>
         </div>
         <div id="scroll">
+          <section id="empty-workspace" hidden>
+            <h1>Пока нет документов</h1>
+            <button class="primary" data-action="new">Создать документ</button>
+            <button data-action="open">Открыть файл</button>
+            <button data-action="trash">Корзина</button>
+          </section>
           <article class="paper">
             <div class="doc-label"><span></span><b id="kind"></b></div>
             <div id="blocks"></div>

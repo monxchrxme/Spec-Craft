@@ -473,10 +473,115 @@ main {
   background-image: radial-gradient(#d8d5e6 1px, transparent 1px);
   background-size: 14px 14px;
 }
-.thumbnail {
-  width: 100%;
-  height: 165px;
+/* The default reading scale uses SVG coordinates as CSS pixels. Large
+   diagrams scroll at that scale and can be fitted explicitly. */
+.diagram-card {
+  --view-height: 68vh;
+}
+.diagram-title {
+  flex-wrap: wrap;
+}
+.diagram-title strong {
+  flex: 1 1 120px;
+  overflow-wrap: anywhere;
+}
+.diagram-title .spacer {
+  display: none;
+}
+.diagram-title button {
+  white-space: nowrap;
+}
+.diagram-window {
+  max-height: var(--view-height);
+  overflow: auto;
+  cursor: grab;
+  user-select: none;
+}
+.diagram-window:active {
+  cursor: grabbing;
+}
+.diagram-window > svg {
   display: block;
+  margin: auto;
+  height: auto;
+  max-width: none;
+}
+.fit-diagram .diagram-window > svg {
+  width: min(100%, calc(var(--view-height) * var(--diagram-ratio))) !important;
+}
+.diagram-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line);
+  font-family: system-ui, sans-serif;
+}
+.diagram-zoom button {
+  min-height: 32px;
+  font-size: 13px;
+}
+.zoom-fit[aria-pressed="true"] {
+  background: var(--lavender);
+  color: var(--accent);
+}
+.diagram-reader {
+  width: 96vw;
+  max-width: 96vw;
+}
+.diagram-reader .diagram-card {
+  --view-height: 70dvh;
+}
+.diagram-reader .diagram-window {
+  min-height: var(--view-height);
+}
+.file-row {
+  display: flex;
+  align-items: center;
+}
+.file-row .file {
+  min-width: 0;
+  flex: 1;
+}
+.sidebar section .file-row button.file-menu {
+  width: 32px;
+  justify-content: center;
+  color: var(--muted);
+  flex: none;
+}
+.side-utilities {
+  margin-top: auto;
+  padding: 12px;
+  display: grid;
+}
+.side-utilities button {
+  color: var(--muted);
+  justify-content: flex-start;
+}
+.sidebar .local {
+  margin-top: 0;
+}
+.trash-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trash-row strong {
+  overflow-wrap: anywhere;
+}
+.danger {
+  color: #943434;
+}
+#empty-workspace {
+  padding: 32px 12px;
+  text-align: center;
+}
+#empty-workspace h1 {
+  font-size: 22px;
 }
 .diagram-error {
   padding: 10px;
@@ -657,8 +762,7 @@ select {
   color: var(--muted);
 }
 .read-view .add-end,
-.read-view .table-tools,
-.read-view .diagram-title button {
+.read-view .table-tools {
   display: none;
 }
 .print-surface {
@@ -786,8 +890,20 @@ select {
   tr {
     break-inside: avoid;
   }
-  .thumbnail {
-    height: 160px;
+  .print-surface .diagram-window {
+    max-height: none;
+    overflow: visible;
+  }
+  .print-surface .diagram-window > svg {
+    width: 100% !important;
+    height: auto;
+    max-height: 220mm;
+  }
+  .print-surface .diagram-zoom {
+    display: none;
+  }
+  .print-surface .diagram-card {
+    overflow: visible;
   }
   h1,
   h2,
