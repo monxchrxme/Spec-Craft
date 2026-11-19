@@ -1,3 +1,4 @@
+import { showReview } from "./review.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
@@ -1282,7 +1283,39 @@ function jumpTo(target) {
   highlight(target.index);
 }
 enableWikiSuggestions(() => specIndex(parse()).targets);
+let stopReview;
+function openSharedReview(share, onClose) {
+  if (!share?.id) return;
+  flush();
+  modal.close();
+  stopReview?.();
+  stopReview = showReview({
+    share,
+    parse,
+    renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
+    onClose: () => {
+      stopReview = null;
+      if (location.hash.startsWith("#review="))
+        window.history.replaceState(
+          null,
+          "",
+          location.pathname + location.search,
+        );
+      onClose?.();
+    },
+  });
+}
+function syncReviewLink() {
+  const match = /^#review=([a-f0-9]{48})$/.exec(location.hash);
+  if (match) openSharedReview({ id: match[1] });
+  else if (stopReview) {
+    stopReview();
+    stopReview = null;
+  }
+}
+window.addEventListener("hashchange", syncReviewLink);
 const panels = specPanels({
+  openReview: openSharedReview,
   open: dialog,
   parse,
   document: () => doc,
@@ -1301,11 +1334,7 @@ const panels = specPanels({
     render();
     save();
   },
-  update: (mutate) => {
-    flush();
-    if (!save()) return false;
-    return updateFile(doc.id, mutate);
-  },
+  update: (mutate, id = doc.id) => updateFile(id, mutate),
 });
 host.addEventListener("mousedown", (e) => {
   if (e.target.closest("[data-wiki]")) e.preventDefault();
@@ -1325,7 +1354,95 @@ host.addEventListener(
   },
   true,
 );
+function transferDialog() {
+  const box = dialog(
+    "Перенос данных",
+    "<p>Резервная копия включает документы, версии и доступ автора к замечаниям. Храните её у себя.</p>" +
+      option("backup", "Скачать резервную копию", "download") +
+      '<label>Загрузить резервную копию<input type="file" accept=".json,application/json"></label>',
+  );
+  box.querySelector("button").onclick = () => {
+    if (save())
+      download(
+        "SpecCraft-резервная-копия.json",
+        JSON.stringify({
+          format: "speccraft-backup",
+          version: 1,
+          active: doc?.id,
+          documents: [...docs.values()],
+        }),
+        "application/json",
+      );
+  };
+  box.querySelector("input").onchange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    let imported = 0,
+      chosen;
+    try {
+      const bundle = JSON.parse(await file.text());
+      if (
+        bundle?.format !== "speccraft-backup" ||
+        bundle.version !== 1 ||
+        !Array.isArray(bundle.documents) ||
+        bundle.documents.some(
+          (d) =>
+            !d ||
+            typeof d.id !== "string" ||
+            typeof d.name !== "string" ||
+            typeof d.body !== "string" ||
+            (d.versions !== undefined &&
+              (!Array.isArray(d.versions) ||
+                d.versions.some(
+                  (v) =>
+                    !v ||
+                    typeof v.id !== "string" ||
+                    typeof v.name !== "string" ||
+                    typeof v.body !== "string",
+                ))),
+        )
+      )
+        throw Error("Выберите резервную копию SpecCraft.");
+      for (const record of bundle.documents) {
+        const existing = docs.get(record.id);
+        if (
+          existing &&
+          JSON.stringify({ ...existing, updated: 0 }) ===
+            JSON.stringify({ ...record, updated: 0 })
+        )
+          continue;
+        const next = {
+          ...record,
+          id: existing ? crypto.randomUUID() : record.id,
+          name: existing ? copyName(record.name) : record.name,
+        };
+        writeRecord(next);
+        if (record.id === bundle.active && !next.trashed) chosen = next;
+        imported++;
+      }
+      if (chosen) switchDoc(chosen);
+      else nav();
+      modal.close();
+      notice(
+        imported
+          ? "Загружено документов: " + imported
+          : "Эти документы уже есть в студии.",
+      );
+    } catch (error) {
+      nav();
+      notice(
+        imported
+          ? "Загружено " +
+              imported +
+              ". Для остальных документов не хватило места."
+          : error.message,
+      );
+    }
+    event.target.value = "";
+  };
+}
 const actions = {
+  transfer: transferDialog,
   trace: () => panels.trace(),
   links: () => {
     flush();
@@ -1350,6 +1467,7 @@ const actions = {
   trash: trashDialog,
 };
 document.addEventListener("click", (e) => {
+  if (stopReview) return;
   const b = e.target.closest("[data-action],[data-mode]");
   if (!b) return;
   if (b.dataset.mode) setMode(b.dataset.mode);
@@ -1366,6 +1484,7 @@ $("#file-input").onchange = async (e) => {
   e.target.value = "";
 };
 document.addEventListener("keydown", (e) => {
+  if (stopReview) return;
   if (modal.open && e.key === "Escape") {
     modal.close();
     e.preventDefault();
@@ -1457,3 +1576,5 @@ nav();
 render();
 save();
 if (!loaded) notice("Не удалось восстановить часть локальных данных");
+
+syncReviewLink();

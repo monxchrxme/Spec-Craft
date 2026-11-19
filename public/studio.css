@@ -1234,3 +1234,129 @@ body:has(.inline-graph) .paper {
 .node-requirement button:first-child {
   color: var(--accent);
 }
+
+.share-version {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.share-version .option {
+  width: 100%;
+}
+
+#review-workspace {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--canvas);
+}
+#review-workspace main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+#review-workspace .topbar {
+  background: white;
+  gap: 14px;
+}
+#review-workspace .topbar button {
+  flex: none;
+}
+#review-workspace h1 {
+  margin: 0;
+  font-size: 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.review-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px clamp(10px, 3vw, 48px) 36px;
+}
+.review-dock {
+  flex: 0 0 clamp(260px, 28vw, 365px);
+  min-width: 0;
+  background: #fff;
+  padding: 16px;
+  border-left: 1px solid var(--line);
+  overflow: auto;
+}
+.review-dock h2 {
+  display: inline-block;
+  margin: 0 10px 0 0;
+  font-size: 16px;
+}
+.review-dock .review-muted-button {
+  color: var(--accent);
+  padding: 5px 7px;
+}
+.review-dock select,
+.review-dock input,
+.review-dock textarea {
+  width: 100%;
+}
+.review-status {
+  color: var(--muted);
+  margin: 9px 0;
+  font-size: 13px;
+}
+.review-form {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.review-form textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+.review-comment {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.review-comment p {
+  margin: 7px 0;
+  white-space: pre-wrap;
+}
+.review-comment small {
+  display: block;
+  color: var(--muted);
+}
+.review-comment button {
+  color: var(--accent);
+  padding: 5px 0;
+}
+.review-anchor {
+  font-size: 0.8rem;
+  color: var(--accent);
+  padding: 4px 7px;
+}
+.review-anchor-active,
+.has-review-comment.review-anchor {
+  background: var(--lavender);
+}
+.review-figure {
+  cursor: pointer;
+}
+.review-figure.has-review-comment,
+.review-figure.review-anchor-active {
+  filter: drop-shadow(0 0 3px #7360c4);
+}
+@media (max-width: 760px) {
+  #review-workspace {
+    flex-direction: column;
+  }
+  .review-dock {
+    flex: 0 0 min(42dvh, 310px);
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .review-scroll {
+    padding: 10px;
+  }
+}

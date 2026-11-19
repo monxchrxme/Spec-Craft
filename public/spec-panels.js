@@ -1,3 +1,9 @@
+import {
+  makeShare,
+  reviewRequest,
+  reviewTargets,
+  reviewUrl,
+} from "./review.js";
 import { specIndex, reviewItems, canonical } from "./spec-index.js";
 
 function element(tag, text, cls) {
@@ -364,6 +370,103 @@ export function specPanels(api) {
         "option",
       ),
     );
+    const sharing = element("section", undefined, "share-version");
+    sharing.append(element("h3", "Согласование по ссылке"));
+    empty(
+      sharing,
+      "По ссылке коллега увидит снимок и сможет оставить замечания. Доступ есть у каждого, у кого есть ссылка.",
+    );
+    box.append(sharing);
+    const shareStatus = element("p", undefined, "spec-muted");
+    shareStatus.setAttribute("role", "status");
+    const publish = button(
+      v.share?.published ? "Копировать ссылку" : "Создать ссылку для коллеги",
+      async () => {
+        publish.disabled = true;
+        try {
+          let share = v.share;
+          if (!share) {
+            share = makeShare();
+            if (
+              !api.update(
+                (latest) => ({
+                  ...latest,
+                  versions: latest.versions.map((item) =>
+                    item.id === id
+                      ? { ...item, share: (share = item.share || share) }
+                      : item,
+                  ),
+                }),
+                d.id,
+              )
+            ) {
+              throw Error(
+                "Не удалось сохранить доступ автора в этом браузере.",
+              );
+            }
+            v.share = share;
+          }
+          const { closed } = await reviewRequest(share, {
+            action: "publish",
+            snapshot: {
+              name: d.name,
+              title: v.name,
+              body: v.body,
+              style: v.style,
+            },
+            anchors: reviewTargets(parse(v.body)).map((target) => target.key),
+          });
+          if (!share.published) {
+            const published = { ...share, published: true };
+            api.update(
+              (latest) => ({
+                ...latest,
+                versions: latest.versions.map((item) =>
+                  item.id === id && item.share?.id === share.id
+                    ? { ...item, share: published }
+                    : item,
+                ),
+              }),
+              d.id,
+            );
+            v.share = published;
+          }
+          if (!sharing.isConnected) return;
+          publish.textContent = "Копировать ссылку";
+          comments.hidden = false;
+          if (closed) {
+            shareStatus.textContent = "Доступ по этой ссылке закрыт.";
+            return;
+          }
+          const url = reviewUrl(share.id);
+          link.value = url;
+          link.hidden = false;
+          try {
+            await navigator.clipboard.writeText(url);
+            shareStatus.textContent = "Ссылка скопирована.";
+          } catch {
+            link.select();
+            shareStatus.textContent = "Ссылка готова. Скопируйте её из поля.";
+          }
+        } catch (error) {
+          shareStatus.textContent = error.message;
+        } finally {
+          publish.disabled = false;
+        }
+      },
+      "option",
+    );
+    const link = element("input");
+    link.readOnly = true;
+    link.hidden = true;
+    link.setAttribute("aria-label", "Ссылка на версию");
+    const comments = button(
+      "Открыть замечания",
+      () => api.openReview(v.share, () => versions(id, compare)),
+      "option",
+    );
+    comments.hidden = !v.share;
+    sharing.append(publish, link, comments, shareStatus);
     if (!compare) return;
     const a = reviewItems(parse(v.body)),
       b = reviewItems(parse(d.body));
