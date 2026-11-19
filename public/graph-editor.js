@@ -1,3 +1,4 @@
+import { arrangeNodes, routeEdges } from "./auto-layout.js";
 import {
   normalize,
   draw,
@@ -8,7 +9,15 @@ import {
   styleFrame,
 } from "./graph.js";
 const clone = (value) => structuredClone(value);
-export function graphEditor(raw, panel, props, onChange, onDone) {
+export function graphEditor(
+  raw,
+  panel,
+  props,
+  onChange,
+  onDone,
+  initialNode,
+  trace,
+) {
   let graph = normalize(raw),
     node = null,
     edge = null,
@@ -35,6 +44,8 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
       <button data-cmd="multi" aria-pressed="false">Выделение</button>
       <button data-cmd="pan" aria-pressed="false">Панорама</button>
       <button data-cmd="connect">Связать</button>
+      <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
+      <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
       <button data-cmd="snap" aria-pressed="false">По сетке</button>
       <button data-cmd="undo" aria-label="Отменить действие">↶</button>
       <button data-cmd="redo" aria-label="Повторить действие">↷</button>
@@ -327,6 +338,14 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
         });
       }
     } else if (node) {
+      action(
+        current().pinned ? "Открепить позицию" : "Закрепить позицию",
+        () => {
+          checkpoint();
+          current().pinned = !current().pinned;
+          refresh();
+        },
+      );
       field("Подпись", "label", "textarea", "");
       field("Форма", "shape", "text", "process", shapes);
       if (current().shape === "umlClass") {
@@ -347,6 +366,45 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
         ["Толщина обводки", "weight", 1.6],
       ])
         field(name, k, "number", d);
+      const attached = Array.isArray(current().requirements)
+        ? current().requirements.filter((s) => typeof s === "string")
+        : [];
+      if (trace) {
+        const title = document.createElement("h3");
+        title.textContent = "Требования фигуры";
+        props.append(title);
+        for (const id of attached) {
+          const row = document.createElement("div");
+          row.className = "node-requirement";
+          const jump = document.createElement("button");
+          jump.textContent = id;
+          jump.onclick = () => trace.open(id);
+          const detach = document.createElement("button");
+          detach.textContent = "×";
+          detach.setAttribute("aria-label", "Отвязать " + id);
+          detach.onclick = () => {
+            checkpoint();
+            current().requirements = attached.filter((s) => s !== id);
+            refresh();
+          };
+          row.append(jump, detach);
+          props.append(row);
+        }
+        const add = document.createElement("select");
+        add.setAttribute("aria-label", "Связать с требованием");
+        add.add(new Option("Связать с требованием…", ""));
+        for (const r of trace.requirements)
+          if (!attached.some((s) => s.toUpperCase() === r.id))
+            add.add(new Option(r.label, r.id));
+        add.disabled = add.options.length === 1;
+        add.onchange = () => {
+          if (!add.value) return;
+          checkpoint();
+          current().requirements = [...attached, add.value];
+          refresh();
+        };
+        props.append(add);
+      }
       action("Дублировать фигуру", () => {
         checkpoint();
         const original = current();
@@ -526,6 +584,35 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
     if (cmd === "save") {
       publish();
       onDone();
+      return;
+    }
+    if (cmd === "layout" || cmd === "route") {
+      const scope =
+        selected.size > 1 || activeModule || (cmd === "route" && selected.size)
+          ? selected
+          : new Set(graph.nodes.map((n) => n.id));
+      const next = clone(graph);
+      try {
+        if (cmd === "layout") arrangeNodes(next, scope);
+        const missed = routeEdges(next, scope, cmd === "route" ? edge : null);
+        if (JSON.stringify(next) !== JSON.stringify(graph)) {
+          checkpoint();
+          graph = next;
+        }
+        refresh();
+        hint.textContent = missed
+          ? "Не удалось обойти фигуры для связей: " +
+            missed +
+            ". Раздвиньте соседние фигуры."
+          : "Готово · " +
+            (cmd === "route" && edge
+              ? "выбранная связь"
+              : scope.size === graph.nodes.length
+                ? "вся схема"
+                : "выделенные фигуры");
+      } catch (error) {
+        hint.textContent = error.message;
+      }
       return;
     }
     if (cmd === "add") {
@@ -814,6 +901,14 @@ export function graphEditor(raw, panel, props, onChange, onDone) {
     if (dirty) graph = normalize(graph);
     refresh();
   };
+  if (initialNode && graph.nodes.some((n) => n.id === initialNode))
+    select([initialNode]);
   refresh();
+  if (node) {
+    stage
+      .querySelector('[data-node="' + CSS.escape(node) + '"]')
+      ?.scrollIntoView({ block: "center", inline: "center" });
+    stage.focus({ preventScroll: true });
+  }
   return publish;
 }

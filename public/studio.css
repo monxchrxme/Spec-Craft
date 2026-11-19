@@ -1139,3 +1139,98 @@ body:has(.inline-graph) .paper {
   line-height: var(--doc-leading, 1.65);
   tab-size: inherit;
 }
+.spec-panel {
+  overflow-wrap: anywhere;
+}
+.spec-panel h3 {
+  margin: 8px 0 0;
+  font-size: 15px;
+}
+.spec-panel small,
+.spec-panel .spec-muted {
+  color: var(--muted);
+}
+.spec-entry,
+.spec-form {
+  display: grid;
+  gap: 7px;
+}
+.spec-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.spec-panel .spec-link {
+  color: var(--accent);
+  text-align: left;
+  justify-content: flex-start;
+  padding: 3px 0;
+}
+.dialog-body .spec-check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink);
+}
+.spec-check input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.spec-form {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.spec-panel .version-change {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+.version-change summary {
+  cursor: pointer;
+}
+.version-change small {
+  display: block;
+  margin-top: 8px;
+}
+.version-change pre {
+  background: var(--canvas);
+  padding: 8px;
+  margin: 3px 0;
+}
+.wiki-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.wiki-suggestions {
+  position: fixed;
+  z-index: 10;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 4px 16px #21162e22;
+  overflow-y: auto;
+  max-height: 160px;
+  max-width: calc(100vw - 20px);
+  min-width: min(260px, 90vw);
+  padding: 4px;
+}
+.wiki-suggestions button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+}
+.wiki-suggestions [aria-selected="true"] {
+  background: var(--lavender);
+  color: var(--accent);
+}
+
+.node-requirement {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.node-requirement button:first-child {
+  color: var(--accent);
+}

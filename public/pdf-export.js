@@ -1,3 +1,4 @@
+import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 
 const a4 = { width: 595.28, height: 841.89 };
@@ -83,7 +84,15 @@ async function markdownBlocks(html, settings) {
         if (tag === "mark") childStyle.background = "#fff0a1";
         if (tag === "code")
           Object.assign(childStyle, { font: "Mono", background: "#f0eef4" });
-        if (tag === "a")
+        if (tag === "a" && node.hasAttribute("data-wiki")) {
+          const hits = settings.index.resolve(node.dataset.wiki);
+          if (hits.length === 1)
+            Object.assign(childStyle, {
+              linkToDestination: "spec-" + hits[0].key,
+              color: accent,
+              decoration: "underline",
+            });
+        } else if (tag === "a")
           Object.assign(childStyle, {
             link: node.getAttribute("href"),
             color: accent,
@@ -287,6 +296,7 @@ export async function exportPdf(parts, md, doc, enlarge) {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
   const settings = {
+    index: specIndex(parts),
     size: (Number(style.size) || 16) * 0.75,
     gap: (Number(style.gap) || 12) * 0.75,
     align: style.align === "justify" ? "justify" : "left",
@@ -299,7 +309,7 @@ export async function exportPdf(parts, md, doc, enlarge) {
     if (normal.length) sections.push({ section: normal, pageSize: a4 });
     normal = [];
   };
-  for (const part of parts) {
+  for (const [i, part] of parts.entries()) {
     if (part.t.type === "fence" && part.t.info.trim() === "studio-diagram") {
       const { node, pageSize } = diagramBlock(part.t.content, enlarge);
       if (pageSize) {
@@ -310,13 +320,24 @@ export async function exportPdf(parts, md, doc, enlarge) {
           pageSize,
         });
       } else normal.push(node);
-    } else
-      normal.push(
-        ...(await markdownBlocks(
-          md.renderer.render(part.tokens, md.options, {}),
-          settings,
-        )),
+    } else {
+      const blocks = await markdownBlocks(
+        md.renderer.render(part.tokens, md.options, {}),
+        settings,
       );
+      const root = blocks[0];
+      if (root?.headlineLevel || root?.table) {
+        for (const t of settings.index.targets.filter((t) => t.index === i)) {
+          const stack =
+            t.row < 0
+              ? root.stack
+              : root.table.body[t.row].flatMap((cell) => cell.stack);
+          const text = stack.find((node) => node.text);
+          if (text) text.id = "spec-" + t.key;
+        }
+      }
+      normal.push(...blocks);
+    }
   }
   flush();
   const font = families[style.font] || "Sans";

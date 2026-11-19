@@ -1,3 +1,6 @@
+import { enableWikiSuggestions } from "./wiki-suggestions.js";
+import { wikiLinks, specIndex } from "./spec-index.js";
+import { specPanels } from "./spec-panels.js";
 import { diagramView } from "./diagram-view.js";
 import { graphEditor } from "./graph-editor.js";
 import { normalize, escapeHtml as esc } from "./graph.js";
@@ -13,7 +16,8 @@ const md = window
     linkify: false,
     typographer: false,
   })
-  .use(window.markdownitMark);
+  .use(window.markdownitMark)
+  .use(wikiLinks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
@@ -131,11 +135,11 @@ function setText(text, record = true) {
 function patch(start, end, body) {
   setText(doc.body.slice(0, start) + body + doc.body.slice(end));
 }
-function parse() {
+function parse(body = doc.body) {
   const starts = [0];
-  for (const m of doc.body.matchAll(/\r\n|\r|\n/g))
+  for (const m of body.matchAll(/\r\n|\r|\n/g))
     starts.push(m.index + m[0].length);
-  const tokens = md.parse(doc.body, {}),
+  const tokens = md.parse(body, {}),
     res = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -147,16 +151,16 @@ function parse() {
         !(tokens[++j].level === 0 && tokens[j].nesting === -1)
       ) {}
     const start = starts[t.map[0]],
-      rawEnd = starts[t.map[1]] ?? doc.body.length;
+      rawEnd = starts[t.map[1]] ?? body.length;
     let end = rawEnd;
-    const tail = doc.body.slice(start, end).match(/(?:\r\n|\n|\r)$/);
+    const tail = body.slice(start, end).match(/(?:\r\n|\n|\r)$/);
     if (tail) end -= tail[0].length;
     res.push({
       t,
       tokens: tokens.slice(i, j + 1),
       start,
       end,
-      text: doc.body.slice(start, end),
+      text: body.slice(start, end),
     });
     i = j;
   }
@@ -189,7 +193,7 @@ function nav() {
   $("#trash-count").textContent =
     [...docs.values()].filter((d) => d.trashed).length || "";
   for (const b of document.querySelectorAll(
-    '[data-action="ai"],[data-action="style"],[data-action="export"],#filename',
+    '[data-action="ai"],[data-action="style"],[data-action="export"],[data-action="trace"],[data-action="links"],[data-action="versions"],#filename',
   ))
     b.disabled = !doc;
   icons();
@@ -348,7 +352,7 @@ function block(p, i) {
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
-      const edit = () => {
+      const edit = (initialNode) => {
         if (mode === "read") return;
         flush();
         if (modal.open) modal.close();
@@ -375,8 +379,18 @@ function block(p, i) {
             parts = parse();
           },
           () => closeGraph(),
+          typeof initialNode === "string" ? initialNode : null,
+          {
+            requirements: specIndex(parts).requirements,
+            open: (id) => {
+              const matches = specIndex(parts).resolve(id);
+              if (matches.length === 1) panels.trace(matches[0].key);
+              else panels.links(id);
+            },
+          },
         );
       };
+      box.openGraph = edit;
       box.append(diagramView(g, { edit: mode === "read" ? undefined : edit }));
       return box;
     } catch (err) {
@@ -1244,7 +1258,81 @@ function undo(forward) {
   render();
   source.dataset.group = "";
 }
+function jumpTo(target) {
+  flush();
+  if (modal.open) modal.close();
+  if (mode === "source") {
+    mode = "edit";
+    render();
+  }
+  selected = target.index;
+  const box = host.children[target.index];
+  if (!box) return;
+  if (target.node && mode === "edit") {
+    box.openGraph?.(target.node);
+    return;
+  }
+  const item = target.node
+    ? box.querySelector('[data-node="' + CSS.escape(target.node) + '"]')
+    : target.row >= 0
+      ? box.querySelector("table")?.rows[target.row]
+      : box;
+  (item || box).scrollIntoView({ block: "center", inline: "center" });
+  (item || box).animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: 650 });
+  highlight(target.index);
+}
+enableWikiSuggestions(() => specIndex(parse()).targets);
+const panels = specPanels({
+  open: dialog,
+  parse,
+  document: () => doc,
+  jump: jumpTo,
+  notice,
+  download,
+  fence,
+  addRequirement: () => {
+    modal.close();
+    if (mode === "read") setMode("edit");
+    insertBlock("requirement");
+  },
+  commit: (start, end, text) => {
+    const newline = doc.body.includes("\r\n") ? "\r\n" : "\n";
+    patch(start, end, text.replace(/\r\n|\n/g, newline));
+    render();
+    save();
+  },
+  update: (mutate) => {
+    flush();
+    if (!save()) return false;
+    return updateFile(doc.id, mutate);
+  },
+});
+host.addEventListener("mousedown", (e) => {
+  if (e.target.closest("[data-wiki]")) e.preventDefault();
+});
+host.addEventListener(
+  "click",
+  (e) => {
+    const link = e.target.closest("[data-wiki]");
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    flush();
+    const name = link.dataset.wiki,
+      matches = specIndex(parse()).resolve(name);
+    if (matches.length === 1) jumpTo(matches[0]);
+    else panels.links(name);
+  },
+  true,
+);
 const actions = {
+  trace: () => panels.trace(),
+  links: () => {
+    flush();
+    const h = specIndex(parse()).headings.findLast((h) => h.index <= selected);
+    panels.links(h?.id || h?.label);
+  },
+  versions: () => panels.versions(),
   files: () =>
     document.body.classList.toggle(
       matchMedia("(max-width:760px)").matches ? "show-side" : "hide-side",
