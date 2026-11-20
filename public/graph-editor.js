@@ -1,3 +1,4 @@
+import { checkDiagram } from "./graph-check.js";
 import { arrangeNodes, routeEdges } from "./auto-layout.js";
 import {
   normalize,
@@ -6,6 +7,10 @@ import {
   colors,
   uid,
   anchors,
+  routePoints,
+  editableSegments,
+  sameSegment,
+  samePoint,
   styleFrame,
 } from "./graph.js";
 const clone = (value) => structuredClone(value);
@@ -26,6 +31,8 @@ export function graphEditor(
     zoom = 0.9,
     snap = false,
     drag = null,
+    activeSegment = null,
+    showChecks = false,
     dirty = false,
     multi = false,
     activeModule = null;
@@ -46,6 +53,7 @@ export function graphEditor(
       <button data-cmd="connect">Связать</button>
       <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
+      <button data-cmd="check" aria-pressed="false">Проверить схему</button>
       <button data-cmd="snap" aria-pressed="false">По сетке</button>
       <button data-cmd="undo" aria-label="Отменить действие">↶</button>
       <button data-cmd="redo" aria-label="Повторить действие">↷</button>
@@ -77,6 +85,7 @@ export function graphEditor(
     node = selected.size === 1 && !moduleId ? [...selected][0] : null;
     activeModule = moduleId;
     edge = null;
+    activeSegment = null;
   }
   function tidyModules() {
     if (graph.modules)
@@ -137,8 +146,18 @@ export function graphEditor(
       .querySelector("[data-cmd=pan]")
       .setAttribute("aria-pressed", String(panMode));
     stage.replaceChildren(
-      draw(graph, { editor: true, zoom, selected, edge, module: activeModule }),
+      draw(graph, {
+        editor: true,
+        zoom,
+        selected,
+        edge,
+        module: activeModule,
+        segment: activeSegment,
+      }),
     );
+    panel
+      .querySelector("[data-cmd=check]")
+      .setAttribute("aria-pressed", String(showChecks));
     if (!drag) publish();
     panel.querySelector("output").textContent = Math.round(zoom * 100) + "%";
     panel.querySelector("[data-cmd=undo]").disabled = !history.length;
@@ -188,8 +207,12 @@ export function graphEditor(
       const v = kind === "number" ? Number(inp.value) : inp.value;
       if (kind === "number" && !Number.isFinite(v)) return;
       checkpoint();
-      current()[key] = v;
+      const record = current();
+      record[key] = v;
+      if (key === "route" && v !== "orthogonal") delete record.lockedSegments;
       graph = normalize(graph);
+      if (node && ["width", "height", "shape"].includes(key))
+        reroutePinned(new Set([node]));
       render();
       inspector();
     };
@@ -202,9 +225,78 @@ export function graphEditor(
     b.onclick = fn;
     props.append(b);
   }
+  function segmentsOf(connection) {
+    const a = graph.nodes.find((n) => n.id === connection.from),
+      b = graph.nodes.find((n) => n.id === connection.to);
+    return editableSegments(routePoints(a, b, connection), connection);
+  }
+  function reroutePinned(ids) {
+    const pinned = graph.edges.filter(
+      (connection) => connection.lockedSegments?.length,
+    );
+    return pinned.length ? routeEdges({ ...graph, edges: pinned }, ids) : 0;
+  }
+  function reshapeSegment(connection, segment, replacement, pin) {
+    const locks = [...(connection.lockedSegments || [])];
+    const original = locks.findIndex((item) => sameSegment(item, segment));
+    const route = connection.points || [];
+    const position =
+      original >= 0
+        ? original
+        : locks.filter((item) => {
+            const i = route.findIndex((p) => samePoint(p, item.from));
+            return i >= 0 && i < segment.index - 1;
+          }).length;
+    locks.splice(position, original >= 0 ? 1 : 0, replacement);
+    const next = { ...connection, lockedSegments: locks };
+    if (routeEdges({ ...graph, edges: [next] }, new Set(), next.id))
+      return null;
+    if (!pin && original < 0) {
+      locks.splice(position, 1);
+      if (!locks.length) delete next.lockedSegments;
+    }
+    return next;
+  }
+  function replaceEdge(connection) {
+    graph.edges[graph.edges.findIndex((item) => item.id === connection.id)] =
+      connection;
+  }
+  function focusIssue(issue) {
+    select(issue.node ? [issue.node] : []);
+    if (!issue.node) edge = issue.edge || null;
+    refresh();
+    const svg = stage.querySelector("svg"),
+      rect = stage.getBoundingClientRect();
+    const [x, y] = issue.point;
+    const screen = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM());
+    stage.scrollLeft += screen.x - rect.left - stage.clientWidth / 2;
+    stage.scrollTop += screen.y - rect.top - stage.clientHeight / 2;
+    stage.scrollIntoView({ block: "nearest" });
+    stage.focus({ preventScroll: true });
+  }
+  function renderChecks() {
+    if (!showChecks) return;
+    const box = document.createElement("section");
+    box.className = "diagram-checks";
+    const results = checkDiagram(graph, stage.querySelector("svg"));
+    const title = document.createElement("h3");
+    title.textContent = results.length
+      ? "Замечания · " + results.length
+      : "Замечаний по схеме нет";
+    box.append(title);
+    for (const issue of results) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.textContent = issue.type + " · " + issue.text;
+      item.onclick = () => focusIssue(issue);
+      box.append(item);
+    }
+    props.append(box);
+  }
   function inspector() {
     const frameSettingsOpen = props.querySelector("details")?.open || false;
     props.replaceChildren();
+    renderChecks();
     const picker = document.createElement("select");
     picker.setAttribute("aria-label", "Выбрать элемент схемы");
     picker.add(new Option("Вся схема", ""));
@@ -448,6 +540,64 @@ export function graphEditor(
       field("Толщина", "weight", "number", 1.6);
       field("Сдвиг подписи X", "labelX", "number", 7);
       field("Сдвиг подписи Y", "labelY", "number", -7);
+      const connection = current();
+      const segments = segmentsOf(connection);
+      if (segments.length) {
+        const selectSegment = document.createElement("select");
+        selectSegment.setAttribute("aria-label", "Участок маршрута");
+        selectSegment.add(new Option("Выберите участок маршрута", ""));
+        segments.forEach((part, i) =>
+          selectSegment.add(
+            new Option(
+              "Участок " + (i + 1) + (part.locked >= 0 ? " · закреплён" : ""),
+              String(i),
+            ),
+          ),
+        );
+        const selectedIndex = segments.findIndex((part) =>
+          sameSegment(part, activeSegment),
+        );
+        selectSegment.value = selectedIndex < 0 ? "" : String(selectedIndex);
+        selectSegment.onchange = () => {
+          activeSegment =
+            selectSegment.value === ""
+              ? null
+              : segments[Number(selectSegment.value)];
+          refresh();
+        };
+        props.append(selectSegment);
+        if (selectedIndex >= 0) {
+          const part = segments[selectedIndex];
+          action(
+            part.locked >= 0 ? "Открепить участок" : "Закрепить участок",
+            () => {
+              if (part.locked >= 0) {
+                checkpoint();
+                connection.lockedSegments.splice(part.locked, 1);
+                if (!connection.lockedSegments.length)
+                  delete connection.lockedSegments;
+              } else {
+                const replacement = { from: part.from, to: part.to };
+                const next = reshapeSegment(
+                  connection,
+                  part,
+                  replacement,
+                  true,
+                );
+                if (!next) {
+                  hint.textContent =
+                    "Не удалось проложить маршрут через участок.";
+                  return;
+                }
+                checkpoint();
+                replaceEdge(next);
+                activeSegment = replacement;
+              }
+              refresh();
+            },
+          );
+        }
+      }
       action(current().dashed ? "Сплошная линия" : "Пунктирная линия", () => {
         checkpoint();
         current().dashed = !current().dashed;
@@ -470,6 +620,8 @@ export function graphEditor(
         action("Сбросить точки", () => {
           checkpoint();
           delete current().points;
+          delete current().lockedSegments;
+          activeSegment = null;
           refresh();
         });
     } else {
@@ -587,6 +739,15 @@ export function graphEditor(
     if (cmd === "save") {
       publish();
       onDone();
+      return;
+    }
+    if (cmd === "check") {
+      showChecks = !showChecks;
+      refresh();
+      if (showChecks)
+        props
+          .querySelector(".diagram-checks")
+          ?.scrollIntoView({ block: "nearest" });
       return;
     }
     if (cmd === "layout" || cmd === "route") {
@@ -746,7 +907,12 @@ export function graphEditor(
   }
   function internalPoints() {
     return graph.edges
-      .filter((e) => selected.has(e.from) && selected.has(e.to))
+      .filter(
+        (e) =>
+          !e.lockedSegments?.length &&
+          selected.has(e.from) &&
+          selected.has(e.to),
+      )
       .flatMap((e) => e.points || []);
   }
   stage.onpointerdown = (e) => {
@@ -800,7 +966,18 @@ export function graphEditor(
       edge = ed || null;
     }
     const point = e.target.dataset.point;
-    if (n || m) {
+    const segment = e.target.dataset.segment;
+    if (ed && segment !== undefined) {
+      const connection = current();
+      activeSegment = segmentsOf(connection)[Number(segment)];
+      if (activeSegment)
+        drag = {
+          type: "segment",
+          start,
+          segment: activeSegment,
+          connection: clone(connection),
+        };
+    } else if (n || m) {
       const resize = e.target.hasAttribute("data-size") && selected.size === 1;
       const targets = graph.nodes.filter((n) => selected.has(n.id));
       drag = {
@@ -818,6 +995,7 @@ export function graphEditor(
           y: p.y,
         })),
         node: targets[0],
+        moved: new Set(targets.map((n) => n.id)),
         w: targets[0].width,
         h: targets[0].height,
       };
@@ -844,12 +1022,35 @@ export function graphEditor(
       dx = end.x - drag.start.x,
       dy = end.y - drag.start.y;
     if (!drag.started && Math.abs(dx) + Math.abs(dy) < 3) return;
-    if (!drag.started) {
+    if (!drag.started && drag.type !== "segment") {
       if (drag.type !== "box") checkpoint();
       drag.started = true;
     }
     const round = (v) => (snap ? Math.round(v / 14) * 14 : Math.round(v));
-    if (drag.type === "box") {
+    if (drag.type === "segment") {
+      const { from, to } = drag.segment;
+      const horizontal = from.y === to.y;
+      const shift = (point) => ({
+        x: horizontal ? point.x : round(point.x + dx),
+        y: horizontal ? round(point.y + dy) : point.y,
+      });
+      const replacement = { from: shift(from), to: shift(to) };
+      if (!drag.started && sameSegment(replacement, drag.segment)) return;
+      const next = reshapeSegment(
+        drag.connection,
+        drag.segment,
+        replacement,
+        false,
+      );
+      drag.blocked = !next;
+      if (next) {
+        if (!drag.started) checkpoint();
+        drag.started = true;
+        replaceEdge(next);
+        activeSegment = replacement;
+        render();
+      } else hint.textContent = "На этом месте участок перекрыт фигурой.";
+    } else if (drag.type === "box") {
       const left = Math.min(end.x, drag.start.x),
         top = Math.min(end.y, drag.start.y),
         right = Math.max(end.x, drag.start.x),
@@ -900,9 +1101,17 @@ export function graphEditor(
     if (!drag || drag.id !== e.pointerId) return;
     if (e.type === "pointerup" && !drag.started && drag.tapSelection)
       select(drag.tapSelection);
+    const moved = drag.started && drag.moved;
+    const blocked = drag.blocked;
     drag = null;
     if (dirty) graph = normalize(graph);
+    const missed = moved ? reroutePinned(moved) : 0;
     refresh();
+    if (missed)
+      hint.textContent =
+        "Часть закреплённых маршрутов перекрыта. Переместите фигуру или открепите участок.";
+    else if (blocked)
+      hint.textContent = "На этом месте участок перекрыт фигурой.";
   };
   if (initialNode && graph.nodes.some((n) => n.id === initialNode))
     select([initialNode]);

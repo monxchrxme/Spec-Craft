@@ -1,3 +1,5 @@
+import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
+import { embeddedImage, imageMarkdown } from "./images.js";
 import {
   coloredHighlights,
   formatSelection,
@@ -46,7 +48,8 @@ let doc,
   tableEdit = null,
   timer,
   feedbackTimer,
-  loaded = true;
+  loaded = true,
+  expandAll = false;
 function notice(s) {
   clearTimeout(feedbackTimer);
   $("#notice").textContent = s;
@@ -135,13 +138,15 @@ function save() {
     return false;
   }
 }
-function changed() {
-  const plain = doc.body.replace(
-    /^`{3,}studio-diagram[^\n]*\n[\s\S]*?^`{3,}\s*$/gm,
-    "",
-  );
+function updateWordcount() {
+  const plain = doc.body
+    .replace(/^`{3,}studio-diagram[^\n]*\n[\s\S]*?^`{3,}\s*$/gm, "")
+    .replace(/data:image\/[a-z]+;base64,[A-Za-z\d+/=]+/gi, "");
   $("#wordcount").textContent =
     (plain.match(/[\p{L}\p{N}]+/gu) || []).length + " слов";
+}
+function changed() {
+  updateWordcount();
   $("#save").textContent = "Сохранение…";
   clearTimeout(timer);
   timer = setTimeout(save, 300);
@@ -237,6 +242,7 @@ function activate(d) {
   closeGraph();
   if (modal.open) modal.close();
   doc = d;
+  expandAll = false;
   selected = 0;
   document.body.classList.remove("show-side");
   render();
@@ -295,6 +301,15 @@ function insertionBlock() {
 viewport.onscroll = () => {
   if (mode !== "source") highlight(visibleBlock());
 };
+viewport.addEventListener("click", (event) => {
+  if (
+    editor &&
+    (event.target === viewport ||
+      event.target === host ||
+      event.target.matches(".paper, .doc-label, .doc-label > span, #kind"))
+  )
+    flush();
+});
 function styles() {
   const p = $(".paper"),
     s = doc.style || {};
@@ -326,18 +341,52 @@ function styles() {
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
+const diagramCards = () => [...host.querySelectorAll(".diagram-card")];
+function updateExpandButton() {
+  const button = $("[data-action=expand-diagrams]");
+  const cards = diagramCards();
+  const allExpanded =
+    cards.length &&
+    cards.every((card) => card.classList.contains("diagram-expanded"));
+  button.hidden = !cards.length;
+  button.lastChild.textContent = allExpanded
+    ? "Свернуть все схемы"
+    : "Развернуть все схемы";
+}
+function toggleAllDiagrams() {
+  const cards = diagramCards();
+  expandAll = cards.some(
+    (card) => !card.classList.contains("diagram-expanded"),
+  );
+  cards.forEach((card) => card.setExpanded(expandAll));
+  if (inlineGraph) inlineGraph.expanded = expandAll;
+  updateExpandButton();
+}
+const blockTop = (box) =>
+  box.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+function restoreBlockTop(box, top) {
+  const delta = blockTop(box) - top;
+  if (Math.abs(delta) > 0.5) viewport.scrollTop += delta;
+}
 function closeGraph(restore = true) {
   if (!inlineGraph) return;
   const session = inlineGraph;
+  const box = session.panel.parentElement;
+  const top = restore && box?.isConnected ? blockTop(box) : null;
   session.publish?.();
   inlineGraph = null;
   const dock = $("#graph-dock");
   dock.hidden = true;
   dock.querySelector(".props").onkeydown = null;
   dock.querySelector(".props").replaceChildren();
-  if (restore && session.panel.isConnected) {
+  if (top !== null) {
     const p = parts[session.index];
-    if (p) session.panel.parentElement.replaceWith(block(p, session.index));
+    if (p) {
+      const restored = block(p, session.index, session.expanded);
+      box.replaceWith(restored);
+      updateExpandButton();
+      restoreBlockTop(restored, top);
+    }
     icons();
   }
 }
@@ -381,16 +430,12 @@ function render() {
     parts.forEach((p, i) => blocks.append(block(p, i)));
     host.replaceChildren(blocks);
   }
+  updateExpandButton();
   outline();
   icons();
   viewport.scrollTop = scrollTop;
   void paintMath(host);
-  $("#wordcount").textContent =
-    (
-      doc.body
-        .replace(/^`{3,}studio-diagram[^\n]*\n[\s\S]*?^`{3,}\s*$/gm, "")
-        .match(/[\p{L}\p{N}]+/gu) || []
-    ).length + " слов";
+  updateWordcount();
 }
 function deleteBlockButton(index, label, className) {
   const button = document.createElement("button");
@@ -426,7 +471,7 @@ function deleteBlockButton(index, label, className) {
   };
   return button;
 }
-function block(p, i) {
+function block(p, i, expanded = expandAll) {
   const box = document.createElement("div");
   box.className = "block";
   box.dataset.idx = i;
@@ -438,6 +483,8 @@ function block(p, i) {
       const g = normalize(JSON.parse(p.t.content));
       const edit = (initialNode) => {
         if (mode === "read") return;
+        const top = blockTop(box);
+        const openedWide = card.classList.contains("diagram-expanded");
         flush();
         if (modal.open) modal.close();
         const target = host.children[i],
@@ -445,7 +492,7 @@ function block(p, i) {
         target.replaceChildren(panel);
         const dock = $("#graph-dock");
         dock.hidden = false;
-        const session = { index: i, panel };
+        const session = { index: i, panel, expanded: openedWide };
         inlineGraph = session;
         selected = i;
         session.publish = graphEditor(
@@ -477,9 +524,15 @@ function block(p, i) {
           .querySelector("header")
           .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
         icons();
+        updateExpandButton();
+        if (typeof initialNode !== "string") restoreBlockTop(target, top);
       };
       box.openGraph = edit;
-      const card = diagramView(g, { edit: mode === "read" ? undefined : edit });
+      const card = diagramView(g, {
+        edit: mode === "read" ? undefined : edit,
+        expanded,
+        onExpand: updateExpandButton,
+      });
       if (mode === "edit")
         card
           .querySelector("header")
@@ -528,6 +581,10 @@ function editBlock(i, selectAll = false) {
   editor = { i, ta, baseline: p.text, start: p.start, end: p.end };
   const toolbar = document.createElement("div");
   toolbar.className = "inline-tools";
+  function finish() {
+    flush();
+    host.children[i]?.focus({ preventScroll: true });
+  }
   const preview = document.createElement("div");
   preview.className = "math-preview";
   preview.setAttribute("aria-label", "Предпросмотр формул");
@@ -569,25 +626,68 @@ function editBlock(i, selectAll = false) {
       } else if (mark === "==") highlightSelection(ta, "yellow");
       else formatSelection(ta, mark, mark, "текст");
     };
-    toolbar.append(btn);
+    if (mark === "==") {
+      const tools = document.createElement("div");
+      tools.className = "marker-tool";
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.title = "Цвет маркера";
+      toggle.setAttribute("aria-label", toggle.title);
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.innerHTML = icon("chevron-down");
+      const palette = document.createElement("div");
+      palette.className = "highlight-palette";
+      palette.setAttribute("role", "group");
+      palette.setAttribute("aria-label", "Цвета маркера");
+      palette.hidden = true;
+      function showPalette(open) {
+        palette.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+      }
+      toggle.onmousedown = (e) => e.preventDefault();
+      toggle.onclick = () => {
+        showPalette(palette.hidden);
+        if (!palette.hidden)
+          palette.firstElementChild.focus({ preventScroll: true });
+      };
+      for (const [id, item] of Object.entries(highlightColors)) {
+        const swatch = document.createElement("button");
+        swatch.type = "button";
+        swatch.title = item.label;
+        swatch.setAttribute("aria-label", item.label);
+        swatch.style.setProperty("--swatch", item.color);
+        swatch.onmousedown = (e) => e.preventDefault();
+        swatch.onclick = () => {
+          showPalette(false);
+          highlightSelection(ta, id);
+        };
+        palette.append(swatch);
+      }
+      tools.onkeydown = (e) => {
+        if (e.key === "Escape" && !palette.hidden) {
+          e.stopPropagation();
+          e.preventDefault();
+          showPalette(false);
+          ta.focus({ preventScroll: true });
+        }
+      };
+      tools.onfocusout = () => {
+        setTimeout(() => {
+          if (!tools.contains(document.activeElement)) showPalette(false);
+        }, 0);
+      };
+      tools.append(btn, toggle, palette);
+      toolbar.append(tools);
+    } else toolbar.append(btn);
   }
-  const palette = document.createElement("select");
-  palette.className = "highlight-palette";
-  palette.setAttribute("aria-label", "Цвет маркера");
-  const label = new Option("Цвет маркера", "");
-  label.disabled = true;
-  palette.add(label);
-  for (const [id, item] of Object.entries(highlightColors)) {
-    const option = new Option(item.label, id);
-    option.style.backgroundColor = item.color;
-    palette.add(option);
-  }
-  palette.value = "";
-  palette.onchange = () => {
-    highlightSelection(ta, palette.value);
-    palette.value = "";
-  };
-  toolbar.append(palette);
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "inline-done";
+  done.innerHTML = icon("check");
+  done.append("Готово");
+  done.onmousedown = (event) => event.preventDefault();
+  done.onclick = finish;
+  toolbar.append(done);
   box.replaceChildren(toolbar, ta, preview);
   updatePreview();
   icons();
@@ -626,7 +726,7 @@ function editBlock(i, selectAll = false) {
     }
     if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
       e.preventDefault();
-      flush();
+      finish();
     } else if (
       e.key === "Enter" &&
       p.t.type !== "math_block" &&
@@ -897,9 +997,9 @@ function setMode(next) {
     source.setSelectionRange(offset, offset);
   } else host.children[selected]?.scrollIntoView({ block: "nearest" });
 }
-function insertBlock(type, idx = insertionBlock()) {
+function insertBlock(type, idx = insertionBlock(), content) {
   flush();
-  const item = blocksToInsert[type];
+  const item = content === undefined ? blocksToInsert[type] : ["", content];
   if (!item) return;
   let body = item[1];
   if (type === "requirement") {
@@ -992,13 +1092,49 @@ function insertDialog() {
           }[k],
         ),
       )
-      .join(""),
+      .join("") + option("image", "Изображение", "image"),
   );
   b.onclick = (e) => {
     const k = e.target.closest("[data-id]")?.dataset.id;
-    if (k) {
+    if (k === "image") imageDialog(index);
+    else if (k) {
       modal.close();
       insertBlock(k, index);
+    }
+  };
+}
+function imageDialog(index) {
+  const id = doc.id;
+  const panel = dialog(
+    "Вставить изображение",
+    '<form class="template-form"><label>Файл изображения<input name="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>' +
+      '<label>Или ссылка на изображение<input name="url" type="url" placeholder="https://"></label>' +
+      '<label>Описание для изображения<input name="alt" placeholder="Например, схема подключения"></label>' +
+      '<button class="primary">Вставить изображение</button></form><p role="status"></p>',
+  );
+  const form = panel.querySelector("form"),
+    status = panel.querySelector("[role=status]");
+  const submit = form.querySelector("button");
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    status.textContent = "";
+    try {
+      const file = form.elements.file.files[0];
+      const url = file
+        ? await embeddedImage(file)
+        : form.elements.url.value.trim();
+      const markdown = imageMarkdown(url, form.elements.alt.value);
+      if (!panel.isConnected || !modal.open || doc?.id !== id) return;
+      modal.close();
+      insertBlock("image", index, markdown);
+    } catch (error) {
+      status.textContent =
+        error instanceof Error
+          ? error.message
+          : "Не удалось прочитать изображение.";
+    } finally {
+      submit.disabled = false;
     }
   };
 }
@@ -1160,33 +1296,36 @@ function trashDialog() {
     body.append(row);
   }
 }
-function newDialog() {
-  const b = dialog(
-    "Новый документ",
-    '<label>Шаблон<select id="template">' +
-      Object.entries(examples)
-        .map(
-          ([k, v]) => '<option value="' + k + '">' + esc(v.label) + "</option>",
-        )
-        .join("") +
-      '</select></label><label>Имя файла<input id="new-name" value="Техническое задание.md"></label><div class="dialog-actions"><button class="primary">Создать</button></div>',
-  );
-  b.querySelector("select").onchange = (e) =>
-    ($("#new-name").value = examples[e.target.value].label + ".md");
-  b.querySelector("button").onclick = () => {
-    const key = $("#template").value,
-      t = examples[key],
-      name = nameOf($("#new-name").value);
-    const text =
-      key === "spec"
-        ? "# Техническое задание\n\n## Назначение\n\nОпишите цель системы.\n\n## Функциональные требования\n\n" +
-          blocksToInsert.table[1] +
-          "\n\n## Критерии приёмки\n\nУкажите условия приёмки.\n"
-        : t.body;
-    modal.close();
-    create(name, text, t.label);
-  };
-}
+const templates = templateTools({
+  dialog,
+  close: () => modal.close(),
+  create,
+  nameOf,
+  download,
+  current: () => doc,
+  diagrams: (markdown) =>
+    parse(markdown).filter(
+      ({ t }) => t.type === "fence" && t.info.trim() === "studio-diagram",
+    ),
+  preview: (target, markdown) => {
+    target.replaceChildren();
+    for (const { t, tokens } of parse(markdown)) {
+      if (t.type === "fence" && t.info.trim() === "studio-diagram") {
+        try {
+          target.append(diagramView(normalize(JSON.parse(t.content))));
+          continue;
+        } catch {
+          // Keep invalid diagram source visible in the preview.
+        }
+      }
+      const content = document.createElement("template");
+      content.innerHTML = md.renderer.render(tokens, md.options, {});
+      target.append(content.content);
+    }
+    icons();
+    void paintMath(target);
+  },
+});
 async function printDoc() {
   flush();
   const old = mode;
@@ -1195,6 +1334,9 @@ async function printDoc() {
   const sheet = $(".paper").cloneNode(true);
   sheet.removeAttribute("id");
   sheet.classList.add("print-surface");
+  sheet
+    .querySelectorAll(".diagram-expanded")
+    .forEach((card) => card.classList.remove("diagram-expanded"));
   document.body.append(sheet);
   mode = old;
   render();
@@ -1520,7 +1662,7 @@ host.addEventListener(
 function transferDialog() {
   const box = dialog(
     "Перенос данных",
-    "<p>Резервная копия включает документы, версии и доступ автора к замечаниям. Храните её у себя.</p>" +
+    "<p>Резервная копия включает документы, шаблоны, версии и доступ автора к замечаниям. Храните её у себя.</p>" +
       option("backup", "Скачать резервную копию", "download") +
       '<label>Загрузить резервную копию<input type="file" accept=".json,application/json"></label>',
   );
@@ -1533,6 +1675,7 @@ function transferDialog() {
           version: 1,
           active: doc?.id,
           documents: [...docs.values()],
+          templates: readTemplates(),
         }),
         "application/json",
       );
@@ -1566,6 +1709,7 @@ function transferDialog() {
         )
       )
         throw Error("Выберите резервную копию SpecCraft.");
+      const templateCount = restoreTemplates(bundle.templates ?? []);
       for (const record of bundle.documents) {
         const existing = docs.get(record.id);
         if (
@@ -1587,9 +1731,13 @@ function transferDialog() {
       else nav();
       modal.close();
       notice(
-        imported
-          ? "Загружено документов: " + imported
-          : "Эти документы уже есть в студии.",
+        imported || templateCount
+          ? "Загружено документов: " +
+              imported +
+              ". Шаблонов: " +
+              templateCount +
+              "."
+          : "Эти данные уже есть в студии.",
       );
     } catch (error) {
       nav();
@@ -1605,6 +1753,7 @@ function transferDialog() {
   };
 }
 const actions = {
+  "expand-diagrams": toggleAllDiagrams,
   transfer: transferDialog,
   trace: () => panels.trace(),
   links: () => {
@@ -1618,7 +1767,8 @@ const actions = {
       matchMedia("(max-width:760px)").matches ? "show-side" : "hide-side",
     ),
   open: () => $("#file-input").click(),
-  new: newDialog,
+  new: () => templates.createFrom(),
+  templates: () => templates.library(),
   ai: aiDialog,
   export: exportDialog,
   style: styleDialog,

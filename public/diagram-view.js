@@ -2,7 +2,7 @@
 // keeps its original coordinates and scale.
 import { draw, frameLayout, styleFrame } from "./graph.js";
 
-export function diagramView(graph, { edit } = {}) {
+export function diagramView(graph, { edit, expanded = false, onExpand } = {}) {
   const card = document.createElement("section");
   card.className = "diagram-card";
   const title = graph.title || "Блок-схема";
@@ -28,17 +28,20 @@ export function diagramView(graph, { edit } = {}) {
     header.append(button);
   }
   addAction("Изменить", "sliders-horizontal", edit);
-  let expanded = false;
   const expand = () => {
-    expanded = !expanded;
-    card.classList.toggle("diagram-expanded", expanded);
-    expandButton.lastChild.textContent = expanded ? "Свернуть" : "Развернуть";
-    expandButton.setAttribute("aria-expanded", String(expanded));
+    card.setExpanded(!expanded);
+    onExpand?.();
     card.scrollIntoView({ block: "nearest" });
   };
   addAction("Развернуть", "maximize-2", expand);
   const expandButton = header.lastElementChild;
-  expandButton.setAttribute("aria-expanded", "false");
+  card.setExpanded = (value) => {
+    expanded = value;
+    card.classList.toggle("diagram-expanded", expanded);
+    expandButton.lastChild.textContent = expanded ? "Свернуть" : "Развернуть";
+    expandButton.setAttribute("aria-expanded", String(expanded));
+  };
+  card.setExpanded(expanded);
   card.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && expanded) {
       expand();

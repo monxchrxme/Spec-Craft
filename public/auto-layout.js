@@ -47,10 +47,14 @@ function simple(points) {
 
 function pathBetween(start, end, boxes, fromSide, toSide) {
   const alongPort = (from, to, side) =>
-    sides[side][0] * (to[0] - from[0]) + sides[side][1] * (to[1] - from[1]);
+    side
+      ? sides[side][0] * (to[0] - from[0]) + sides[side][1] * (to[1] - from[1])
+      : 0;
   const candidates = [];
-  const horizontal = sides[fromSide][0] !== 0;
+  const horizontal = fromSide && sides[fromSide][0] !== 0;
   if (
+    fromSide &&
+    toSide &&
     sides[fromSide].every((v, i) => v === -sides[toSide][i]) &&
     alongPort(start, end, fromSide) >= 0
   ) {
@@ -180,12 +184,45 @@ function portChoices(preferred, fixed) {
 function offset(point, side) {
   return point.map((v, i) => v + sides[side][i] * portClearance);
 }
+function routeThroughLocks(start, end, boxes, fromSide, toSide, locks) {
+  const points = [start];
+  let cursor = start,
+    departure = fromSide;
+  for (const { from, to } of locks) {
+    const a = [from.x, from.y],
+      b = [to.x, to.y];
+    if (blocked(a, b, boxes)) return null;
+    const horizontal = a[1] === b[1];
+    const direction = horizontal
+      ? b[0] > a[0]
+        ? "right"
+        : "left"
+      : b[1] > a[1]
+        ? "bottom"
+        : "top";
+    const approach = {
+      right: "left",
+      left: "right",
+      top: "bottom",
+      bottom: "top",
+    }[direction];
+    const join = pathBetween(cursor, a, boxes, departure, approach);
+    if (!join) return null;
+    points.push(...join.slice(1), b);
+    cursor = b;
+    departure = direction;
+  }
+  const tail = pathBetween(cursor, end, boxes, departure, toSide);
+  return tail ? points.concat(tail.slice(1)) : null;
+}
+
 function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
   const [start, end] = anchors(fromNode, toNode, edge);
   const source = portChoices(portSide(start, fromNode), edge.fromSide);
   const target = portChoices(portSide(end, toNode), edge.toSide);
   for (const fromSide of source)
     for (const toSide of target) {
+      const locks = edge.lockedSegments || [];
       if (fromNode === toNode && fromSide === toSide) continue;
       const [from, to] = anchors(fromNode, toNode, { fromSide, toSide });
       const s = offset(from, fromSide),
@@ -197,6 +234,7 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
         (to[0] - from[0]) * direction[0] + (to[1] - from[1]) * direction[1] >=
           26;
       const direct =
+        !locks.length &&
         directlyFacing &&
         !blocked(
           from,
@@ -208,9 +246,15 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
         (blocked(from, s, fromObstacles) || blocked(to, t, toObstacles))
       )
         continue;
-      const route = direct ? [] : pathBetween(s, t, boxes, fromSide, toSide);
+      const route = direct
+        ? []
+        : locks.length
+          ? routeThroughLocks(s, t, boxes, fromSide, toSide, locks)
+          : pathBetween(s, t, boxes, fromSide, toSide);
       if (!route) continue;
-      const bends = simple([from, ...route, to]).slice(1, -1);
+      const bends = locks.length
+        ? route
+        : simple([from, ...route, to]).slice(1, -1);
       edge.route = "orthogonal";
       // Preserve automatic ports when the default orientation is viable.
       if (fromSide !== portSide(start, fromNode)) edge.fromSide = fromSide;

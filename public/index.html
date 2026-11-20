@@ -64,6 +64,9 @@
           <div id="outline"></div>
         </section>
         <div class="side-utilities">
+          <button data-action="templates">
+            <i data-lucide="layout-template"></i>Шаблоны
+          </button>
           <button data-action="trace">
             <i data-lucide="list-checks"></i>Связи требований
           </button>
@@ -142,7 +145,17 @@
             <button data-action="trash">Корзина</button>
           </section>
           <article class="paper">
-            <div class="doc-label"><span></span><b id="kind"></b></div>
+            <div class="doc-label">
+              <span></span><b id="kind"></b>
+              <button
+                class="expand-diagrams"
+                data-action="expand-diagrams"
+                hidden
+              >
+                <i data-lucide="maximize-2" aria-hidden="true"></i>Развернуть
+                все схемы
+              </button>
+            </div>
             <div id="blocks"></div>
             <textarea
               hidden

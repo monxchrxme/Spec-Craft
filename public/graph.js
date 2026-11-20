@@ -121,6 +121,21 @@ export function normalize(raw) {
       throw Error("Точки маршрута должны содержать числовые координаты x и y.");
     if (!e || !ids.has(e.from) || !ids.has(e.to))
       throw Error("Связь указывает на отсутствующую фигуру.");
+    if (
+      e.lockedSegments !== undefined &&
+      (!Array.isArray(e.lockedSegments) ||
+        !e.lockedSegments.every((segment) => {
+          const { from, to } = segment || {};
+          return (
+            [from?.x, from?.y, to?.x, to?.y].every(Number.isFinite) &&
+            !samePoint(from, to) &&
+            (from.x === to.x || from.y === to.y)
+          );
+        }))
+    )
+      throw Error(
+        "Закреплённый участок должен быть прямым отрезком с числовыми координатами.",
+      );
     e.id ??= "edge-" + (i + 1);
     if (typeof e.id !== "string" || edgeIds.has(e.id))
       throw Error("ID связей должны быть уникальны.");
@@ -251,6 +266,75 @@ export function styleFrame(card, g) {
   else card.style.removeProperty("--view-height");
 }
 // Each control point is on the curve, so existing hand-routed paths stay editable.
+export function routePoints(a, b, edge) {
+  const [start, end] = anchors(a, b, edge);
+  let mid = (edge.points || [])
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .map((p) => [p.x, p.y]);
+  if (!mid.length && a === b) {
+    const x = a.x + a.width + 25,
+      y = a.y + a.height + 25;
+    mid = [
+      [x, start[1]],
+      [x, y],
+      [end[0], y],
+    ];
+  } else if (!mid.length && !["straight", "curve"].includes(edge.route)) {
+    const horizontal = start[0] === a.x || start[0] === a.x + a.width;
+    const mx = (start[0] + end[0]) / 2,
+      my = (start[1] + end[1]) / 2;
+    mid = horizontal
+      ? [
+          [mx, start[1]],
+          [mx, end[1]],
+        ]
+      : [
+          [start[0], my],
+          [end[0], my],
+        ];
+  }
+  return [start, ...mid, end];
+}
+export function samePoint(a, b) {
+  return (
+    !!a && !!b && Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001
+  );
+}
+export function sameSegment(a, b) {
+  return !!a && !!b && samePoint(a.from, b.from) && samePoint(a.to, b.to);
+}
+export function editableSegments(points, edge) {
+  if (edge.route === "curve") return [];
+  const lockIndex = (segment) =>
+    (edge.lockedSegments || []).findIndex((lock) => sameSegment(lock, segment));
+  const segments = [];
+  for (let i = 1; i < points.length - 2; i++) {
+    const [x, y] = points[i],
+      [u, v] = points[i + 1];
+    const segment = { from: { x, y }, to: { x: u, y: v }, index: i };
+    const locked = lockIndex(segment);
+    if ((x === u || y === v) && (locked >= 0 || Math.hypot(x - u, y - v) >= 18))
+      segments.push({ ...segment, locked });
+  }
+  if (segments.length || points.length < 2) return segments;
+  const [x, y] = points[0],
+    [u, v] = points.at(-1);
+  if (
+    (x !== u && y !== v) ||
+    Math.hypot(x - u, y - v) < 80 ||
+    points.some((p) => (x === u ? p[0] !== x : p[1] !== y))
+  )
+    return segments;
+  return [
+    {
+      from: { x: x + (u - x) * 0.35, y: y + (v - y) * 0.35 },
+      to: { x: x + (u - x) * 0.65, y: y + (v - y) * 0.65 },
+      index: 0,
+      locked: -1,
+    },
+  ];
+}
+
 function curvePath(points) {
   const pair = (p) => p.join(" ");
   let d = "M " + pair(points[0]);
@@ -358,32 +442,8 @@ export function draw(g, options = {}) {
       }),
     );
     defs.append(arrow);
-    let mid = (e.points || [])
-      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
-      .map((p) => [p.x, p.y]);
-    if (!mid.length && a === b) {
-      const x = a.x + a.width + 25,
-        y = a.y + a.height + 25;
-      mid = [
-        [x, start[1]],
-        [x, y],
-        [end[0], y],
-      ];
-    } else if (!mid.length && !["straight", "curve"].includes(e.route)) {
-      const horizontal = start[0] === a.x || start[0] === a.x + a.width;
-      const mx = (start[0] + end[0]) / 2,
-        my = (start[1] + end[1]) / 2;
-      mid = horizontal
-        ? [
-            [mx, start[1]],
-            [mx, end[1]],
-          ]
-        : [
-            [start[0], my],
-            [end[0], my],
-          ];
-    }
-    const pts = [start, ...mid, end],
+    const pts = routePoints(a, b, e),
+      mid = pts.slice(1, -1),
       group = el("g", {
         "data-edge": e.id,
         style: editor ? "cursor:pointer" : "",
@@ -424,6 +484,7 @@ export function draw(g, options = {}) {
       stroke: col,
       "stroke-width": options.edge === e.id ? Math.max(3.5, weight) : weight,
       "stroke-linejoin": "round",
+      "data-edge-line": "",
     });
     if (e.dashed) line.setAttribute("stroke-dasharray", "6 4");
     if (e.arrow !== "none")
@@ -450,8 +511,14 @@ export function draw(g, options = {}) {
         ),
       );
     }
-    if (editor && options.edge === e.id)
-      (e.points || []).forEach((p, i) =>
+    if (editor && options.edge === e.id) {
+      (e.points || []).forEach((p, i) => {
+        if (
+          e.lockedSegments?.some(
+            (segment) => samePoint(segment.from, p) || samePoint(segment.to, p),
+          )
+        )
+          return;
         group.append(
           el("circle", {
             cx: p.x,
@@ -461,8 +528,37 @@ export function draw(g, options = {}) {
             stroke: "#6954bc",
             "data-point": i,
           }),
-        ),
-      );
+        );
+      });
+      for (const [index, segment] of editableSegments(pts, e).entries()) {
+        const cx = (segment.from.x + segment.to.x) / 2,
+          cy = (segment.from.y + segment.to.y) / 2;
+        const horizontal = segment.from.y === segment.to.y;
+        const active = sameSegment(segment, options.segment);
+        const handle = el("rect", {
+          x: cx - (horizontal ? 10 : 5),
+          y: cy - (horizontal ? 5 : 10),
+          width: horizontal ? 20 : 10,
+          height: horizontal ? 10 : 20,
+          rx: 3,
+          fill: segment.locked >= 0 || active ? "#6954bc" : "#fff",
+          stroke: "#6954bc",
+          "stroke-width": active ? 2.5 : 1.4,
+          "data-segment": index,
+          style: "cursor:" + (horizontal ? "ns-resize" : "ew-resize"),
+        });
+        handle.append(
+          el(
+            "title",
+            {},
+            segment.locked >= 0
+              ? "Закреплённый участок"
+              : "Перетащить участок стрелки",
+          ),
+        );
+        group.append(handle);
+      }
+    }
     svg.append(group);
   }
   for (const n of g.nodes) {

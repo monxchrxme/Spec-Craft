@@ -123,3 +123,34 @@ test("aligned blocks stay connected by a straight line even with a narrow gap", 
   );
   assert.deepEqual(edge.points, [{ x: 117.5, y: 30 }]);
 });
+
+test("a locked route segment keeps its coordinates when a node moves", () => {
+  const a = node("a", 30, 100);
+  const b = node("b", 550, 210);
+  const locked = { from: { x: 340, y: 100 }, to: { x: 340, y: 260 } };
+  const edge = {
+    id: "e",
+    from: a.id,
+    to: b.id,
+    fromSide: "right",
+    toSide: "left",
+    lockedSegments: [locked],
+  };
+  const graph = { nodes: [a, b], edges: [edge] };
+  const scope = new Set([a.id]);
+  assert.equal(routeEdges(graph, scope), 0);
+  const original = edge.points;
+  a.y += 50;
+  assert.equal(routeEdges(graph, scope), 0);
+  assert.notDeepEqual(edge.points, original);
+  assert.deepEqual(edge.lockedSegments, [locked]);
+  const i = edge.points.findIndex(
+    (point) => point.x === locked.from.x && point.y === locked.from.y,
+  );
+  assert(i >= 0);
+  assert.deepEqual(edge.points.slice(i, i + 2), [locked.from, locked.to]);
+  const lastValid = edge.points;
+  graph.nodes.push(node("obstacle", 320, 150));
+  assert.equal(routeEdges(graph, scope), 1);
+  assert.deepEqual(edge.points, lastValid);
+});
