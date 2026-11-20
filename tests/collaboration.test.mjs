@@ -4,6 +4,11 @@ import { randomUUID } from "node:crypto";
 import { collaborationHandler } from "../api/collaboration.js";
 import { mergeDocument } from "../public/merge-document.js";
 import { addReply } from "../lib/discussion.js";
+import {
+  fingerprint,
+  makePatch,
+  patchOffset,
+} from "../public/workflow-model.js";
 
 function memoryStore() {
   const records = new Map();
@@ -30,12 +35,12 @@ function harness() {
   const handler = collaborationHandler(memoryStore());
   const id = "a".repeat(48),
     owner = "b".repeat(48);
-  async function request(input, key = owner, headers = {}) {
+  async function request(input, key = owner, headers = {}, query = {}) {
     let code, result;
     await handler(
       {
         method: input ? "POST" : "GET",
-        query: { id },
+        query: { ...query, id },
         headers: {
           host: "spec.test",
           origin: "https://spec.test",
@@ -221,4 +226,210 @@ test("owner can answer threads from older review records without duplicating a r
   assert.equal(comments[0].replies[0].owner, true);
   assert.deepEqual(addReply(comments, input, true), { unchanged: true });
   assert.equal(comments[0].replies.length, 1);
+});
+
+test("commentators propose and anchor, owners decide, stale proposals cannot replace divergent text", async () => {
+  const { request, invite, save } = harness();
+  const body = sample.body + "\n" + "Отдельный параграф. ".repeat(12);
+  await request({ action: "publish", snapshot: { ...sample, body } });
+  const reader = await invite("reader"),
+    commenter = await invite("commenter");
+  const start = body.indexOf("Первый");
+  const proposal = {
+    action: "propose",
+    requestId: randomUUID(),
+    revision: 0,
+    author: "Мария",
+    label: "Начальный абзац",
+    patch: makePatch(body, start, start + 6, "Критический"),
+  };
+  assert.equal((await request(proposal, reader.key)).code, 403);
+  assert.equal((await request(proposal, commenter.key)).code, 200);
+  assert.equal((await request(proposal, commenter.key)).code, 200);
+  const records = await request(undefined, undefined, {}, { workflow: "1" });
+  assert.equal(records.proposals.length, 1);
+  assert.equal(records.snapshot.body, body);
+  const anchor = {
+    kind: "text",
+    quote: "Первый раздел",
+    block: 1,
+    section: "section-a",
+    prefix: "",
+    suffix: " ",
+    offset: 0,
+  };
+  const note = await request(
+    {
+      action: "comment",
+      requestId: randomUUID(),
+      target: "anchor:test",
+      targetLabel: "Начальный абзац",
+      author: "Мария",
+      anchor,
+      text: "Уточнить термин.",
+    },
+    commenter.key,
+  );
+  assert.deepEqual(note.comments[0].anchor, anchor);
+  const approve = {
+    action: "decide",
+    proposal: proposal.requestId,
+    state: "accepted",
+  };
+  assert.equal((await request(approve, commenter.key)).code, 403);
+  const edited = body + "\nПравка коллеги";
+  assert.equal((await request(save({ ...sample, body: edited }, 0))).code, 200);
+  const result = await request(approve);
+  assert.equal(result.revision, 2);
+  assert.equal(result.snapshot.body, edited.replace("Первый", "Критический"));
+  assert.equal((await request(approve)).revision, 2);
+
+  const fresh = result.snapshot.body;
+  const stale = {
+    ...proposal,
+    revision: 2,
+    requestId: randomUUID(),
+    patch: makePatch(fresh, start, start + 11, "Другой"),
+  };
+  assert.equal((await request(stale, commenter.key)).code, 200);
+  assert.equal(
+    (
+      await request(
+        save(
+          { ...sample, body: fresh.replace("Критический", "Актуальный") },
+          2,
+        ),
+      )
+    ).code,
+    200,
+  );
+  assert.equal(
+    (await request({ ...approve, proposal: stale.requestId })).code,
+    409,
+  );
+  assert.equal(
+    (
+      await request({
+        ...approve,
+        proposal: stale.requestId,
+        state: "rejected",
+      })
+    ).code,
+    200,
+  );
+});
+
+test("history restores a bounded fragment, tracks attribution, and keeps section approval scoped", async () => {
+  const { request, invite, save } = harness();
+  const first = "# Первый\n\nРанний текст.\n\n# Второй\n\nСоседний текст.\n";
+  const latest = first
+    .replace("Ранний текст.", "Новый текст.")
+    .replace("Соседний текст.", "Соседняя правка.");
+  await request({ action: "publish", snapshot: { ...sample, body: first } });
+  const editor = await invite("editor"),
+    commenter = await invite("commenter");
+  await request(
+    { ...save({ ...sample, body: latest }, 0), author: "Денис" },
+    editor.key,
+  );
+  const query = { workflow: "1" };
+  const { history } = await request(undefined, editor.key, {}, query);
+  assert.equal(history[0].author, "Денис");
+  assert.equal("snapshot" in history[0], false);
+  assert.equal(
+    (await request(undefined, commenter.key, {}, { version: "0" })).code,
+    403,
+  );
+  assert.equal(
+    (await request(undefined, editor.key, {}, { version: "0" })).version
+      .snapshot.body,
+    first,
+  );
+  const beforeEnd = first.indexOf("# Второй"),
+    latestEnd = latest.indexOf("# Второй");
+  const approval = {
+    action: "section",
+    key: "первый",
+    label: "Первый",
+    state: "approved",
+    assignee: "Денис",
+    revision: 1,
+    signature: fingerprint(latest.slice(0, latestEnd).trimEnd()),
+  };
+  assert.equal((await request(approval, editor.key)).code, 403);
+  assert.equal((await request(approval)).code, 200);
+  const restore = {
+    action: "restore",
+    revision: 1,
+    version: 0,
+    label: "Первый",
+    requestId: randomUUID(),
+    source: { start: 0, end: beforeEnd },
+    patch: makePatch(latest, 0, latestEnd, first.slice(0, beforeEnd), false),
+  };
+  assert.equal(
+    (
+      await request({
+        ...restore,
+        patch: { ...restore.patch, after: "Произвольный текст" },
+      })
+    ).code,
+    400,
+  );
+  assert.equal((await request(restore, editor.key)).code, 403);
+  assert.equal((await request(restore)).revision, 2);
+  const restored = await request(undefined, undefined, {}, query);
+  assert.equal(
+    restored.snapshot.body,
+    first.replace("Соседний текст.", "Соседняя правка."),
+  );
+  assert.equal(restored.history[0].action, "restore");
+  assert.notEqual(
+    restored.sections[0].signature,
+    fingerprint(first.slice(0, beforeEnd).trimEnd()),
+  );
+  assert.equal((await request(approval)).code, 409);
+});
+
+test("presence exposes roles and locations without exposing credentials and hides revoked links", async () => {
+  const { request, invite } = harness();
+  await request({ action: "publish", snapshot: sample });
+  const reader = await invite("reader"),
+    editor = await invite("editor");
+  const heartbeat = {
+    action: "presence",
+    client: randomUUID(),
+    name: "Коллега",
+    location: "Схема · API",
+  };
+  assert.equal((await request(heartbeat, reader.key)).code, 403);
+  await request(heartbeat, editor.key);
+  const ownerPulse = {
+    ...heartbeat,
+    client: randomUUID(),
+    location: "Раздел требований",
+  };
+  const list = (await request(ownerPulse)).participants;
+  assert.deepEqual(
+    list.find((item) => item.role === "editor"),
+    {
+      role: "editor",
+      name: "Коллега",
+      location: "Схема · API",
+      self: false,
+    },
+  );
+  await request({ action: "revoke", invitation: editor.id });
+  assert.equal((await request(heartbeat, editor.key)).code, 404);
+  assert.deepEqual(
+    (await request(ownerPulse)).participants.map((person) => person.role),
+    ["owner"],
+  );
+});
+
+test("ambiguous or deleted source substrings do not rebase onto another occurrence", () => {
+  const patch = makePatch("до Слово после", 3, 8, "Замена", false);
+  assert.equal(patchOffset("пролог\nдо Слово после", patch), 10);
+  assert.equal(patchOffset("до Слово после\nдо Слово после", patch), null);
+  assert.equal(patchOffset("раздел со Слово в другом окружении", patch), null);
 });

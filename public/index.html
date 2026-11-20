@@ -128,10 +128,19 @@
             title="Выйти из общего документа"
           >
             <i data-lucide="log-out" aria-hidden="true"></i></button
+          ><button
+            data-action="collaboration-people"
+            hidden
+            aria-label="Участники общего документа"
+            aria-expanded="false"
+            title="Участники общего документа"
+          >
+            <i data-lucide="users" aria-hidden="true"></i><span></span></button
           ><button class="primary" data-action="export">
             <i data-lucide="download"></i><span>Экспорт</span>
           </button>
         </header>
+        <aside id="live-people" aria-label="Присутствие коллег" hidden></aside>
         <div class="controls">
           <div role="group" aria-label="Представление документа" class="modes">
             <button data-mode="edit">

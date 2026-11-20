@@ -16,6 +16,7 @@ import {
 } from "./collaboration.js";
 import { snapshotOf } from "./merge-document.js";
 import { sharePanel } from "./share-panel.js";
+import { participantName, presencePanel, presenceSession } from "./presence.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
@@ -1750,11 +1751,36 @@ function openLiveReview(share) {
 }
 
 function updateLiveControls() {
-  for (const action of ["collaboration-discussion", "collaboration-exit"])
+  for (const action of [
+    "collaboration-discussion",
+    "collaboration-exit",
+    "collaboration-people",
+  ])
     $("[data-action=" + action + "]").hidden = !liveEdit;
   $("[data-action=share]").hidden = !!liveEdit;
   $("[data-action=collaboration-conflict]").hidden = true;
+  $("#live-people").hidden = true;
+  $("[data-action=collaboration-people]").setAttribute(
+    "aria-expanded",
+    "false",
+  );
+  $("[data-action=collaboration-people] span").textContent = "";
   document.body.classList.toggle("live-editing", !!liveEdit);
+}
+
+function toggleLivePeople() {
+  const panel = $("#live-people"),
+    session = liveEdit;
+  if (!session) return;
+  panel.hidden = !panel.hidden;
+  $("[data-action=collaboration-people]").setAttribute(
+    "aria-expanded",
+    String(!panel.hidden),
+  );
+  if (!panel.hidden) {
+    session.updatePeople = presencePanel(panel, session.presence, session.role);
+    void session.presence.pulse();
+  }
 }
 
 function startLiveEditing(share, initial) {
@@ -1763,6 +1789,7 @@ function startLiveEditing(share, initial) {
   stopReview = null;
   const session = {
     share,
+    role: initial.role,
     previous: doc?.id,
     mode,
     scroll: viewport.scrollTop,
@@ -1780,6 +1807,7 @@ function startLiveEditing(share, initial) {
     share,
     initial,
     get: () => snapshotOf(doc),
+    author: participantName,
     apply(snapshot) {
       doc = { ...snapshot, id: doc.id };
       history.delete(doc.id);
@@ -1795,6 +1823,25 @@ function startLiveEditing(share, initial) {
     status(message, conflict = false) {
       $("#save").textContent = message;
       $("[data-action=collaboration-conflict]").hidden = !conflict;
+    },
+  });
+  session.presence = presenceSession({
+    share,
+    location: () => {
+      const graph = inlineGraph?.panel.querySelector(
+        ".diagram-title strong",
+      )?.textContent;
+      if (graph) return "Схема · " + graph;
+      const index = mode === "source" ? selected : visibleBlock();
+      return (
+        specIndex(parts).headings.findLast((heading) => heading.index <= index)
+          ?.label || "Редактирование документа"
+      );
+    },
+    update: (people) => {
+      $("[data-action=collaboration-people] span").textContent =
+        people.length || "";
+      session.updatePeople?.(people);
     },
   });
   $("#save").textContent = "Общий документ";
@@ -1817,6 +1864,7 @@ async function leaveLiveEditing(next) {
     return;
   }
   session.client.stop();
+  session.presence.stop();
   history.delete(doc.id);
   liveEdit = null;
   updateLiveControls();
@@ -2022,6 +2070,7 @@ function transferDialog() {
   };
 }
 const actions = {
+  "collaboration-people": toggleLivePeople,
   share: sharingDialog,
   "collaboration-conflict": compareLiveEdits,
   "collaboration-discussion": () => leaveLiveEditing(openLiveReview),

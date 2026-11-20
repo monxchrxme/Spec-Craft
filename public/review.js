@@ -2,6 +2,8 @@ import { paintMath } from "./math.js";
 import { specIndex } from "./spec-index.js";
 import { diagramView } from "./diagram-view.js";
 import { normalize } from "./graph.js";
+import { workflowPanel } from "./workflow-panel.js";
+import { participantName } from "./presence.js";
 
 const element = (tag, text, className) => {
   const el = document.createElement(tag);
@@ -111,6 +113,7 @@ export function showReview({
   main.append(header, viewport);
   const panel = element("aside", undefined, "review-dock");
   panel.setAttribute("aria-label", "Замечания");
+  const commentsPane = live ? element("div") : panel;
   const panelTitle = element("h2", "Замечания");
   const picker = element("select");
   picker.setAttribute("aria-label", "Место замечания");
@@ -162,15 +165,9 @@ export function showReview({
     () => refresh(true),
     "review-muted-button",
   );
-  panel.append(
-    panelTitle,
-    refreshButton,
-    status,
-    picker,
-    list,
-    form,
-    replyForm,
-  );
+  commentsPane.append(panelTitle, refreshButton, picker, list, form, replyForm);
+  if (live) panel.append(commentsPane, status);
+  else commentsPane.insertBefore(status, picker);
   root.append(main, panel);
   workspace.hidden = true;
   document.body.append(root);
@@ -184,7 +181,34 @@ export function showReview({
     replying = null;
   const markers = new Map(),
     drafts = new Map(),
-    pending = new Map();
+    pending = new Map(),
+    inlineTargets = new Map();
+  const allTargets = () => [...targets, ...inlineTargets.values()];
+  let workflow;
+  if (live) {
+    name.value = participantName();
+    workflow = workflowPanel({
+      share,
+      panel,
+      comments: commentsPane,
+      paper,
+      viewport,
+      parse,
+      request,
+      mutate,
+      state: () => data,
+      status: (message) => {
+        status.textContent = message;
+      },
+      commentAt(target) {
+        const key = "anchor:" + crypto.randomUUID();
+        inlineTargets.set(key, { ...target, key });
+        updatePicker();
+        select(key);
+        note.focus({ preventScroll: true });
+      },
+    });
+  }
   const closeLink =
     share.owner && !live
       ? button(
@@ -206,6 +230,7 @@ export function showReview({
   }
   const stop = () => {
     clearInterval(timer);
+    workflow?.stop();
     root.remove();
     workspace.hidden = false;
     focusBefore?.focus({ preventScroll: true });
@@ -241,6 +266,12 @@ export function showReview({
     }
     const marker = markers.get(active);
     if (scroll) marker?.scrollIntoView({ block: "center", inline: "center" });
+    const anchor = inlineTargets.get(active)?.anchor;
+    if (anchor) {
+      if (!workflow?.locate(anchor, scroll))
+        status.textContent =
+          "Исходный фрагмент изменён или удалён. Ветка сохранена.";
+    } else workflow?.clear();
     form.hidden = !canComment() || data.closed || active === "all";
     const items =
       active === "all"
@@ -256,7 +287,7 @@ export function showReview({
         element("p", c.text),
       );
       if (active === "all") {
-        const target = targets.find((t) => t.key === c.target);
+        const target = allTargets().find((t) => t.key === c.target);
         if (target)
           card.prepend(
             button(
@@ -329,8 +360,9 @@ export function showReview({
           (t) => live || data.anchors.includes(t.key),
         )
       : [];
-    for (const block of parts) {
+    for (const [i, block] of parts.entries()) {
       const el = element("div", undefined, "block");
+      if (live) el.dataset.workIndex = i;
       if (
         block.t.type === "fence" &&
         block.t.info.trim() === "studio-diagram"
@@ -360,6 +392,15 @@ export function showReview({
     void paintMath(paper);
     const structure = specIndex(parts);
     paper.onclick = (event) => {
+      const cell = event.target.closest("td,th");
+      if (
+        cell &&
+        !event.target.closest("button") &&
+        workflow?.chooseCell(cell)
+      ) {
+        event.preventDefault();
+        return;
+      }
       const link = event.target.closest("[data-wiki]");
       if (!link) return;
       event.preventDefault();
@@ -408,11 +449,13 @@ export function showReview({
       let press;
       frame.addEventListener("pointerdown", (event) => {
         const target = event.target.closest("[data-review-target]");
+        const edge = live && event.target.closest("[data-edge]");
         press =
-          target && event.isPrimary && event.button === 0
+          (target || edge) && event.isPrimary && event.button === 0
             ? {
                 id: event.pointerId,
-                key: target.dataset.reviewTarget,
+                key: target?.dataset.reviewTarget,
+                edge,
                 x: event.clientX,
                 y: event.clientY,
               }
@@ -429,7 +472,10 @@ export function showReview({
         press = null;
       });
       frame.addEventListener("pointerup", (event) => {
-        if (press?.id === event.pointerId) select(press.key);
+        if (press?.id === event.pointerId) {
+          if (press.key) select(press.key);
+          else if (press.edge) workflow?.chooseCell(press.edge);
+        }
         press = null;
       });
     }
@@ -439,6 +485,14 @@ export function showReview({
     if (live && !next.snapshot) next.snapshot = previous?.snapshot;
     next.comments ??= [];
     data = next;
+    for (const comment of data.comments) {
+      if (comment.anchor)
+        inlineTargets.set(comment.target, {
+          anchor: comment.anchor,
+          key: comment.target,
+          label: comment.targetLabel,
+        });
+    }
     status.textContent = data.closed
       ? "Доступ по ссылке закрыт."
       : "Открытых замечаний: " +
@@ -449,8 +503,10 @@ export function showReview({
       previous.role === next.role &&
       previous.closed === next.closed &&
       JSON.stringify(previous.comments) === JSON.stringify(next.comments)
-    )
+    ) {
+      workflow?.update(data);
       return;
+    }
     if (!previous || (live && previous.revision !== next.revision))
       renderSnapshot(data.snapshot);
     if (live) {
@@ -461,13 +517,19 @@ export function showReview({
       name.hidden = isAuthor();
       name.required = !isAuthor();
     }
-    if (active !== "all" && !targets.some((t) => t.key === active))
+    if (active !== "all" && !allTargets().some((t) => t.key === active))
       active = "document";
+    updatePicker();
+    if (closeLink) closeLink.hidden = data.closed;
+    select(active);
+    workflow?.update(data);
+  }
+  function updatePicker() {
     const counts = new Map();
     for (const c of data.comments)
       if (!c.resolved) counts.set(c.target, (counts.get(c.target) || 0) + 1);
     picker.replaceChildren(
-      ...targets.map(
+      ...allTargets().map(
         (t) =>
           new Option(
             t.label + (counts.has(t.key) ? " · " + counts.get(t.key) : ""),
@@ -484,8 +546,6 @@ export function showReview({
     if (isAuthor() || (live && canComment()))
       picker.prepend(new Option("Все замечания", "all"));
     picker.hidden = false;
-    if (closeLink) closeLink.hidden = data.closed;
-    select(active);
   }
   async function refresh(manual = false) {
     if (busy || (!manual && document.hidden)) return;
@@ -495,6 +555,7 @@ export function showReview({
         share,
         undefined,
         live ? data?.revision : undefined,
+        live ? { workflow: true } : undefined,
       );
       if (rev === revision && root.isConnected) apply(next);
     } catch (error) {
@@ -511,6 +572,7 @@ export function showReview({
         replyForm.hidden = editButton.hidden = true;
         panel.hidden = false;
         role.hidden = true;
+        workflow?.stop();
         if (live) title.textContent = "Общий документ";
         clearInterval(timer);
       }
@@ -520,9 +582,15 @@ export function showReview({
     if (busy) return false;
     busy = true;
     revision++;
+    if (live) status.textContent = "Сохранение…";
     send.disabled = replySend.disabled = refreshButton.disabled = true;
     try {
-      const next = await request(share, input);
+      const next = await request(
+        share,
+        input,
+        undefined,
+        live ? { workflow: true } : undefined,
+      );
       if (root.isConnected) apply(next);
       return true;
     } catch (error) {
@@ -542,8 +610,12 @@ export function showReview({
       ...(live
         ? {
             targetLabel: (
-              targets.find((t) => t.key === active)?.label || "Весь документ"
+              allTargets().find((t) => t.key === active)?.label ||
+              "Весь документ"
             ).slice(0, 450),
+            ...(inlineTargets.has(active)
+              ? { anchor: inlineTargets.get(active).anchor }
+              : {}),
           }
         : {}),
       author: live && isAuthor() ? "Автор" : name.value.trim(),

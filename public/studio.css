@@ -1657,3 +1657,142 @@ body:has(.inline-graph) .paper {
     text-overflow: ellipsis;
   }
 }
+
+.workflow-tabs,
+.workflow-tools,
+.workflow-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.workflow-tabs {
+  padding-bottom: 7px;
+  margin-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+.workflow-tabs button,
+.workflow-tools button,
+.workflow-entry button {
+  padding: 5px 8px;
+}
+.workflow-tools button,
+.workflow-entry button,
+.workflow-place {
+  color: var(--accent);
+}
+.workflow-tabs button[aria-pressed="true"],
+.workflow-tools button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--lavender);
+}
+.workflow-entry .primary {
+  color: white;
+}
+.workflow-content {
+  display: grid;
+  gap: 8px;
+}
+.workflow-content :is(label, select, textarea, input) {
+  display: block;
+  width: 100%;
+}
+.workflow-content label {
+  margin-block: 6px;
+}
+.workflow-content textarea {
+  resize: vertical;
+}
+.workflow-form {
+  display: grid;
+  gap: 6px;
+}
+.workflow-form:empty,
+.workflow-hint:empty {
+  display: none;
+}
+.workflow-entry {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.workflow-entry p,
+.workflow-entry h3 {
+  margin-block: 4px;
+}
+.workflow-entry summary {
+  cursor: pointer;
+}
+.workflow-entry small,
+.workflow-people small {
+  display: block;
+  color: var(--muted);
+  margin-block: 4px;
+}
+.workflow-diff {
+  display: grid;
+  gap: 4px;
+  margin-block: 8px;
+}
+.workflow-diff pre {
+  margin: 0;
+  padding: 7px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 300px;
+  overflow: auto;
+}
+.workflow-added {
+  background: #e0f3e5;
+  color: #214f32;
+}
+.workflow-removed {
+  background: #fae7ec;
+  color: #872a41;
+}
+.workflow-hint {
+  color: var(--muted);
+}
+.workflow-picking :is(td, th, [data-edge]) {
+  cursor: crosshair;
+}
+.workflow-picking :is(td, th):hover,
+.workflow-anchored:not(g) {
+  outline: 2px solid #a383de;
+  outline-offset: -2px;
+}
+g.workflow-anchored {
+  filter: drop-shadow(0 0 3px #6353bb);
+}
+::highlight(speccraft-thread) {
+  background-color: #e9dfff;
+  color: #241749;
+}
+.workflow-people {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.workflow-people li {
+  padding: 5px 0;
+}
+#workspace > main {
+  position: relative;
+}
+#live-people {
+  position: absolute;
+  top: 47px;
+  right: 8px;
+  z-index: 8;
+  max-height: min(55vh, 420px);
+  width: min(310px, calc(100% - 16px));
+  overflow: auto;
+  background: white;
+  box-shadow: 0 5px 22px #1c123024;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+#live-people input {
+  width: 100%;
+}

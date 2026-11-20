@@ -7,6 +7,15 @@ import {
 } from "@vercel/blob";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { addReply, requestPattern, text } from "../lib/discussion.js";
+import {
+  advance,
+  anchorFor,
+  authorOf,
+  historyOf,
+  presenceFor,
+  workflowAction,
+  workflowView,
+} from "../lib/collaboration-workflow.js";
 
 const secret = /^[a-f0-9]{48}$/;
 const roles = new Set(["reader", "commenter", "editor"]);
@@ -90,12 +99,13 @@ function permission(data, owner, key) {
   );
 }
 
-function view(data, role, owner, knownRevision) {
+function view(data, role, owner, knownRevision, workflow = false) {
   return {
     role,
     revision: data.revision,
     ...(knownRevision === data.revision ? {} : { snapshot: data.snapshot }),
     ...(role === "reader" ? {} : { comments: data.comments }),
+    ...(workflow ? workflowView(data, role) : {}),
     ...(role === "owner"
       ? {
           invitations: data.invitations.map(({ id, role, date }) => ({
@@ -139,8 +149,7 @@ function mutate(data, input, role, owner) {
         };
       if (JSON.stringify(next) === JSON.stringify(data.snapshot))
         return { unchanged: true, accepted: true };
-      data.snapshot = next;
-      data.revision++;
+      advance(data, next, authorOf(role, input.author));
       data.writes = [...data.writes.slice(-39), input.requestId];
       return { accepted: true };
     }
@@ -167,14 +176,16 @@ function mutate(data, input, role, owner) {
         (item) => item.id !== input.invitation,
       );
       return {};
-    case "comment":
+    case "comment": {
       if (role === "reader") return deny;
+      const anchor = anchorFor(input);
       if (
         !text(input.target, 500) ||
         !text(input.targetLabel, 450) ||
         (!admin && !text(input.author, 80)) ||
         !text(input.text, 2000) ||
-        !requestPattern.test(input.requestId || "")
+        !requestPattern.test(input.requestId || "") ||
+        (input.anchor && !anchor)
       )
         return {
           status: 400,
@@ -189,6 +200,7 @@ function mutate(data, input, role, owner) {
         requestId: input.requestId,
         target: input.target,
         targetLabel: input.targetLabel.trim(),
+        ...(anchor ? { anchor } : {}),
         author: admin ? "Автор" : input.author.trim(),
         owner: admin,
         text: input.text.trim(),
@@ -196,6 +208,7 @@ function mutate(data, input, role, owner) {
         resolved: false,
       });
       return {};
+    }
     case "reply":
       return role === "reader" ? deny : addReply(data.comments, input, admin);
     case "resolve": {
@@ -210,7 +223,7 @@ function mutate(data, input, role, owner) {
       return {};
     }
     default:
-      return { status: 400, error: "Неизвестное действие." };
+      return workflowAction(data, input, role);
   }
 }
 
@@ -247,6 +260,7 @@ export function collaborationHandler(store = blobStore) {
       return send(403, { error: "Откройте документ в SpecCraft." });
     const path = "documents/" + id + ".json";
     const input = req.body || {};
+    const workflow = req.query.workflow === "1";
     try {
       if (post && input.action === "publish") {
         const initial = snapshot(input.snapshot);
@@ -264,6 +278,7 @@ export function collaborationHandler(store = blobStore) {
           ownerHash: hash(owner),
           snapshot: initial,
           revision: 0,
+          created: Date.now(),
           invitations: [],
           comments: [],
           writes: [],
@@ -276,16 +291,40 @@ export function collaborationHandler(store = blobStore) {
           : denied();
       }
       for (let attempt = 0; attempt < 5; attempt++) {
-        const record = await store.read(path, post);
+        const presence = post && input.action === "presence";
+        const record = await store.read(path, post && !presence);
         if (!record) return denied();
         const { data, etag } = record;
         const role = permission(data, owner, key);
         if (!role) return denied();
+        if (presence) {
+          const entries = await presenceFor(
+            store,
+            "documents/" + id + "/presence.json",
+            data,
+            role === "owner" ? data.ownerHash : hash(key),
+            role,
+            input,
+          );
+          return entries.error
+            ? send(entries.status, { error: entries.error })
+            : send(200, { role, ...entries });
+        }
         if (!post) {
+          if (req.query.version !== undefined) {
+            if (!["editor", "owner"].includes(role))
+              return send(403, { error: "История недоступна по этой ссылке." });
+            const version = historyOf(data).find(
+              (item) => String(item.revision) === req.query.version,
+            );
+            return version
+              ? send(200, { role, version })
+              : send(404, { error: "Эта версия больше не хранится." });
+          }
           const known = /^[0-9]+$/.test(req.query.revision || "")
             ? Number(req.query.revision)
             : undefined;
-          return send(200, view(data, role, owner, known));
+          return send(200, view(data, role, owner, known, workflow));
         }
         const result = mutate(data, input, role, owner);
         if (result.error)
@@ -295,7 +334,7 @@ export function collaborationHandler(store = blobStore) {
           });
         if (result.unchanged || (await store.write(path, data, etag)))
           return send(200, {
-            ...view(data, role, owner),
+            ...view(data, role, owner, undefined, workflow),
             ...(result.accepted ? { accepted: true } : {}),
           });
       }

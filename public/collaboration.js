@@ -13,7 +13,12 @@ export function collaborationUrl(id, key) {
   return url.href;
 }
 
-export async function collaborationRequest(share, input, revision) {
+export async function collaborationRequest(
+  share,
+  input,
+  revision,
+  options = {},
+) {
   const headers = {};
   if (share.owner) headers["X-Document-Owner"] = share.owner;
   if (share.key) headers["X-Document-Invite"] = share.key;
@@ -21,7 +26,11 @@ export async function collaborationRequest(share, input, revision) {
   const url =
     "/api/collaboration?id=" +
     encodeURIComponent(share.id) +
-    (Number.isSafeInteger(revision) ? "&revision=" + revision : "");
+    (Number.isSafeInteger(revision) ? "&revision=" + revision : "") +
+    (options.workflow ? "&workflow=1" : "") +
+    (Number.isSafeInteger(options.version)
+      ? "&version=" + options.version
+      : "");
   let response;
   try {
     response = await fetch(url, {
@@ -44,7 +53,15 @@ export async function collaborationRequest(share, input, revision) {
   return data;
 }
 
-export function liveSession({ share, initial, get, apply, canApply, status }) {
+export function liveSession({
+  share,
+  initial,
+  get,
+  apply,
+  canApply,
+  status,
+  author,
+}) {
   const storageKey = "speccraft:draft:" + share.id;
   let base = {
       revision: initial.revision,
@@ -133,6 +150,7 @@ export function liveSession({ share, initial, get, apply, canApply, status }) {
           revision: base.revision,
           snapshot: current,
           requestId: lastWrite.id,
+          author: author?.(),
         });
         if (stopped) return;
         if (sameSnapshot(next.snapshot, current)) update(next);
