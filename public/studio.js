@@ -191,7 +191,7 @@ function save() {
       writeRecord(doc);
     }
     localStorage.setItem(sessionKey, doc?.id || "");
-    $("#save").textContent = doc ? "Сохранено на устройстве" : "";
+    $("#save").textContent = "";
     return true;
   } catch {
     $("#save").textContent = "Локальное сохранение недоступно · скачайте .md";
@@ -207,7 +207,6 @@ function updateWordcount() {
 }
 function changed() {
   updateWordcount();
-  $("#save").textContent = "Сохранение…";
   clearTimeout(timer);
   timer = setTimeout(save, 300);
 }
@@ -1614,6 +1613,15 @@ source.oninput = () => {
 source.onkeydown = (event) => {
   wrapTypedSelection(event);
 };
+source.onbeforeinput = (event) => {
+  if (
+    !["historyUndo", "historyRedo"].includes(event.inputType) ||
+    !event.cancelable
+  )
+    return;
+  event.preventDefault();
+  historyStep(event.inputType === "historyRedo");
+};
 source.onkeyup = source.onclick = () => {
   const i = parts.findLastIndex((p) => p.start <= source.selectionStart);
   selected = Math.max(0, i);
@@ -2353,10 +2361,25 @@ function undo(forward) {
     from = forward ? s.forward : s.back,
     to = forward ? s.back : s.forward;
   if (!from.length) return;
+  const caret =
+    mode === "source"
+      ? [source.selectionStart, source.selectionEnd, source.selectionDirection]
+      : null;
   to.push(doc.body);
   setText(from.pop(), false);
   render();
+  if (caret) {
+    source.setSelectionRange(...caret);
+    source.onkeyup();
+  }
   source.dataset.group = "";
+}
+function historyStep(forward) {
+  if (inlineGraph) {
+    inlineGraph.panel
+      .querySelector(forward ? '[data-cmd="redo"]' : '[data-cmd="undo"]')
+      .click();
+  } else undo(forward);
 }
 function jumpTo(target) {
   flush();
@@ -2884,8 +2907,8 @@ const actions = {
   style: styleDialog,
   insert: insertDialog,
   append: () => insertBlock("paragraph", parts.length - 1),
-  undo: () => undo(false),
-  redo: () => undo(true),
+  undo: () => historyStep(false),
+  redo: () => historyStep(true),
   rename: () => renameFile(doc.id),
   trash: trashDialog,
 };
@@ -2978,14 +3001,13 @@ document.addEventListener("keydown", (e) => {
     !e.isComposing &&
     (e.key.toLowerCase() === "z" ||
       (e.code === "KeyZ" && !/^[a-z]$/i.test(e.key))) &&
-    !e.target.closest("textarea,input,select,[contenteditable]")
+    !e.defaultPrevented &&
+    (e.target === source ||
+      !e.target.closest("textarea,input,[contenteditable]"))
   ) {
     e.preventDefault();
-    if (inlineGraph) {
-      inlineGraph.panel
-        .querySelector(e.shiftKey ? '[data-cmd="redo"]' : '[data-cmd="undo"]')
-        .click();
-    } else undo(e.shiftKey);
+    historyStep(e.shiftKey);
+    return;
   }
   if (
     e.key === "/" &&

@@ -195,24 +195,28 @@ function bounds(nodes, paths = []) {
   return nodes.length ? { x, y, r, b } : { x: 0, y: 0, r: 500, b: 170 };
 }
 function port(n, side) {
-  return {
+  const ports = {
     left: [n.x, n.y + n.height / 2],
     right: [n.x + n.width, n.y + n.height / 2],
     top: [n.x + n.width / 2, n.y],
     bottom: [n.x + n.width / 2, n.y + n.height],
-  }[side];
+  };
+  return Object.hasOwn(ports, side) ? ports[side] : undefined;
 }
 export function anchors(a, b, e) {
   const dx = b.x + b.width / 2 - a.x - a.width / 2,
     dy = b.y + b.height / 2 - a.y - a.height / 2;
   const horiz = Math.abs(dx) > Math.abs(dy);
+  const routed = e.route === "orthogonal" && e.points?.length;
   return [
     port(a, e.fromSide) ||
+      (routed && port(a, e.routeFromSide)) ||
       port(
         a,
         horiz ? (dx >= 0 ? "right" : "left") : dy >= 0 ? "bottom" : "top",
       ),
     port(b, e.toSide) ||
+      (routed && port(b, e.routeToSide)) ||
       port(
         b,
         horiz ? (dx >= 0 ? "left" : "right") : dy >= 0 ? "top" : "bottom",

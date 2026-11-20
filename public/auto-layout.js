@@ -5,12 +5,12 @@ import { anchors } from "./graph.js";
 const obstaclePadding = 12;
 const portClearance = 32;
 const sides = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
-function clearance(n) {
+function clearance(n, padding) {
   return {
-    left: n.x - obstaclePadding,
-    right: n.x + n.width + obstaclePadding,
-    top: n.y - obstaclePadding,
-    bottom: n.y + n.height + obstaclePadding,
+    left: n.x - padding,
+    right: n.x + n.width + padding,
+    top: n.y - padding,
+    bottom: n.y + n.height + padding,
   };
 }
 function blocked(a, b, boxes) {
@@ -203,8 +203,12 @@ function portChoices(preferred, fixed) {
     ? [fixed]
     : [preferred, ...Object.keys(sides).filter((s) => s !== preferred)];
 }
-function offset(point, side) {
-  return point.map((v, i) => v + sides[side][i] * portClearance);
+function lead(point, side, obstacles) {
+  for (const distance of [portClearance, 24, 18, 14]) {
+    const end = point.map((value, i) => value + sides[side][i] * distance);
+    if (!blocked(point, end, obstacles)) return end;
+  }
+  return null;
 }
 function routeThroughLocks(start, end, boxes, fromSide, toSide, locks, leads) {
   const points = [start];
@@ -260,17 +264,26 @@ function routeThroughLocks(start, end, boxes, fromSide, toSide, locks, leads) {
   return connect(end, toSide) ? points : null;
 }
 
-function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
-  const [start, end] = anchors(fromNode, toNode, edge);
-  const source = portChoices(portSide(start, fromNode), edge.fromSide);
-  const target = portChoices(portSide(end, toNode), edge.toSide);
+function routeEdge(edge, fromNode, toNode, boxes, fromIndex, toIndex) {
+  const { fromSide: fixedFrom, toSide: fixedTo } = edge;
+  const [start, end] = anchors(fromNode, toNode, {
+    fromSide: fixedFrom,
+    toSide: fixedTo,
+  });
+  const preferredFrom = portSide(start, fromNode);
+  const preferredTo = portSide(end, toNode);
+  const source = portChoices(preferredFrom, fixedFrom);
+  const target = portChoices(preferredTo, fixedTo);
+  const fromObstacles = boxes.filter((_, index) => index !== fromIndex);
+  const toObstacles = boxes.filter((_, index) => index !== toIndex);
+  const betweenObstacles = boxes.filter(
+    (_, index) => index !== fromIndex && index !== toIndex,
+  );
   for (const fromSide of source)
     for (const toSide of target) {
       const locks = edge.lockedSegments || [];
       if (fromNode === toNode && fromSide === toSide) continue;
       const [from, to] = anchors(fromNode, toNode, { fromSide, toSide });
-      const s = offset(from, fromSide),
-        t = offset(to, toSide);
       const direction = sides[fromSide];
       const directlyFacing =
         direction.every((v, i) => v === -sides[toSide][i]) &&
@@ -278,20 +291,10 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
         (to[0] - from[0]) * direction[0] + (to[1] - from[1]) * direction[1] >=
           26;
       const direct =
-        !locks.length &&
-        directlyFacing &&
-        !blocked(
-          from,
-          to,
-          fromObstacles.filter((box) => toObstacles.includes(box)),
-        );
-      if (
-        !direct &&
-        (blocked(from, s, fromObstacles) ||
-          blocked(to, t, toObstacles) ||
-          overlapsRun([from, s], [to, t]))
-      )
-        continue;
+        !locks.length && directlyFacing && !blocked(from, to, betweenObstacles);
+      const s = direct ? from : lead(from, fromSide, fromObstacles);
+      const t = direct ? to : lead(to, toSide, toObstacles);
+      if (!s || !t || (!direct && overlapsRun([from, s], [to, t]))) continue;
       const leads = [
         [from, s],
         [to, t],
@@ -306,9 +309,11 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
         ? route
         : simple([from, ...route, to]).slice(1, -1);
       edge.route = "orthogonal";
-      // Preserve automatic ports when the default orientation is viable.
-      if (fromSide !== portSide(start, fromNode)) edge.fromSide = fromSide;
-      if (toSide !== portSide(end, toNode)) edge.toSide = toSide;
+      // Keep the current route's anchors separate from manually selected sides.
+      if (fromSide !== preferredFrom) edge.routeFromSide = fromSide;
+      else delete edge.routeFromSide;
+      if (toSide !== preferredTo) edge.routeToSide = toSide;
+      else delete edge.routeToSide;
       const midpoint = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
       edge.points = (bends.length ? bends : [midpoint]).map(([x, y]) => ({
         x,
@@ -319,8 +324,9 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
   return false;
 }
 export function routeEdges(graph, scope, edgeIds = null) {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n])),
-    boxes = graph.nodes.map(clearance);
+  const byId = new Map(graph.nodes.map((node, index) => [node.id, index]));
+  const boxes = graph.nodes.map((node) => clearance(node, obstaclePadding));
+  let tightBoxes;
   let missed = 0;
   for (const edge of graph.edges) {
     if (
@@ -331,17 +337,11 @@ export function routeEdges(graph, scope, edgeIds = null) {
       continue;
     const a = byId.get(edge.from),
       b = byId.get(edge.to);
-    if (
-      !routeEdge(
-        edge,
-        a,
-        b,
-        boxes,
-        boxes.filter((_, i) => graph.nodes[i] !== a),
-        boxes.filter((_, i) => graph.nodes[i] !== b),
-      )
-    )
-      missed++;
+    const from = graph.nodes[a],
+      to = graph.nodes[b];
+    if (routeEdge(edge, from, to, boxes, a, b)) continue;
+    tightBoxes ??= graph.nodes.map((node) => clearance(node, 4));
+    if (!routeEdge(edge, from, to, tightBoxes, a, b)) missed++;
   }
   return missed;
 }

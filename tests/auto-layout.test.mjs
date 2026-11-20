@@ -146,6 +146,53 @@ test("aligned blocks stay connected by a straight line even with a narrow gap", 
   assert.deepEqual(edge.points, [{ x: 117.5, y: 30 }]);
 });
 
+test("a subsequent routing pass reconsiders an automatically chosen side when a blocking figure moves", () => {
+  const a = node("a", 30, 100),
+    b = node("b", 480, 100);
+  const wall = node("wall", 145, 95, { width: 75, height: 80 });
+  const edge = { id: "ab", from: "a", to: "b" };
+  const graph = { nodes: [a, b, wall], edges: [edge] };
+  const scope = new Set([a.id, b.id, wall.id]);
+  assert.equal(routeEdges(graph, scope), 0);
+  assert.equal(edge.fromSide, undefined);
+  assert.equal(edge.routeFromSide, "left");
+  assert.deepEqual(routePoints(a, b, edge)[0], [30, 130]);
+  wall.y = 320;
+  assert.equal(routeEdges(graph, scope), 0);
+  assert.equal(edge.routeFromSide, undefined);
+  assert.deepEqual(routePoints(a, b, edge), [
+    [130, 130],
+    [305, 130],
+    [480, 130],
+  ]);
+  const final = structuredClone(edge);
+  assert.equal(routeEdges(graph, scope), 0);
+  assert.deepEqual(edge, final);
+});
+
+test("a narrow gap accepts a shorter lead while keeping manually chosen sides", () => {
+  const a = node("a", 30, 100),
+    b = node("b", 480, 200);
+  const wall = node("wall", 150, 95, { width: 75, height: 80 });
+  const edge = {
+    id: "ab",
+    from: "a",
+    to: "b",
+    fromSide: "right",
+    toSide: "left",
+  };
+  const graph = { nodes: [a, b, wall], edges: [edge] };
+  assert.equal(routeEdges(graph, new Set([a.id, b.id, wall.id])), 0);
+  assert.equal(edge.fromSide, "right");
+  assert.equal(edge.toSide, "left");
+  assert.deepEqual(routePoints(a, b, edge), [
+    [130, 130],
+    [144, 130],
+    [144, 230],
+    [480, 230],
+  ]);
+});
+
 test("a locked route segment keeps its coordinates when a node moves", () => {
   const a = node("a", 30, 100);
   const b = node("b", 550, 210);

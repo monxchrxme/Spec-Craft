@@ -63,6 +63,7 @@ export function pdfPreview(
   const blockPicker = by("block");
   const warnings = by("warnings");
   const placementRule = by("placement-rule");
+  const placementInfo = by("placement-info");
   const keepNext = by("keep-next");
   const profilePicker = by("profile");
   const numberingToggle = by("numbering");
@@ -131,6 +132,7 @@ export function pdfPreview(
     selected = entry?.index ?? null;
     blockPicker.value = entry ? String(index) : "";
     by("edit").disabled = placementRule.disabled = !entry;
+    placementInfo.hidden = !entry;
     const activeRules = entry?.rules || [];
     placementRule.value = activeRules.includes("separate-sheet")
       ? "separate-sheet"
@@ -487,9 +489,19 @@ export function pdfPreview(
     rules(selected, next);
   };
   placementRule.onchange = keepNext.onchange = saveRule;
+  root.addEventListener("pointerdown", (event) => {
+    if (!placementInfo.contains(event.target)) placementInfo.open = false;
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !placementInfo.open) return;
+    event.preventDefault();
+    placementInfo.open = false;
+    placementInfo.querySelector("summary").focus();
+  });
   return {
     hide() {
       if (!root.hidden) stop();
+      placementInfo.open = false;
       root.hidden = true;
     },
     async show(pending, settings, block, force = false) {
@@ -503,6 +515,7 @@ export function pdfPreview(
       stop();
       layout = null;
       state(false);
+      placementInfo.hidden = true;
       by("clear").hidden = true;
       by("placement").textContent = by("placement-help").textContent = "";
       warnings.hidden = retry.hidden = true;

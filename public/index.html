@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#24243a" />
-    <title>SpecCraft — студия Markdown</title>
+    <title>SpecCraft</title>
     <link rel="stylesheet" href="studio.css" />
     <script defer src="vendor/lucide.min.js"></script>
     <script defer src="vendor/markdown-it.min.js"></script>
@@ -51,7 +51,7 @@
       </nav>
       <aside class="sidebar" id="workspace-sidebar">
         <div class="sidebar-navigation">
-          <div class="brand">SpecCraft<span>Студия Markdown</span></div>
+          <div class="brand">SpecCraft</div>
           <button
             class="topbar-toggle"
             type="button"
@@ -124,9 +124,6 @@
               <span id="trash-count"></span>
             </button>
           </div>
-        </div>
-        <div class="local">
-          <i data-lucide="hard-drive"></i> Локальное пространство
         </div>
       </aside>
       <div
@@ -219,6 +216,7 @@
               data-action="undo"
               title="Отменить"
               aria-label="Отменить"
+              aria-keyshortcuts="Control+Z Meta+Z"
             >
               <i data-lucide="undo-2"></i></button
             ><button
@@ -226,6 +224,7 @@
               data-action="redo"
               title="Повторить"
               aria-label="Повторить"
+              aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
             >
               <i data-lucide="redo-2"></i></button
             ><button
@@ -344,6 +343,19 @@
                     <option value="separate-sheet">На отдельном листе</option>
                   </select>
                 </label>
+                <details
+                  class="pdf-placement-info"
+                  data-pdf="placement-info"
+                  hidden
+                >
+                  <summary
+                    aria-label="Как работает размещение"
+                    title="Как работает размещение"
+                  >
+                    <i data-lucide="circle-help" aria-hidden="true"></i>
+                  </summary>
+                  <p id="pdf-placement-help" data-pdf="placement-help"></p>
+                </details>
                 <label class="pdf-keep-next">
                   <input type="checkbox" data-pdf="keep-next" />Вместе со
                   следующим блоком
@@ -352,11 +364,6 @@
                   Вернуть автоматическое размещение
                 </button>
               </div>
-              <p
-                class="pdf-placement-help"
-                id="pdf-placement-help"
-                data-pdf="placement-help"
-              ></p>
             </div>
           </section>
           <article class="paper">

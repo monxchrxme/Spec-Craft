@@ -58,11 +58,11 @@ export function graphEditor(
       <button data-cmd="pin" aria-pressed="false" aria-label="Закрепить позиции" title="Закрепить позиции для авторасстановки" disabled><i data-lucide="pin" aria-hidden="true"></i></button>
       <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
-      <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
+      <button data-cmd="route" title="Перестроить все связи или только выделенные стрелки">Проложить стрелки</button>
       <button data-cmd="check" aria-pressed="false">Проверить схему</button>
       <button data-cmd="snap" aria-pressed="false">По сетке</button>
-      <button data-cmd="undo" aria-label="Отменить действие">↶</button>
-      <button data-cmd="redo" aria-label="Повторить действие">↷</button>
+      <button data-cmd="undo" aria-label="Отменить действие" aria-keyshortcuts="Control+Z Meta+Z">↶</button>
+      <button data-cmd="redo" aria-label="Повторить действие" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z">↷</button>
       <span class="spacer"></span>
       <button data-cmd="svg" title="Скачать схему как SVG">SVG</button>
       <button data-cmd="minus" aria-label="Уменьшить">−</button>
@@ -286,6 +286,8 @@ export function graphEditor(
       checkpoint();
       const record = current();
       record[key] = v;
+      if (key === "fromSide") delete record.routeFromSide;
+      if (key === "toSide") delete record.routeToSide;
       if (key === "route" && v !== "orthogonal") delete record.lockedSegments;
       graph = normalize(graph);
       if (node && ["width", "height", "shape"].includes(key))
@@ -703,6 +705,8 @@ export function graphEditor(
         action("Сбросить точки", () => {
           checkpoint();
           delete current().points;
+          delete current().routeFromSide;
+          delete current().routeToSide;
           delete current().lockedSegments;
           activeSegment = null;
           refresh();
@@ -988,22 +992,26 @@ export function graphEditor(
     }
     if (cmd === "route") {
       const onlyEdges = selectedEdges.size ? selectedEdges : null;
-      const scope =
-        selected.size || activeModule
-          ? selected
-          : new Set(graph.nodes.map(({ id }) => id));
+      const count = onlyEdges?.size ?? graph.edges.length;
+      if (!count) {
+        hint.textContent = "На схеме пока нет связей.";
+        return;
+      }
       const next = clone(graph);
+      const scope = new Set(graph.nodes.map(({ id }) => id));
       const missed = routeEdges(next, scope, onlyEdges);
-      if (JSON.stringify(next) !== JSON.stringify(graph)) {
+      const changed = JSON.stringify(next) !== JSON.stringify(graph);
+      if (changed) {
         checkpoint();
         graph = next;
         activeSegment = null;
       }
       refresh();
       hint.textContent = missed
-        ? "Не удалось обойти фигуры для связей: " + missed + "."
-        : "Маршруты обновлены" +
-          (onlyEdges ? " · выделено стрелок: " + onlyEdges.size : ".");
+        ? `Не удалось проложить ${missed} из ${count} связей. Проверьте наложение фигур, стороны подключения и закреплённые участки.`
+        : changed
+          ? `Проложено связей: ${count}.`
+          : "Маршруты уже актуальны.";
       return;
     }
     if (cmd === "add") {
