@@ -1,3 +1,10 @@
+import {
+  configureMermaid,
+  mermaidDirections,
+  mermaidLayouts,
+  mermaidPresentation,
+} from "./mermaid-presentation.js";
+
 const channel = "speccraft-mermaid-";
 const cached = new Map();
 const pending = new Map();
@@ -28,6 +35,8 @@ export function mermaidBlocks(md) {
     return `<figure class="diagram-card mermaid-figure" data-mermaid>
       <header class="diagram-title"><strong>Mermaid</strong>
         <button type="button" data-mermaid-edit hidden>Изменить код</button>
+        <label class="mermaid-option" data-mermaid-layout hidden>Раскладка <select aria-label="Раскладка Mermaid"></select></label>
+        <label class="mermaid-option" data-mermaid-direction hidden>Направление <select aria-label="Направление Mermaid"></select></label>
         <button type="button" data-mermaid-fit aria-pressed="false" hidden>Вписать</button>
         <button type="button" data-mermaid-expand aria-expanded="false" hidden>Развернуть</button>
       </header>
@@ -101,6 +110,7 @@ export function mermaidGraphic(source) {
   if (source.length > 48_000)
     return Promise.reject(Error("Код диаграммы превышает 48 000 символов."));
   if (!cached.has(source)) {
+    const configured = configureMermaid(source);
     const result = engine().then(
       () =>
         new Promise((resolve, reject) => {
@@ -115,7 +125,7 @@ export function mermaidGraphic(source) {
             else resolve(value);
           });
           frame.contentWindow.postMessage(
-            { type: channel + "render", id, source },
+            { type: channel + "render", id, ...configured },
             "*",
           );
         }),
@@ -129,7 +139,10 @@ export function mermaidGraphic(source) {
   return cached.get(source);
 }
 
-export function mermaidControls(root, { edit, expanded, onExpand } = {}) {
+export function mermaidControls(
+  root,
+  { edit, presentation, expanded, onExpand } = {},
+) {
   for (const card of root.querySelectorAll("[data-mermaid]")) {
     const expand = card.querySelector("[data-mermaid-expand]");
     const fit = card.querySelector("[data-mermaid-fit]");
@@ -155,6 +168,33 @@ export function mermaidControls(root, { edit, expanded, onExpand } = {}) {
     };
     change.hidden = !edit;
     if (edit) change.onclick = edit;
+    if (!presentation) continue;
+    const current = mermaidPresentation(
+      card.querySelector(".mermaid-source code").textContent,
+    );
+    if (!current.type) continue;
+    const setup = (selector, options, value) => {
+      const label = card.querySelector(selector);
+      const input = label.querySelector("select");
+      input.append(
+        ...Object.entries(options).map(([id, title]) => new Option(title, id)),
+      );
+      input.value = value;
+      label.hidden = false;
+      return input;
+    };
+    const layout = setup(
+      "[data-mermaid-layout]",
+      mermaidLayouts,
+      current.layout,
+    );
+    const direction = setup(
+      "[data-mermaid-direction]",
+      mermaidDirections,
+      current.direction,
+    );
+    layout.onchange = direction.onchange = () =>
+      presentation(layout.value, direction.value, card);
   }
 }
 

@@ -3,7 +3,7 @@
   if (window.parent === window || !window.mermaid) return;
   const engine = window.mermaid;
   // Keep document directives from enabling active content or exporting labels as HTML.
-  engine.initialize({
+  const safeConfig = {
     startOnLoad: false,
     securityLevel: "strict",
     suppressErrorRendering: true,
@@ -25,12 +25,29 @@
       "themeCSS",
       "fontFamily",
     ],
-  });
+  };
+  engine.initialize(safeConfig);
+  const layouts = {
+    compact: {
+      layout: "dagre",
+      flowchart: {
+        htmlLabels: false,
+        nodeSpacing: 25,
+        rankSpacing: 35,
+        curve: "linear",
+      },
+      state: { padding: 7, edgeLengthFactor: 12, labelHeight: 14 },
+    },
+    elk: {
+      layout: "elk",
+      elk: { mergeEdges: false, straightenEdges: true },
+    },
+  };
   const stage = document.querySelector("main");
   let queue = Promise.resolve();
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
-    const { type, id, source } = event.data || {};
+    const { type, id, source, layout } = event.data || {};
     if (
       type !== "speccraft-mermaid-render" ||
       !Number.isSafeInteger(id) ||
@@ -45,6 +62,15 @@
       );
     queue = queue.then(async () => {
       try {
+        const preset = Object.hasOwn(layouts, layout) ? layouts[layout] : {};
+        engine.initialize({
+          ...safeConfig,
+          ...preset,
+          secure: [
+            ...safeConfig.secure,
+            ...(preset.layout ? ["layout", "elk", "state"] : []),
+          ],
+        });
         const output = await engine.render("specmermaid-" + id, source, stage);
         const svg = new DOMParser().parseFromString(
           output.svg,
@@ -75,6 +101,11 @@
         svg.style.removeProperty("max-width");
         svg.style.removeProperty("width");
         svg.style.removeProperty("height");
+        const background =
+          engine.mermaidAPI?.getConfig()?.themeVariables?.background;
+        svg.style.backgroundColor = /^#[\da-f]{3,8}$/i.test(background)
+          ? background
+          : "#ffffff";
         svg.querySelectorAll("script").forEach((element) => element.remove());
         for (const link of svg.querySelectorAll("a"))
           link.replaceWith(...link.childNodes);

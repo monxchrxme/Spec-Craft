@@ -346,7 +346,7 @@ export function routeEdges(graph, scope, edgeIds = null) {
   return missed;
 }
 
-export function arrangeNodes(graph, scope) {
+export function arrangeNodes(graph, scope, variant = "horizontal") {
   const nodes = graph.nodes.filter((n) => scope.has(n.id));
   if (!nodes.length) return;
   const pending = new Set(nodes.map((n) => n.id)),
@@ -370,41 +370,55 @@ export function arrangeNodes(graph, scope) {
       if (!indegree.get(next)) ready.push(next);
     }
   }
-  const occupied = graph.nodes.filter((n) => n.pinned || !scope.has(n.id));
+  const occupied = graph.nodes.filter(
+    (node) => node.pinned || !scope.has(node.id),
+  );
   const columns = new Map();
-  for (const n of nodes) {
-    const r = rank.get(n.id) || 0;
-    if (!columns.has(r)) columns.set(r, []);
-    columns.get(r).push(n);
+  const vertical = variant === "vertical";
+  const grid = variant === "grid";
+  const across = vertical ? "y" : "x";
+  const down = vertical ? "x" : "y";
+  const wide = vertical ? "height" : "width";
+  const tall = vertical ? "width" : "height";
+  const count = Math.ceil(Math.sqrt(nodes.length));
+  for (const [index, node] of nodes.entries()) {
+    const tier = grid ? index % count : rank.get(node.id) || 0;
+    if (!columns.has(tier)) columns.set(tier, []);
+    columns.get(tier).push(node);
   }
-  let x = Math.min(...nodes.map((n) => n.x));
-  const top = Math.min(...nodes.map((n) => n.y));
+  let start = Math.min(...nodes.map((node) => node[across]));
+  const top = Math.min(...nodes.map((node) => node[down]));
   const placements = [];
-  for (const [, col] of [...columns].sort(([a], [b]) => a - b)) {
-    let y = top;
-    for (const n of col) {
-      if (n.pinned) continue;
+  const gridStep = grid ? Math.max(...nodes.map((node) => node[tall])) + 58 : 0;
+  for (const [, column] of [...columns].sort(([a], [b]) => a - b)) {
+    let offset = top;
+    for (const node of column) {
+      if (node.pinned) {
+        if (grid) offset += gridStep;
+        continue;
+      }
       let collision;
       while (
         (collision = occupied.find(
-          (o) =>
-            x < o.x + o.width + 30 &&
-            x + n.width + 30 > o.x &&
-            y < o.y + o.height + 30 &&
-            y + n.height + 30 > o.y,
+          (other) =>
+            start < other[across] + other[wide] + 30 &&
+            start + node[wide] + 30 > other[across] &&
+            offset < other[down] + other[tall] + 30 &&
+            offset + node[tall] + 30 > other[down],
         ))
-      )
-        y = collision.y + collision.height + 42;
-      if (x > 20000 || y > 20000)
+      ) {
+        offset = collision[down] + collision[tall] + 42;
+      }
+      if (start > 20000 || offset > 20000)
         throw Error(
           "Для раскладки недостаточно места. Выделите меньший модуль.",
         );
-      const placed = { x, y, width: n.width, height: n.height };
-      occupied.push(placed);
-      placements.push([n, x, y]);
-      y += n.height + 54;
+      const position = { [across]: start, [down]: offset };
+      occupied.push({ ...position, width: node.width, height: node.height });
+      placements.push([node, position]);
+      offset += gridStep || node[tall] + 54;
     }
-    x += Math.max(...col.map((n) => n.width)) + 92;
+    start += Math.max(...column.map((node) => node[wide])) + (grid ? 65 : 92);
   }
-  for (const [n, x, y] of placements) Object.assign(n, { x, y });
+  for (const [node, position] of placements) Object.assign(node, position);
 }

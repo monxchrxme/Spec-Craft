@@ -4,6 +4,7 @@ import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
+import { codeLines } from "./code-highlight.js";
 
 const a4 = { width: 595.28, height: 841.89 };
 const landscape = { width: a4.height, height: a4.width };
@@ -221,12 +222,26 @@ async function markdownBlocks(html, settings) {
               color: accent,
               decoration: "underline",
             });
-        } else if (tag === "a")
+        } else if (tag === "a") {
+          const href = node.getAttribute("href");
+          let destination;
+          if (href?.startsWith("#")) {
+            try {
+              destination = settings.headingDestinations.get(
+                decodeURIComponent(href.slice(1)),
+              );
+            } catch {
+              /* Keep the original link if it has no valid fragment. */
+            }
+          }
           Object.assign(childStyle, {
-            link: node.getAttribute("href"),
+            ...(destination
+              ? { linkToDestination: destination }
+              : { link: href }),
             color: accent,
             decoration: "underline",
           });
+        }
         for (const child of node.childNodes) await visit(child, childStyle);
       }
     }
@@ -389,15 +404,11 @@ async function markdownBlocks(html, settings) {
     }
     if (tag === "pre")
       return {
-        stack: el.textContent
-          .replace(/\n$/, "")
-          .replaceAll("\t", " ".repeat(tabSize))
-          .split("\n")
-          .map((text) => ({
-            text: text || "\u00a0",
-            specParagraph: true,
-            specKeepLines: true,
-          })),
+        stack: codeLines(el, tabSize).map((text) => ({
+          text,
+          specParagraph: true,
+          specKeepLines: true,
+        })),
         font: "Mono",
         fontSize: size * 0.9,
         preserveLeadingSpaces: true,
@@ -642,6 +653,12 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     tabSize: Number(style.tabSize) || 4,
     measureTable: tableMeasurer(fontFiles, font, size * 0.92, leading),
   };
+  settings.headingDestinations = new Map(
+    settings.index.headings.flatMap((heading) => {
+      const slug = parts[heading.index].t.meta?.anchor;
+      return slug ? [[slug, "spec-" + heading.key]] : [];
+    }),
+  );
   const targets = new Map();
   for (const target of settings.index.targets) {
     if (!targets.has(target.index)) targets.set(target.index, []);

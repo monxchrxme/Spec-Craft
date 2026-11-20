@@ -40,6 +40,18 @@ import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
 import { formatPdfRules, pdfRules } from "./pdf-rules.js";
 import { pdfPreview, printPdf } from "./pdf-preview.js";
+import {
+  bibliographyEntries,
+  materializeToc,
+  portableBlocks,
+} from "./portable-blocks.js";
+import { isProjectTree } from "./project-tree.js";
+import {
+  bibliographyEditor,
+  projectTreeEditor,
+} from "./document-block-editors.js";
+import { setMermaidPresentation } from "./mermaid-presentation.js";
+import { highlightCode } from "./code-highlight.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -51,6 +63,7 @@ const md = window
     html: false,
     linkify: false,
     typographer: false,
+    highlight: highlightCode,
   })
   .use(window.markdownitMark)
   .use(coloredHighlights)
@@ -58,7 +71,8 @@ const md = window
   .use(latex)
   .use(mermaidBlocks)
   .use(imageSizes)
-  .use(pdfRules);
+  .use(pdfRules)
+  .use(portableBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   toolbarKey = "buro:topbar-collapsed",
@@ -705,32 +719,30 @@ function deleteBlockButton(index, label, className) {
   };
   return button;
 }
-function addInsertionControl(box, index) {
-  if (!index) return;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "block-insert-before";
-  button.setAttribute("aria-label", "Вставить блок перед этим");
-  button.title = "Вставить блок между блоками";
-  button.innerHTML = icon("plus");
-  button.onmousedown = (event) => event.preventDefault();
-  button.onclick = (event) => {
-    event.stopPropagation();
-    const anchor = prepareBlockChange(index);
-    if (anchor) insertDialog(anchor);
-  };
-  box.append(button);
-}
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
   mermaidControls(box, {
     edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
+    presentation:
+      mode === "edit" && isMermaid(p.t)
+        ? (layout, direction, card) => {
+            const state = prepareBlockChange(i);
+            if (!state || parts[state.origin]?.text !== p.text) return;
+            const original = parts[state.origin];
+            const next = setMermaidPresentation(
+              original.t.content,
+              layout,
+              direction,
+            );
+            if (next === original.t.content) return;
+            saveStructuredBlock(state, mermaidMarkdown(next), isExpanded(card));
+          }
+        : undefined,
     expanded,
     onExpand: updateExpandButton,
   });
   if (mode === "edit") {
     box.append(sortGrip("Перетащить блок", true));
-    addInsertionControl(box, i);
   }
   return box;
 }
@@ -741,6 +753,81 @@ function editMermaidCode(index, selectExample = false) {
   const start = ta.value.indexOf("\n") + 1;
   const end = Math.max(start, ta.value.lastIndexOf("\n"));
   ta.setSelectionRange(start, selectExample ? end : start);
+}
+function saveStructuredBlock(state, markup, expanded) {
+  if (doc.id !== state.id || doc.body !== state.body || !parts[state.origin]) {
+    notice("Блок изменился. Откройте его заново.");
+    return;
+  }
+  const { start, end } = parts[state.origin];
+  const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
+  selected = state.origin;
+  patch(start, end, markup.replace(/\r\n|\r|\n/g, newline));
+  render();
+  if (expanded) {
+    host.children[selected]
+      ?.querySelector(".diagram-card")
+      ?.setExpanded?.(true);
+    updateExpandButton();
+  }
+}
+function openStructuredBlock(index, kind) {
+  const state = prepareBlockChange(index);
+  if (!state) return;
+  const part = parts[state.origin];
+  const data =
+    kind === "projectTree"
+      ? isProjectTree(part.t)
+      : bibliographyEntries(part.t.content);
+  if (!data) return editBlock(state.origin);
+  const panel = dialog(
+    kind === "projectTree" ? "Структура проекта" : "Список литературы",
+    "",
+  );
+  const editor =
+    kind === "projectTree" ? projectTreeEditor : bibliographyEditor;
+  editor(panel, data, (markdown) => {
+    modal.close();
+    saveStructuredBlock(state, markdown);
+  });
+}
+function documentBlockTools(box, part, index, kind) {
+  const tools = document.createElement("div");
+  tools.className = "document-block-tools";
+  if (kind !== "toc") {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.innerHTML = icon("square-pen");
+    edit.append(
+      kind === "projectTree" ? "Изменить структуру" : "Изменить список",
+    );
+    edit.onmousedown = (event) => event.preventDefault();
+    edit.onclick = () => openStructuredBlock(index, kind);
+    tools.append(edit);
+  }
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.innerHTML = icon("copy");
+  copy.append("Скопировать Markdown");
+  copy.onclick = async () => {
+    const markdown = kind === "toc" ? part.t.meta.markdown : part.text;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      notice("Markdown скопирован");
+    } catch {
+      const panel = dialog("Скопировать Markdown", "");
+      const field = document.createElement("textarea");
+      field.readOnly = true;
+      field.rows = 10;
+      field.value = markdown;
+      panel.append(field);
+      field.focus();
+      field.select();
+    }
+  };
+  tools.append(copy);
+  box.prepend(tools);
+  box.append(deleteBlockButton(index, "Удалить блок", "block-remove"));
 }
 function buildBlock(p, i, expanded) {
   const box = document.createElement("div");
@@ -761,7 +848,6 @@ function buildBlock(p, i, expanded) {
         const target = host.children[i],
           panel = document.createElement("section");
         target.replaceChildren(panel);
-        addInsertionControl(target, i);
         const dock = $("#graph-dock");
         dock.hidden = false;
         const session = { index: i, panel, expanded: openedWide };
@@ -820,6 +906,18 @@ function buildBlock(p, i, expanded) {
     return box;
   } else box.innerHTML = md.renderer.render(p.tokens, md.options, {});
   if (mode === "edit") {
+    const kind =
+      p.t.type === "spec_toc"
+        ? "toc"
+        : p.t.type === "spec_bibliography"
+          ? "bibliography"
+          : isProjectTree(p.t)
+            ? "projectTree"
+            : "";
+    if (kind) {
+      documentBlockTools(box, p, i, kind);
+      return box;
+    }
     const paragraph = box.firstElementChild;
     const image =
       paragraph?.matches("p") &&
@@ -876,7 +974,11 @@ function buildBlock(p, i, expanded) {
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools,.mermaid-figure")) return;
-      if (e.target.closest("a") && (e.metaKey || e.ctrlKey)) return;
+      if (
+        e.target.closest('a[href^="#"]') ||
+        (e.target.closest("a") && (e.metaKey || e.ctrlKey))
+      )
+        return;
       e.preventDefault();
       editBlock(i);
     };
@@ -927,20 +1029,23 @@ function editBlock(i, selectAll = false) {
   }
   const preview = document.createElement("div");
   preview.className = "math-preview";
-  preview.setAttribute("aria-label", "Предпросмотр формул");
   let previewTimer;
   function updatePreview() {
     const template = document.createElement("template");
     template.innerHTML = md.render(ta.value);
     preview.replaceChildren(
-      ...template.content.querySelectorAll("[data-tex], [data-mermaid]"),
+      ...template.content.querySelectorAll(
+        "[data-tex], [data-mermaid], pre:has(> code[class^='language-'])",
+      ),
     );
     preview.hidden = !preview.childElementCount;
     preview.setAttribute(
       "aria-label",
       preview.querySelector("[data-mermaid]")
         ? "Предпросмотр диаграммы Mermaid"
-        : "Предпросмотр формул",
+        : preview.querySelector("pre")
+          ? "Предпросмотр кода"
+          : "Предпросмотр формул",
     );
     if (!preview.hidden) {
       void paintMath(preview);
@@ -1040,7 +1145,6 @@ function editBlock(i, selectAll = false) {
   done.onclick = finish;
   toolbar.append(done);
   box.replaceChildren(toolbar, ta, preview);
-  addInsertionControl(box, i);
   updatePreview();
   icons();
   const resizeText = () => {
@@ -1340,6 +1444,13 @@ source.onkeyup = source.onclick = () => {
 };
 function setMode(next) {
   flush();
+  if (next === "source" && mode !== "source") {
+    const synchronized = materializeToc(doc.body, md);
+    if (synchronized !== doc.body) {
+      setText(synchronized, false);
+      parts = parse();
+    }
+  }
   const offset =
     mode === "source" ? source.selectionStart : parts[selected]?.start || 0;
   mode = next;
@@ -1357,14 +1468,6 @@ function setMode(next) {
 }
 function insertBlock(type, idx = insertionBlock(), content) {
   flush();
-  const anchored = typeof idx === "object" && idx !== null;
-  if (
-    anchored &&
-    (doc.id !== idx.id || doc.body !== idx.body || !parts[idx.origin])
-  ) {
-    notice("Документ изменился. Выберите место для вставки снова.");
-    return;
-  }
   const item = content === undefined ? blocksToInsert[type] : ["", content];
   if (!item) return;
   let body = item[1];
@@ -1379,24 +1482,17 @@ function insertBlock(type, idx = insertionBlock(), content) {
   const pos =
       mode === "source"
         ? source.selectionStart
-        : anchored
-          ? parts[idx.origin].fullStart
-          : (parts[idx]?.end ?? doc.body.length),
+        : (parts[idx]?.end ?? doc.body.length),
     before = doc.body.slice(0, pos),
     after = doc.body.slice(pos);
   const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
-  const whitespace = before.match(/[\t \r\n]*$/)[0];
-  const existingBreaks = anchored
-    ? whitespace.match(/\r\n|\r|\n/g)?.length || 0
-    : 0;
-  const leading = before.trim()
-    ? newline.repeat(Math.max(0, 2 - existingBreaks))
-    : "";
+  const leading = before.trim() ? newline + newline : "";
   const add =
     leading +
     body.replace(/\r\n|\r|\n/g, newline) +
     (after.trim() ? newline + newline : newline);
   patch(pos, pos, add);
+  if (type === "toc") setText(materializeToc(doc.body, md), false);
   render();
   selected = Math.max(
     0,
@@ -1404,7 +1500,11 @@ function insertBlock(type, idx = insertionBlock(), content) {
   );
   if (mode === "source") {
     source.focus({ preventScroll: true });
-    source.setSelectionRange(pos + add.length, pos + add.length);
+    const insertedToc =
+      type === "toc" &&
+      parts.find((part) => part.start >= pos && part.t.type === "spec_toc");
+    const caret = insertedToc ? insertedToc.end : pos + add.length;
+    source.setSelectionRange(caret, caret);
   } else {
     host.children[selected]?.scrollIntoView({ block: "nearest" });
     if (["paragraph", "heading", "code", "list", "math"].includes(type))
@@ -1415,6 +1515,14 @@ function insertBlock(type, idx = insertionBlock(), content) {
     }
     if (type === "diagram")
       host.children[selected]?.querySelector("button")?.click();
+    if (type === "projectTree") openStructuredBlock(selected, type);
+    if (type === "bibliography")
+      openStructuredBlock(
+        parts.findIndex(
+          (part) => part.start >= pos && part.t.type === "spec_bibliography",
+        ),
+        type,
+      );
   }
 }
 let disposeImageDialog;
@@ -1453,8 +1561,8 @@ function option(id, label, symbol) {
     "</button>"
   );
 }
-function insertDialog(anchor) {
-  const index = anchor || insertionBlock();
+function insertDialog() {
+  const index = insertionBlock();
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
@@ -1472,6 +1580,9 @@ function insertDialog(anchor) {
             code: "code",
             math: "sigma",
             list: "list",
+            projectTree: "folder-tree",
+            toc: "list-toc",
+            bibliography: "book-open",
           }[k],
         ),
       )
@@ -1756,22 +1867,28 @@ function requestPdf(force = false) {
         (token) => token.type === "inline",
       )?.content;
       const label =
-        part.t.type === "table_open"
-          ? "Таблица"
-          : part.t.type === "math_block"
-            ? "Формула"
-            : part.t.type === "fence"
-              ? isMermaid(part.t)
-                ? "Mermaid"
-                : part.t.info.trim() === "studio-diagram"
-                  ? "Блок-схема"
-                  : "Код"
-              : readable?.startsWith("![")
-                ? "Изображение"
-                : (readable || part.text)
-                    .replace(/\s+/g, " ")
-                    .trim()
-                    .slice(0, 75);
+        part.t.type === "spec_toc"
+          ? "Оглавление"
+          : part.t.type === "spec_bibliography"
+            ? "Список литературы"
+            : isProjectTree(part.t)
+              ? "Структура проекта"
+              : part.t.type === "table_open"
+                ? "Таблица"
+                : part.t.type === "math_block"
+                  ? "Формула"
+                  : part.t.type === "fence"
+                    ? isMermaid(part.t)
+                      ? "Mermaid"
+                      : part.t.info.trim() === "studio-diagram"
+                        ? "Блок-схема"
+                        : "Код"
+                    : readable?.startsWith("![")
+                      ? "Изображение"
+                      : (readable || part.text)
+                          .replace(/\s+/g, " ")
+                          .trim()
+                          .slice(0, 75);
       return {
         index,
         label: label || "Блок " + (index + 1),
@@ -1860,7 +1977,7 @@ function exportDialog() {
     if (action === "preview" || action === "md") {
       modal.close();
       if (action === "preview") setMode("pdf");
-      else download(doc.name, doc.body);
+      else download(doc.name, materializeToc(doc.body, md));
       return;
     }
     const status = b.querySelector("[role=status]");
@@ -1960,7 +2077,11 @@ function aiDialog() {
     '<p>Скопируйте задание вместе с документом и правилами схем. Готовый Markdown можно вернуть в эту студию.</p><label>Что нужно написать или изменить?<textarea id="brief" rows="3" placeholder="Например, опиши обработку отказа и добавь ветку на схеме"></textarea></label><label>Запрос для другого чата<textarea readonly class="prompt"></textarea></label><div class="dialog-actions"><button id="return">Вставить результат</button><button id="copy" class="primary">Скопировать запрос</button></div>',
   );
   const out = b.querySelector(".prompt");
-  const update = () => (out.value = aiPrompt(doc, $("#brief").value));
+  const update = () =>
+    (out.value = aiPrompt(
+      { ...doc, body: materializeToc(doc.body, md) },
+      $("#brief").value,
+    ));
   $("#brief").oninput = update;
   update();
   $("#copy").onclick = async () => {
@@ -2591,6 +2712,37 @@ const actions = {
   rename: () => renameFile(doc.id),
   trash: trashDialog,
 };
+document.addEventListener("click", (event) => {
+  const link = event.target.closest('.paper a[href^="#"]');
+  if (
+    !link ||
+    event.defaultPrevented ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+  let slug;
+  try {
+    slug = decodeURIComponent(link.getAttribute("href").slice(1));
+  } catch {
+    return;
+  }
+  const paper = link.closest(".paper");
+  const heading = Array.from(
+    paper.querySelectorAll("h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]"),
+  ).find((node) => node.id === "doc-heading-" + slug);
+  if (!heading) return;
+  event.preventDefault();
+  heading.scrollIntoView({ block: "start" });
+  const box = heading.closest("#blocks > .block");
+  if (box) {
+    selected = Number(box.dataset.idx);
+    outlineScrollPosition = viewport.scrollTop;
+    highlight(selected);
+  }
+});
 document.addEventListener("click", (e) => {
   if (stopReview) return;
   const b = e.target.closest("[data-action],[data-mode]");
@@ -2641,7 +2793,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     flush();
     save();
-    download(doc.name, doc.body);
+    download(doc.name, materializeToc(doc.body, md));
   }
   if (
     cmd &&

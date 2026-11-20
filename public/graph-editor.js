@@ -51,6 +51,11 @@ export function graphEditor(
       <button data-cmd="multi" aria-pressed="false">Выделение</button>
       <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
+      <select aria-label="Вариант авторасстановки" data-layout-variant>
+        <option value="horizontal">Поток слева направо</option>
+        <option value="vertical">Поток сверху вниз</option>
+        <option value="grid">Компактная сетка</option>
+      </select>
       <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
       <button data-cmd="check" aria-pressed="false">Проверить схему</button>
@@ -788,7 +793,12 @@ export function graphEditor(
           : new Set(graph.nodes.map((n) => n.id));
       const next = clone(graph);
       try {
-        if (cmd === "layout") arrangeNodes(next, scope);
+        if (cmd === "layout")
+          arrangeNodes(
+            next,
+            scope,
+            panel.querySelector("[data-layout-variant]").value,
+          );
         const missed = routeEdges(next, scope, onlyEdges);
         if (JSON.stringify(next) !== JSON.stringify(graph)) {
           checkpoint();

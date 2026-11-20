@@ -235,3 +235,29 @@ test("routing multiple selected arrows leaves even adjacent unselected arrows in
   assert.equal(edges[1].route, "orthogonal");
   assert.deepEqual(edges[2], unchanged);
 });
+
+test("alternative layouts follow vertical dependencies or a compact grid", () => {
+  const graph = {
+    nodes: [
+      node("a", 40, 80),
+      node("b", 160, 50),
+      node("c", 280, 15),
+      node("d", 510, 500, { pinned: true }),
+    ],
+    edges: [
+      { from: "a", to: "b" },
+      { from: "b", to: "c" },
+    ],
+  };
+  const scope = new Set(graph.nodes.map((n) => n.id));
+  const vertical = structuredClone(graph);
+  arrangeNodes(vertical, scope, "vertical");
+  const [a, b, c, d] = vertical.nodes;
+  assert(a.y < b.y && b.y < c.y);
+  assert.deepEqual(d, graph.nodes[3]);
+  const grid = structuredClone(graph);
+  arrangeNodes(grid, scope, "grid");
+  assert.equal(grid.nodes[0].y, grid.nodes[1].y);
+  assert(grid.nodes[2].y > grid.nodes[0].y);
+  assert.deepEqual(grid.nodes[3], graph.nodes[3]);
+});

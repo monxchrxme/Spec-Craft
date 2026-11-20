@@ -9,6 +9,15 @@ import {
 } from "../public/block-order.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
+import { materializeToc, portableBlocks } from "../public/portable-blocks.js";
+import {
+  projectTreeMarkdown,
+  readProjectTree,
+} from "../public/project-tree.js";
+import {
+  configureMermaid,
+  setMermaidPresentation,
+} from "../public/mermaid-presentation.js";
 
 test("outline branches follow heading levels and distinguish duplicate titles", () => {
   const titles = [
@@ -138,5 +147,74 @@ test("PDF rules apply after paragraphs and move with the annotated block", () =>
     !md
       .parse("> " + marker + "\n```md\n" + marker + "```", {})
       .some((token) => token.type === "spec_pdf"),
+  );
+});
+
+test("project trees round-trip comments, folders and file names in plain text fences", () => {
+  const input =
+    "Example/\n├── README.md  # Notes\n└── api/\n    ├── тест.py\n    └── docs/\n";
+  const tree = readProjectTree(input);
+  assert.equal(tree.children[1].children[0].name, "тест.py");
+  assert.equal(tree.children[0].note, "Notes");
+  const markdown = projectTreeMarkdown(tree);
+  assert(markdown.startsWith("```text\n"));
+  assert.deepEqual(
+    readProjectTree(markdown.split("\n").slice(1, -1).join("\n")),
+    tree,
+  );
+  assert.equal(readProjectTree("Example/\n    └── orphan.js"), null);
+});
+
+test("the generated Markdown table of contents uses stable duplicate heading anchors", () => {
+  const scope = {};
+  runInNewContext(
+    readFileSync(
+      new URL("../public/vendor/markdown-it.min.js", import.meta.url),
+      "utf8",
+    ),
+    scope,
+  );
+  const md = scope.markdownit({ html: false }).use(portableBlocks);
+  const input =
+    "## Оглавление\r\n\r\n<!-- spec-toc -->\r\n\r\nOld\r\n\r\n<!-- /spec-toc -->\r\n\r\n## Проверка\r\n\r\n### Дочерний\r\n\r\n## Проверка";
+  const markdown = materializeToc(input, md);
+  assert.equal(materializeToc(markdown, md), markdown);
+  assert(
+    markdown.includes(
+      "  - [Дочерний](#" + encodeURIComponent("дочерний") + ")",
+    ),
+  );
+  assert(
+    markdown.includes("[Проверка](#" + encodeURIComponent("проверка-1") + ")"),
+  );
+  assert(!markdown.includes("[Оглавление]"));
+  assert(
+    materializeToc(input.replace("## Оглавление", "## Начало"), md).includes(
+      "[Начало](#",
+    ),
+  );
+  assert(md.render(markdown).includes('id="doc-heading-проверка-1"'));
+  assert(md.render(markdown).includes('<nav class="document-toc"'));
+});
+
+test("Mermaid view settings preserve front matter and nested state directions", () => {
+  const source =
+    "---\ntitle: Example\n---\nstateDiagram-v2\n  direction LR\n  state A {\n    direction LR\n  }\n";
+  const changed = setMermaidPresentation(source, "elk", "vertical");
+  assert(
+    changed.startsWith(
+      "---\ntitle: Example\n---\n%% speccraft-render: elk vertical\n",
+    ),
+  );
+  const settings = configureMermaid(changed);
+  assert.equal(settings.layout, "elk");
+  assert(settings.source.includes("stateDiagram-v2\n    direction TB\n"));
+  assert(settings.source.includes("state A {\n    direction LR"));
+  assert.equal(setMermaidPresentation(changed, "source", "source"), source);
+  assert.equal(
+    configureMermaid(
+      setMermaidPresentation("flowchart TD; A --> B", "compact", "horizontal"),
+    ).source,
+    "flowchart LR; A --> B",
   );
 });
