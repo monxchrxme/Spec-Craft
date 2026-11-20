@@ -305,13 +305,14 @@ main {
   padding: 30px clamp(16px, 3.8vw, 68px) 45px;
 }
 .paper {
+  --paper-inline-padding: clamp(24px, 4.4vw, 72px);
   max-width: 1000px;
   margin: 0 auto;
   background: white;
   border: 1px solid #dee0e7;
   box-shadow: 0 3px 13px #25273908;
   border-radius: 8px;
-  padding: clamp(24px, 4.4vw, 72px);
+  padding: clamp(24px, 4.4vw, 72px) var(--paper-inline-padding);
   min-height: 100%;
   font-family: var(--doc-font, inherit);
   font-size: var(--doc-size, 16px);
@@ -792,7 +793,8 @@ select {
     padding: 0 14px;
   }
   .paper {
-    padding: 28px;
+    --paper-inline-padding: 28px;
+    padding-block: 28px;
   }
   .rail {
     width: 46px;
@@ -857,7 +859,8 @@ select {
     display: none;
   }
   .paper {
-    padding: 20px 16px;
+    --paper-inline-padding: 16px;
+    padding-block: 20px;
   }
   .paper h1 {
     font-size: 2em;
@@ -1089,13 +1092,13 @@ select {
 }
 .paper:has(.diagram-expanded) {
   max-width: none;
-  padding-inline: 16px;
+  --paper-inline-padding: 16px;
 }
 body:has(.inline-graph) #scroll {
   padding-inline: clamp(8px, 1.4vw, 26px);
 }
 body:has(.inline-graph) .paper {
-  padding-inline: clamp(12px, 2vw, 32px);
+  --paper-inline-padding: clamp(12px, 2vw, 32px);
 }
 @media (min-width: 761px) and (max-width: 1130px) {
   #workspace:has(.graph-dock:not([hidden])) .sidebar,
@@ -1879,6 +1882,11 @@ g.workflow-anchored {
   padding-inline-end: 24px !important;
   overflow-wrap: anywhere;
 }
+.paper:has(> #blocks > .block > .block-grip) {
+  /* Reserve space for block controls and their keyboard focus outlines. */
+  --block-control-gutter: 33px;
+  padding-inline: max(var(--paper-inline-padding), var(--block-control-gutter));
+}
 .block-grip,
 .outline-grip {
   display: grid;
@@ -1942,6 +1950,9 @@ g.workflow-anchored {
   bottom: 0;
 }
 @media (hover: none), (max-width: 760px) {
+  .paper:has(> #blocks > .block > .block-grip) {
+    --block-control-gutter: 22px;
+  }
   .block-grip {
     inset-inline-start: -18px;
     width: 18px;
