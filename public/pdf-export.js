@@ -3,10 +3,13 @@ import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
+import { tableMeasurer } from "./pdf-table-flow.js";
 
 const a4 = { width: 595.28, height: 841.89 };
+const landscape = { width: a4.height, height: a4.width };
 const margin = 38;
 const contentWidth = a4.width - margin * 2;
+const contentHeight = a4.height - margin * 2;
 const families = { sans: "Sans", serif: "Serif", mono: "Mono" };
 
 function fontFiles(name) {
@@ -26,7 +29,7 @@ function fontFiles(name) {
   );
 }
 
-async function imageBlock(element, widthLimit = contentWidth) {
+async function imageBlock(element, widthLimit, heightLimit) {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = new URL(element.getAttribute("src"), document.baseURI).href;
@@ -37,14 +40,31 @@ async function imageBlock(element, widthLimit = contentWidth) {
     canvas.height = img.naturalHeight;
     canvas.getContext("2d").drawImage(img, 0, 0);
     const width = Number(element.dataset.imageWidth);
-    return {
+    const caption = element.getAttribute("title")?.trim();
+    const captionHeight = caption
+      ? 16 + Math.ceil((caption.length * 6) / widthLimit) * 12
+      : 0;
+    const drawing = {
       image: canvas.toDataURL("image/png"),
       fit: [
         width >= 10 && width <= 100
           ? (widthLimit * width) / 100
           : Math.min(img.naturalWidth * 0.75, widthLimit),
-        a4.height - 2 * margin - 24,
+        Math.max(24, heightLimit - captionHeight),
       ],
+    };
+    if (!caption) return drawing;
+    const label = {
+      text: caption,
+      fontSize: 9,
+      color: "#585363",
+      margin: [0, 3, 0, 0],
+    };
+    return {
+      stack: [drawing, label],
+      // Overlong author-supplied captions remain readable as a text flow.
+      unbreakable: captionHeight < heightLimit / 2,
+      specMeasuredHeight: heightLimit,
     };
   } catch {
     throw Error(
@@ -55,7 +75,7 @@ async function imageBlock(element, widthLimit = contentWidth) {
   }
 }
 
-async function pdfFormula(element, size, widthLimit) {
+async function pdfFormula(element, size, widthLimit, heightLimit, note) {
   const display = element.classList.contains("math-display");
   const content = element.dataset.tex;
   try {
@@ -67,14 +87,19 @@ async function pdfFormula(element, size, widthLimit) {
       svg.setAttribute("width", widthLimit / 0.75);
       document.body.append(svg);
       const box = svg.getBoundingClientRect();
+      const contentBox = svg.getBBox();
       svg.remove();
       svg.removeAttribute("style");
       svg.setAttribute("viewBox", [0, 0, box.width, box.height].join(" "));
-      svg.setAttribute("width", box.width * 0.75);
-      svg.setAttribute("height", box.height * 0.75);
+      const scale = Math.min(0.75, heightLimit / box.height);
+      if (scale < 0.72 || contentBox.width > widthLimit / 0.75 + 1)
+        note("Нумерованная формула уменьшена. Проверьте её читаемость.");
+      svg.setAttribute("width", box.width * scale);
+      svg.setAttribute("height", box.height * scale);
       return {
         svg: svg.outerHTML,
-        width: box.width * 0.75,
+        width: box.width * scale,
+        height: box.height * scale,
         font: "Sans",
         alignment: "center",
         margin: [0, 2, 0, 5],
@@ -84,10 +109,14 @@ async function pdfFormula(element, size, widthLimit) {
     const scale = Math.min(
       size / 1000,
       widthLimit / width,
-      (a4.height - 2 * margin - 24) / height,
+      heightLimit / height,
     );
     if (!Number.isFinite(scale) || width <= 0 || height <= 0)
       throw Error("Пустая формула.");
+    if (scale < (size / 1000) * 0.9)
+      note(
+        "Формула уменьшена, чтобы поместиться. Проверьте её или разбейте на строки.",
+      );
     svg.setAttribute("width", width * scale);
     svg.setAttribute("height", height * scale);
     svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -96,6 +125,7 @@ async function pdfFormula(element, size, widthLimit) {
       return {
         ...math,
         width: width * scale,
+        height: height * scale,
         alignment: "center",
         margin: [0, 2, 0, 5],
       };
@@ -109,6 +139,7 @@ async function pdfFormula(element, size, widthLimit) {
       },
     };
   } catch {
+    note("В формуле есть ошибка LaTeX.");
     return {
       text: content + " [Ошибка LaTeX]",
       font: "Mono",
@@ -121,9 +152,16 @@ async function pdfFormula(element, size, widthLimit) {
 async function markdownBlocks(html, settings) {
   const template = document.createElement("template");
   template.innerHTML = html;
-  const { size, accent, gap, align, tabSize } = settings;
+  const { size, accent, gap, align, tabSize, note, pageSize } = settings;
+  const pageWidth = pageSize.width - margin * 2;
+  const pageHeight = pageSize.height - margin * 2;
 
-  async function flow(parent, defaults = {}, widthLimit = contentWidth) {
+  async function flow(
+    parent,
+    defaults = {},
+    widthLimit = pageWidth,
+    heightLimit = pageHeight - 34,
+  ) {
     const stack = [];
     let runs = [];
     const flush = () => {
@@ -138,7 +176,13 @@ async function markdownBlocks(html, settings) {
       }
       const tag = node.localName;
       if (node.hasAttribute?.("data-tex")) {
-        const formula = await pdfFormula(node, size, widthLimit);
+        const formula = await pdfFormula(
+          node,
+          size,
+          widthLimit,
+          heightLimit,
+          note,
+        );
         if (node.classList.contains("math-display")) {
           flush();
           stack.push(formula);
@@ -147,13 +191,12 @@ async function markdownBlocks(html, settings) {
         flush();
         const drawing = await mermaidBlock(
           node.querySelector("code").textContent,
-          false,
-          widthLimit,
+          { profile: "a4", labelWidth: widthLimit, note },
         );
         stack.push(drawing.node);
       } else if (tag === "img") {
         flush();
-        stack.push(await imageBlock(node, widthLimit));
+        stack.push(await imageBlock(node, widthLimit, heightLimit));
       } else if (/^(p|h[1-6]|ul|ol|table|blockquote|pre|hr)$/.test(tag)) {
         flush();
         stack.push(await block(node));
@@ -206,34 +249,127 @@ async function markdownBlocks(html, settings) {
         ),
       );
       const total = weights.reduce((a, b) => a + b, 0);
-      const widths = weights.map((w) => (100 * w) / total + "%");
+      if (!total) return { text: "" };
+      const headerRows = el.tHead?.rows.length || 0;
+      const sidePadding = Math.min(4, pageWidth / (weights.length * 10));
+      const border = Math.min(0.55, pageWidth / (weights.length * 20));
+      const gridWidth =
+        pageWidth - (sidePadding * 2 + border) * weights.length - border;
+      const columnWidths = weights.map((w) => (gridWidth * w) / total);
       const body = [];
-      for (const row of rows) {
+      let headerHeight = 0;
+      let unsafeHeight = false;
+      let repeatHeaderRows = headerRows;
+      for (const [rowIndex, row] of rows.entries()) {
         const cells = [];
+        const isHeader = rowIndex < headerRows;
+        const budget = isHeader
+          ? pageHeight - 50
+          : Math.max(30, pageHeight - headerHeight - 34);
         for (const cell of row.cells) {
           const header = cell.localName === "th";
-          const width = Math.max(
-            8,
-            (contentWidth * weights[cell.cellIndex]) / total - 12,
+          const width = Math.max(6, columnWidths[cell.cellIndex] - 2);
+          const stack = await flow(
+            cell,
+            {},
+            width,
+            Math.max(20, Math.min(310, budget - 20)),
+          );
+          const measured = await settings.measureTable(
+            stack,
+            width,
+            header,
+            budget,
           );
           cells.push({
-            stack: await flow(cell, {}, width),
+            stack,
+            measured,
             bold: header,
             alignment: cell.style.textAlign || "left",
             fillColor: header ? "#efedf7" : null,
           });
         }
-        body.push(cells);
+        const rowHeight = Math.max(
+          0,
+          ...cells.map((cell) => cell.measured.height),
+        );
+        const chunkCount = Math.max(
+          1,
+          ...cells.map((cell) => cell.measured.chunks.length),
+        );
+        if (isHeader && chunkCount > 1) repeatHeaderRows = 0;
+        if (isHeader) headerHeight += rowHeight + 9;
+        if (
+          rowHeight > budget ||
+          (isHeader && (chunkCount > 1 || headerHeight > pageHeight * 0.6))
+        )
+          unsafeHeight = true;
+        const target = settings.targets.find((item) => item.row === rowIndex);
+        const requirement =
+          target?.id ||
+          cells
+            .map((_, i) => row.cells[i].textContent.trim())
+            .find((text) => /^(FR|NFR|REQ|BR)-\d+$/i.test(text));
+        const idColumn =
+          requirement &&
+          Array.from(row.cells).findIndex(
+            (cell) =>
+              cell.textContent.trim().toUpperCase() ===
+              requirement.toUpperCase(),
+          );
+        if (!isHeader && chunkCount > 1) {
+          note(
+            requirement
+              ? "Длинная строка " + requirement + " разбита на продолжения."
+              : "Длинная строка таблицы разбита на продолжения.",
+          );
+        }
+        for (let n = 0; n < chunkCount; n++) {
+          const fragment = cells.map(({ measured, stack, ...cell }, index) => {
+            let contents =
+              isHeader && chunkCount === 1 ? stack : measured.chunks[n] || [];
+            if (n && index === idColumn && contents.length === 0)
+              contents = [
+                { text: requirement + "\n(продолжение)", italics: true },
+              ];
+            else if (n && index === idColumn)
+              contents = [
+                { text: requirement + " (продолжение)", italics: true },
+                ...contents,
+              ];
+            return {
+              ...cell,
+              stack: contents.length ? contents : [{ text: "" }],
+            };
+          });
+          if (n === 0 && target) {
+            const first = fragment
+              .flatMap((cell) => cell.stack)
+              .find((node) => node.text);
+            if (first) first.id = "spec-" + target.key;
+          }
+          body.push(fragment);
+        }
       }
+      if (unsafeHeight)
+        note("Высокая шапка или ячейка таблицы требует проверки разрывов.");
       return {
-        table: { headerRows: el.tHead?.rows.length || 0, widths, body },
+        table: {
+          headerRows: repeatHeaderRows,
+          widths: columnWidths,
+          body,
+          keepWithHeaderRows: !unsafeHeight && body.length > headerRows ? 1 : 0,
+          dontBreakRows: !unsafeHeight,
+        },
         layout: {
           hLineWidth: () => 0.55,
-          vLineWidth: () => 0.55,
+          vLineWidth: () => border,
           hLineColor: () => "#cbc8d3",
           vLineColor: () => "#cbc8d3",
           paddingTop: () => 4,
           paddingBottom: () => 4,
+          paddingLeft: () => sidePadding,
+          paddingRight: () => sidePadding,
         },
         fontSize: size * 0.92,
         margin: [0, 3, 0, gap],
@@ -241,7 +377,10 @@ async function markdownBlocks(html, settings) {
     }
     if (tag === "ul" || tag === "ol") {
       const items = [];
-      for (const li of el.children) items.push({ stack: await flow(li) });
+      for (const li of el.children)
+        items.push({
+          stack: await flow(li, { specParagraph: true, specKeepLines: true }),
+        });
       return {
         [tag]: items,
         start: Number(el.getAttribute("start")) || 1,
@@ -250,16 +389,26 @@ async function markdownBlocks(html, settings) {
     }
     if (tag === "pre")
       return {
-        text: el.textContent
+        stack: el.textContent
           .replace(/\n$/, "")
-          .replaceAll("\t", " ".repeat(tabSize)),
+          .replaceAll("\t", " ".repeat(tabSize))
+          .split("\n")
+          .map((text) => ({
+            text: text || "\u00a0",
+            specParagraph: true,
+            specKeepLines: true,
+          })),
         font: "Mono",
         fontSize: size * 0.9,
         preserveLeadingSpaces: true,
         margin: [8, 4, 4, gap],
       };
     if (tag === "blockquote")
-      return { stack: await flow(el), margin: [14, 2, 0, 4], color: "#514e59" };
+      return {
+        stack: await flow(el, { specParagraph: true }),
+        margin: [14, 2, 0, 4],
+        color: "#514e59",
+      };
     if (tag === "hr")
       return {
         canvas: [
@@ -267,7 +416,7 @@ async function markdownBlocks(html, settings) {
             type: "line",
             x1: 0,
             y1: 0,
-            x2: contentWidth,
+            x2: pageWidth,
             y2: 0,
             lineWidth: 0.7,
             lineColor: "#c9c6d0",
@@ -288,14 +437,62 @@ async function markdownBlocks(html, settings) {
       };
     }
     return {
-      stack: await flow(el, { alignment: align }),
+      stack: await flow(el, {
+        alignment: align,
+        specParagraph: true,
+        specKeepLines:
+          settings.keepParagraph ||
+          /^(FR|NFR|REQ|BR)-\d+\b/i.test(el.textContent.trim()),
+      }),
       margin: [0, 0, 0, gap],
     };
   }
   return flow(template.content);
 }
 
-function diagramBlock(raw, enlarge) {
+function diagramSheet({
+  width,
+  height,
+  desired,
+  profile,
+  separate,
+  extra,
+  fitted,
+  note,
+}) {
+  const fit = (page) =>
+    Math.min(
+      (page.width - 2 * margin) / width,
+      (page.height - 2 * margin - extra) / height,
+      1,
+    );
+  if (profile === "a4") {
+    if (fitted + 0.01 < desired)
+      note("Подписи схемы могут быть мелкими на листе A4.");
+    return { scale: fitted, pageSize: separate ? a4 : null };
+  }
+  if (!separate && fitted + 0.01 >= desired)
+    return { scale: fitted, pageSize: null };
+  const wide = fit(landscape);
+  if (fitted + 0.01 >= desired) return { scale: fitted, pageSize: a4 };
+  if (wide + 0.01 >= desired)
+    return { scale: Math.min(wide, desired), pageSize: landscape };
+  const scale = Math.min(
+    desired,
+    (14400 - 2 * margin - extra - 2) / Math.max(width, height),
+  );
+  if (scale + 0.01 < desired)
+    note("Схема достигла предельного размера листа PDF. Проверьте подписи.");
+  return {
+    scale,
+    pageSize: {
+      width: Math.max(a4.width, Math.ceil(width * scale + 2 * margin + 2)),
+      height: Math.max(360, Math.ceil(height * scale + 2 * margin + extra + 2)),
+    },
+  };
+}
+
+function diagramBlock(raw, options) {
   let graph;
   try {
     graph = normalize(JSON.parse(raw));
@@ -339,23 +536,24 @@ function diagramBlock(raw, enlarge) {
   ).filter((n) => n > 0);
   const smallest = labelSizes.reduce((min, size) => Math.min(min, size), 16);
   const desiredScale = Math.min(1, 9 / smallest);
-  const availableHeight = a4.height - 2 * margin - 54;
-  const scale = Math.min(
+  const extra = 75 + Math.ceil((graph.title || "").length / 95) * 13;
+  const fitted = Math.min(
     (contentWidth * layout.width) / 100 / width,
-    availableHeight / height,
+    (contentHeight - extra) / height,
     layout.height ? (layout.height * 0.75) / height : Infinity,
     1,
   );
-  const large = enlarge && scale + 0.01 < desiredScale;
-  const finalScale = large
-    ? Math.min(
-        desiredScale,
-        (14400 - 2 * margin - 55) / Math.max(width, height),
-      )
-    : scale;
+  const { scale, pageSize } = diagramSheet({
+    ...options,
+    width,
+    height,
+    extra,
+    fitted,
+    desired: desiredScale,
+  });
   const drawing = {
     svg: svg.outerHTML,
-    width: width * finalScale,
+    width: width * scale,
     font: "Sans",
     alignment: layout.align,
   };
@@ -369,29 +567,26 @@ function diagramBlock(raw, enlarge) {
       margin: [0, 3, 0, 0],
     });
   const node = { stack, unbreakable: true, margin: [0, 2, 0, 8] };
-  return {
-    node,
-    pageSize: large
-      ? {
-          width: Math.max(a4.width, Math.ceil(drawing.width + 2 * margin + 1)),
-          height: Math.max(
-            360,
-            Math.ceil(height * finalScale + 2 * margin + 55),
-          ),
-        }
-      : null,
-  };
+  return { node, pageSize };
 }
 
-async function mermaidBlock(source, enlarge, widthLimit = contentWidth) {
+async function mermaidBlock(source, options) {
   try {
     const { url, width, height } = await mermaidGraphic(source);
-    const availableHeight = a4.height - 2 * margin - 54;
-    const fitted = Math.min(0.75, widthLimit / width, availableHeight / height);
-    const large = enlarge && fitted < 0.58;
-    const scale = large
-      ? Math.min(0.75, 14000 / Math.max(width, height))
-      : fitted;
+    const extra = 75;
+    const fitted = Math.min(
+      0.75,
+      (options.labelWidth || contentWidth) / width,
+      (contentHeight - extra) / height,
+    );
+    const { scale, pageSize } = diagramSheet({
+      ...options,
+      width,
+      height,
+      extra,
+      fitted,
+      desired: 0.64,
+    });
     const pixels = Math.min(scale * 4, 4096 / Math.max(width, height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.ceil(width * pixels));
@@ -411,17 +606,12 @@ async function mermaidBlock(source, enlarge, widthLimit = contentWidth) {
     };
     return {
       node: { stack: [drawing], unbreakable: true, margin: [0, 2, 0, 8] },
-      pageSize: large
-        ? {
-            width: Math.max(
-              a4.width,
-              Math.ceil(drawing.width + 2 * margin + 1),
-            ),
-            height: Math.max(360, Math.ceil(drawing.height + 2 * margin + 55)),
-          }
-        : null,
+      pageSize,
     };
   } catch {
+    options.note(
+      "Диаграмма Mermaid не построилась. В PDF добавлен исходный код.",
+    );
     return {
       node: {
         stack: [
@@ -442,83 +632,179 @@ async function mermaidBlock(source, enlarge, widthLimit = contentWidth) {
   }
 }
 
-export async function exportPdf(parts, md, doc, enlarge) {
+export async function exportPdf(parts, md, doc, profile = "screen") {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
+  const font = families[style.font] || "Sans";
+  const size = (Number(style.size) || 16) * 0.75;
+  const leading = (Number(style.leading) || 1.65) * 0.74;
   const settings = {
     index: specIndex(parts),
-    size: (Number(style.size) || 16) * 0.75,
+    size,
     gap: (Number(style.gap) || 12) * 0.75,
     align: style.align === "justify" ? "justify" : "left",
     accent: style.accent || "#6353bb",
     tabSize: Number(style.tabSize) || 4,
+    measureTable: tableMeasurer(fontFiles, font, size * 0.92, leading),
   };
+  const targets = new Map();
+  for (const target of settings.index.targets) {
+    if (!targets.has(target.index)) targets.set(target.index, []);
+    targets.get(target.index).push(target);
+  }
   const sections = [];
   let normal = [];
+  const warnings = [];
+  const blocksOnPages = new Map();
   const flush = () => {
-    if (normal.length) sections.push({ section: normal, pageSize: a4 });
+    if (normal.length)
+      sections.push({
+        section: normal,
+        pageSize: a4,
+        pageOrientation: "portrait",
+      });
     normal = [];
   };
   for (const [i, part] of parts.entries()) {
+    const rules = part.pdfRules || [];
+    const separate = rules.includes("separate-sheet");
+    const manualBreak = rules.includes("break-before");
+    const note = (message) => {
+      if (
+        !warnings.some(
+          (warning) => warning.index === i && warning.message === message,
+        )
+      )
+        warnings.push({ index: i, message });
+    };
     const mermaid = isMermaid(part.t);
-    if (
-      mermaid ||
-      (part.t.type === "fence" && part.t.info.trim() === "studio-diagram")
-    ) {
-      const { node, pageSize } = mermaid
-        ? await mermaidBlock(part.t.content, enlarge)
-        : diagramBlock(part.t.content, enlarge);
-      if (pageSize) {
-        const heading = normal.at(-1)?.headlineLevel ? normal.pop() : null;
-        flush();
-        sections.push({
-          section: heading ? [heading, node] : [node],
-          pageSize,
-        });
-      } else normal.push(node);
+    const diagram =
+      part.t.type === "fence" && part.t.info.trim() === "studio-diagram";
+    const columns =
+      part.t.type === "table_open"
+        ? part.tokens.filter((token) => token.type === "th_open").length
+        : 0;
+    let pageSize =
+      separate || (columns > 6 && profile === "screen")
+        ? columns > 6 && profile === "screen"
+          ? landscape
+          : a4
+        : null;
+    let blocks;
+    if (diagram || mermaid) {
+      const options = { profile, separate, note };
+      const rendered = mermaid
+        ? await mermaidBlock(part.t.content, options)
+        : diagramBlock(part.t.content, options);
+      pageSize = rendered.pageSize || pageSize;
+      blocks = [rendered.node];
     } else {
-      const blocks = await markdownBlocks(
+      if (columns > 6 && profile === "a4")
+        note("В таблице много столбцов для A4. Проверьте ширину и читаемость.");
+      const selectedTargets = targets.get(i) || [];
+      blocks = await markdownBlocks(
         md.renderer.render(part.tokens, md.options, {}),
-        settings,
+        {
+          ...settings,
+          pageSize: pageSize || a4,
+          targets: selectedTargets,
+          keepParagraph: (targets.get(i - 1) || []).some(
+            (target) =>
+              target.row < 0 && /^(FR|NFR|REQ|BR)-\d+$/i.test(target.id || ""),
+          ),
+          note,
+        },
       );
-      const root = blocks[0];
-      if (root?.headlineLevel || root?.table) {
-        for (const t of settings.index.targets.filter((t) => t.index === i)) {
-          const stack =
-            t.row < 0
-              ? root.stack
-              : root.table.body[t.row].flatMap((cell) => cell.stack);
-          const text = stack.find((node) => node.text);
-          if (text) text.id = "spec-" + t.key;
+      if (blocks[0]?.headlineLevel) {
+        const target = selectedTargets.find((t) => t.row < 0);
+        const first = blocks[0].stack.find((node) => node.text);
+        if (first && target) first.id = "spec-" + target.key;
+      }
+    }
+    if (!blocks.length) continue;
+    const heading = Boolean(blocks[0].headlineLevel);
+    const unit = {
+      id: "spec-pdf-block-" + i,
+      stack: blocks,
+      specKeep: heading || rules.includes("keep-next"),
+      heading,
+      manualBreak,
+    };
+    if (pageSize) {
+      const headings = [];
+      if (!manualBreak) {
+        while (normal.at(-1)?.heading) {
+          const previous = normal.pop();
+          headings.unshift(previous);
+          if (previous.manualBreak) break;
         }
       }
-      normal.push(...blocks);
+      flush();
+      sections.push({
+        section: [...headings, unit],
+        pageSize,
+        pageOrientation:
+          pageSize.width > pageSize.height ? "landscape" : "portrait",
+      });
+    } else {
+      if (manualBreak) flush();
+      normal.push(unit);
     }
   }
   flush();
-  const font = families[style.font] || "Sans";
+  const nextBlock = new Map();
+  for (const section of sections) {
+    const units = section.section;
+    units.forEach((unit, index) => {
+      if (unit.specKeep && units[index + 1])
+        nextBlock.set(unit.id, units[index + 1].id);
+    });
+  }
+  const pageBreakBefore = (node, container) => {
+    const next = nextBlock.get(node.id);
+    if (!next) return false;
+    const page = node.pageNumbers.at(-1);
+    if (
+      container
+        .getFollowingNodesOnPage()
+        .some((item) => item.id === next && item.pageNumbers[0] === page)
+    )
+      return false;
+    return container
+      .getPreviousNodesOnPage()
+      .some((item) => item.id?.startsWith("spec-pdf-block-"));
+  };
+  pageBreakBefore.specLayout = (nodes) => {
+    for (const node of nodes) {
+      if (!node.id?.startsWith("spec-pdf-block-") || !node.positions.length)
+        continue;
+      const index = Number(node.id.slice("spec-pdf-block-".length));
+      blocksOnPages.set(index, [
+        ...new Set(node.positions.map((position) => position.pageNumber)),
+      ]);
+    }
+  };
   const fonts = Object.fromEntries(
     [...new Set(["Sans", "Mono", font])].map((name) => [name, fontFiles(name)]),
   );
   const pdf = window.pdfMake;
   pdf.setFonts(fonts);
   pdf.setUrlResourceCaching(true);
-  return pdf
+  const blob = await pdf
     .createPdf({
       info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
-      pageSize: sections[0]?.pageSize || a4,
+      pageSize: "A4",
+      pageOrientation: "portrait",
       pageMargins: margin,
       defaultStyle: {
         font,
-        fontSize: settings.size,
+        fontSize: size,
         color: "#262431",
-        lineHeight: (Number(style.leading) || 1.65) * 0.74,
+        lineHeight: leading,
       },
       content: sections.length ? sections : [{ text: "" }],
-      pageBreakBefore: (node, container) =>
-        !!node.headlineLevel &&
-        container.getFollowingNodesOnPage().length === 0 &&
-        container.getNodesOnNextPage().length > 0,
+      pageBreakBefore,
     })
     .getBlob();
+  return { blob, warnings, blocksOnPages };
 }

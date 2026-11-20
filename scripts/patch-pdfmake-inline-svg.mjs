@@ -1,4 +1,4 @@
-// Adds inline SVG runs to the vendored pdfmake 0.3.14 browser bundle.
+// Adds inline SVG runs and SpecCraft pagination to pdfmake 0.3.14.
 // Usage: node scripts/patch-pdfmake-inline-svg.mjs path/to/unmodified/pdfmake.min.js
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -47,6 +47,62 @@ replaceOnce(
     if(h.destination)this.pdfDocument.addNamedDestination(h.destination,"XYZ",x,y,null);
     this.renderSVG({...o.inlineSvg,x,y,link:o.link,linkToDestination:o.linkToDestination});
   })() : this.pdfDocument.text(o.text,r+o.x,p,h)),o.linkToPage&&`,
+);
+
+replaceOnce(
+  "processSection(t){let r=this.writer.context().getCurrentPage();if(!r||r&&r.items.length)",
+  `processSection(t){
+    let context = this.writer.context(), r = context.getCurrentPage();
+    // An earlier block's bottom margin can leave an empty sheet of its own size.
+    if(r && !r.items.length && t.pageSize && t.pageSize !== "inherit" &&
+      context.page === context.pages.length - 1){
+      context.pages.pop();
+      context.backgroundLength.pop();
+      context.page--;
+      r = null;
+    }
+    if(!r || r.items.length)`,
+);
+
+replaceOnce(
+  ";for(;r&&(-1===i||n<i);){if(r.getHeight()>this.writer.context().availableHeight",
+  `;
+    if(t.specParagraph && r && i === -1){
+      const lines = [r], context = this.writer.context();
+      while ((r = this.buildNextLine(t))) lines.push(r);
+      const fullHeight = context.getCurrentPage().pageSize.height -
+        context.pageMargins.top - context.pageMargins.bottom;
+      const totalHeight = lines.reduce((height,line) => height + line.getHeight(), 0);
+      if(t.specKeepLines && totalHeight <= fullHeight && totalHeight > context.availableHeight &&
+        context.y > context.pageMargins.top) this.writer.moveToNextPage(t.pageOrientation);
+      for(let start = 0; start < lines.length;){
+        let end = start, height = 0;
+        while(end < lines.length && height + lines[end].getHeight() <= context.availableHeight){
+          height += lines[end++].getHeight();
+        }
+        const fresh = context.y <= context.pageMargins.top;
+        if(end < lines.length){
+          if(end - start === 1 && !fresh) end = start;
+          else if(lines.length - end === 1 && end - start > 2) end--;
+          else if(lines.length - end === 1 && end - start === 2 && !fresh) end = start;
+        }
+        if(end === start && fresh) end++;
+        while(start < end) t.positions.push(this.writer.addLine(lines[start++]));
+        if(start < lines.length) this.writer.moveToNextPage(t.pageOrientation);
+      }
+      return;
+    }
+    for(;r&&(-1===i||n<i);){if(r.getHeight()>this.writer.context().availableHeight`,
+);
+
+replaceOnce(
+  "!i.pageBreakCalculated){i.pageBreakCalculated",
+  "(!i.pageBreakCalculated||i.specKeep)){i.pageBreakCalculated",
+);
+
+replaceOnce(
+  "return u.pages}tryLayoutDocument",
+  "h?.specLayout?.(u.pageBreakNodes,u.pages);return u.pages}tryLayoutDocument",
 );
 
 writeFileSync(file, bundle);

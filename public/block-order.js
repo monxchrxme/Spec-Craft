@@ -26,9 +26,9 @@ export function reorderMarkdown(body, parts, start, end, boundary) {
   const [first, pivot, last] = earlier
     ? [boundary, start, end]
     : [start, end, boundary];
-  const firstStart = parts[first].start,
+  const firstStart = parts[first].fullStart ?? parts[first].start,
     firstEnd = parts[pivot - 1].end;
-  const secondStart = parts[pivot].start,
+  const secondStart = parts[pivot].fullStart ?? parts[pivot].start,
     secondEnd = parts[last - 1].end;
   const newline = body.includes("\r\n")
     ? "\r\n"
@@ -48,10 +48,10 @@ export function reorderMarkdown(body, parts, start, end, boundary) {
   const mid = separator(body.slice(firstEnd, secondStart));
   const firstText = body.slice(firstStart, firstEnd),
     secondText = body.slice(secondStart, secondEnd);
+  const suffixStart = parts[last]?.fullStart ?? parts[last]?.start;
   const suffix =
     last < length
-      ? separator(body.slice(secondEnd, parts[last].start)) +
-        body.slice(parts[last].start)
+      ? separator(body.slice(secondEnd, suffixStart)) + body.slice(suffixStart)
       : body.slice(secondEnd);
   return {
     body: prefix + secondText + mid + firstText + suffix,

@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { headingSpan, reorderMarkdown } from "../public/block-order.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
+import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 
 test("moving an outline section retains its descendants and CRLF Markdown", () => {
   const blocks = [
@@ -59,4 +62,47 @@ test("raw Mermaid imports use a fence longer than fence-like lines in the source
   assert(isMermaid({ type: "fence", info: " Mermaid " }));
   assert(!isMermaid({ type: "code_block", info: "mermaid" }));
   assert(!isMermaid({ type: "fence", info: "javascript" }));
+});
+
+test("PDF rules apply after paragraphs and move with the annotated block", () => {
+  const scope = {};
+  runInNewContext(
+    readFileSync(
+      new URL("../public/vendor/markdown-it.min.js", import.meta.url),
+      "utf8",
+    ),
+    scope,
+  );
+  const md = scope.markdownit({ html: false }).use(pdfRules);
+  const marker = formatPdfRules(["break-before", "keep-next"], "\r\n");
+  const before = "Введение";
+  const attached = "## Приложение";
+  const after = "## Итог";
+  const gap = "\r\n\r\n";
+  const body = before + gap + marker + attached + gap + after;
+  const start = before.length + gap.length;
+  const end = start + marker.length + attached.length;
+  const rules = md.parse(body, {}).filter((token) => token.type === "spec_pdf");
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0].meta.join(" "), "break-before keep-next");
+  assert(!md.render(body).includes("spec-pdf"));
+  assert.equal(
+    reorderMarkdown(
+      body,
+      [
+        { start: 0, end: before.length },
+        { fullStart: start, start: start + marker.length, end },
+        { start: end + gap.length, end: body.length },
+      ],
+      1,
+      2,
+      3,
+    ).body,
+    before + gap + after + gap + marker + attached,
+  );
+  assert(
+    !md
+      .parse("> " + marker + "\n```md\n" + marker + "```", {})
+      .some((token) => token.type === "spec_pdf"),
+  );
 });

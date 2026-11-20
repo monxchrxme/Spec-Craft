@@ -194,7 +194,14 @@
                 <i data-lucide="square-pen"></i>Редактор</button
               ><button data-mode="source">
                 <i data-lucide="code-xml"></i>Markdown</button
-              ><button data-mode="read"><i data-lucide="eye"></i>Чтение</button>
+              ><button data-mode="read"><i data-lucide="eye"></i>Чтение</button
+              ><button
+                data-mode="pdf"
+                aria-label="Предпросмотр PDF"
+                title="Предпросмотр PDF"
+              >
+                <i data-lucide="file-text" aria-hidden="true"></i>PDF
+              </button>
             </div>
             <span class="spacer"></span
             ><button
@@ -211,8 +218,13 @@
               aria-label="Повторить"
             >
               <i data-lucide="redo-2"></i></button
-            ><button class="insert" data-action="insert">
-              <i data-lucide="plus"></i>Вставить
+            ><button
+              class="insert"
+              data-action="insert"
+              aria-label="Вставить"
+              title="Вставить"
+            >
+              <i data-lucide="plus" aria-hidden="true"></i><span>Вставить</span>
             </button>
           </div>
         </div>
@@ -232,6 +244,101 @@
             <button class="primary" data-action="new">Создать документ</button>
             <button data-action="open">Открыть файл</button>
             <button data-action="trash">Корзина</button>
+          </section>
+          <section id="pdf-preview" aria-label="Предпросмотр PDF" hidden>
+            <div class="pdf-controls">
+              <label>
+                <span>Профиль</span>
+                <select data-pdf="profile" aria-label="Профиль PDF">
+                  <option value="screen">PDF для экрана</option>
+                  <option value="a4">Строго A4</option>
+                </select>
+              </label>
+              <div class="pdf-navigation">
+                <button
+                  type="button"
+                  data-pdf="previous"
+                  aria-label="Предыдущая страница"
+                >
+                  <i data-lucide="chevron-left" aria-hidden="true"></i>
+                </button>
+                <select data-pdf="page" aria-label="Страница"></select>
+                <button
+                  type="button"
+                  data-pdf="next"
+                  aria-label="Следующая страница"
+                >
+                  <i data-lucide="chevron-right" aria-hidden="true"></i>
+                </button>
+              </div>
+              <select data-pdf="zoom" aria-label="Масштаб PDF">
+                <option value="fit">По ширине</option>
+                <option value="0.75">75%</option>
+                <option value="1">100%</option>
+                <option value="1.5">150%</option>
+                <option value="2">200%</option>
+              </select>
+              <button type="button" data-pdf="print">Печать</button>
+              <button type="button" class="primary" data-pdf="download">
+                Скачать PDF
+              </button>
+            </div>
+            <div class="pdf-status">
+              <span data-pdf="status" role="status"></span
+              ><button type="button" data-pdf="retry" hidden>Повторить</button>
+            </div>
+            <div
+              class="pdf-warnings"
+              data-pdf="warnings"
+              aria-label="Предупреждения PDF"
+              hidden
+            ></div>
+            <div class="pdf-layout">
+              <nav
+                class="pdf-thumbnails"
+                data-pdf="thumbnails"
+                aria-label="Миниатюры страниц"
+              ></nav>
+              <div
+                class="pdf-stage"
+                data-pdf="stage"
+                tabindex="0"
+                aria-label="Лист PDF"
+              ></div>
+            </div>
+            <div class="pdf-block-controls">
+              <select data-pdf="block" aria-label="Блок на странице"></select>
+              <button type="button" data-pdf="edit">Перейти к блоку</button>
+              <details class="pdf-rules-menu" data-pdf="rules">
+                <summary>Правила переноса</summary>
+                <div>
+                  <button
+                    type="button"
+                    data-pdf-rule="break-before"
+                    aria-pressed="false"
+                  >
+                    Начать с новой страницы
+                  </button>
+                  <button
+                    type="button"
+                    data-pdf-rule="keep-next"
+                    aria-pressed="false"
+                  >
+                    Держать со следующим блоком
+                  </button>
+                  <button
+                    type="button"
+                    data-pdf-rule="separate-sheet"
+                    aria-pressed="false"
+                  >
+                    Выделить отдельный лист
+                  </button>
+                  <button type="button" data-pdf="clear" hidden>
+                    Сбросить правила
+                  </button>
+                </div>
+              </details>
+            </div>
           </section>
           <article class="paper">
             <div class="doc-label">

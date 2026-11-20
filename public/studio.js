@@ -33,6 +33,8 @@ import { dragOrder, headingSpan, reorderMarkdown } from "./block-order.js";
 import { graphEditor } from "./graph-editor.js";
 import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
+import { formatPdfRules, pdfRules } from "./pdf-rules.js";
+import { pdfPreview, printPdf } from "./pdf-preview.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -50,7 +52,8 @@ const md = window
   .use(wikiLinks)
   .use(latex)
   .use(mermaidBlocks)
-  .use(imageSizes);
+  .use(imageSizes)
+  .use(pdfRules);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   toolbarKey = "buro:topbar-collapsed",
@@ -204,9 +207,16 @@ function parse(body = doc.body) {
     starts.push(m.index + m[0].length);
   const tokens = md.parse(body, {}),
     res = [];
+  let options = [],
+    fullStart;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.level || !t.map) continue;
+    if (t.type === "spec_pdf") {
+      fullStart ??= starts[t.map[0]];
+      options.push(...t.meta);
+      continue;
+    }
     let j = i;
     if (t.nesting === 1)
       while (
@@ -222,9 +232,13 @@ function parse(body = doc.body) {
       t,
       tokens: tokens.slice(i, j + 1),
       start,
+      fullStart: fullStart ?? start,
+      pdfRules: [...new Set(options)],
       end,
       text: body.slice(start, end),
     });
+    fullStart = undefined;
+    options = [];
     i = j;
   }
   return res;
@@ -309,7 +323,8 @@ function outline() {
         source.setSelectionRange(parts[i].start, parts[i].end);
         source.scrollTop =
           source.scrollHeight * (parts[i].start / Math.max(1, doc.body.length));
-      } else host.children[i]?.scrollIntoView({ block: "start" });
+      } else if (mode === "pdf") showPdfPreview();
+      else host.children[i]?.scrollIntoView({ block: "start" });
       document.body.classList.remove("show-side");
       highlight(i);
     };
@@ -372,7 +387,7 @@ function moveOrder(state, index, below, section) {
   render();
   selected = Math.max(
     0,
-    parts.findLastIndex((part) => part.start <= next.offset),
+    parts.findLastIndex((part) => part.fullStart <= next.offset),
   );
   highlight(selected);
   const destination = section
@@ -520,9 +535,10 @@ function render() {
   closeGraph(false);
   editor = tableEdit = null;
   $("#empty-workspace").hidden = !!doc;
-  $(".paper").hidden = !doc;
+  $(".paper").hidden = !doc || mode === "pdf";
   $(".controls").hidden = !doc;
   if (!doc) {
+    pdfViewer.hide();
     parts = [];
     host.replaceChildren();
     source.value = "";
@@ -541,10 +557,15 @@ function render() {
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode)),
     );
   $(".add-end").hidden = mode !== "edit";
-  $("[data-action=insert]").disabled = mode === "read";
-  host.hidden = mode === "source";
+  $("[data-action=insert]").disabled = mode === "read" || mode === "pdf";
+  $(".controls").classList.toggle("pdf-mode", mode === "pdf");
+  host.hidden = mode === "source" || mode === "pdf";
   source.hidden = mode !== "source";
-  if (mode === "source") {
+  if (mode === "pdf") {
+    host.replaceChildren();
+    showPdfPreview();
+  } else if (mode === "source") {
+    pdfViewer.hide();
     if (source.value !== doc.body) {
       const top = source.scrollTop;
       source.value = doc.body;
@@ -552,6 +573,7 @@ function render() {
     }
     host.replaceChildren();
   } else {
+    pdfViewer.hide();
     const blocks = document.createDocumentFragment();
     parts.forEach((p, i) => blocks.append(block(p, i)));
     host.replaceChildren(blocks);
@@ -587,10 +609,10 @@ function deleteBlockButton(index, label, className) {
       entry.start + editingBefore + (cellBefore ? doc.body.length - length : 0);
     const nextIndex = parts.findIndex((part) => part.start === start);
     if (nextIndex < 0) return;
-    const { end } = parts[nextIndex];
-    const nextStart = parts[nextIndex + 1]?.start ?? doc.body.length;
+    const { end, fullStart } = parts[nextIndex];
+    const nextStart = parts[nextIndex + 1]?.fullStart ?? doc.body.length;
     const gap = doc.body.slice(end, nextStart);
-    patch(start, /^\s*$/.test(gap) ? nextStart : end, "");
+    patch(fullStart, /^\s*$/.test(gap) ? nextStart : end, "");
     selected = nextIndex;
     render();
     viewport.scrollTop = scrollTop;
@@ -1220,6 +1242,7 @@ function setMode(next) {
     parts.findLastIndex((p) => p.start <= offset),
   );
   render();
+  if (next === "pdf") return;
   if (next === "source") {
     source.focus();
     source.setSelectionRange(offset, offset);
@@ -1584,64 +1607,133 @@ const templates = templateTools({
     void paintMermaid(target);
   },
 });
-async function printDoc() {
-  flush();
-  const old = mode;
-  mode = "read";
-  render();
-  const sheet = $(".paper").cloneNode(true);
-  sheet.removeAttribute("id");
-  sheet.classList.add("print-surface");
-  sheet
-    .querySelectorAll(".diagram-expanded")
-    .forEach((card) => card.classList.remove("diagram-expanded"));
-  document.body.append(sheet);
-  mode = old;
-  render();
-  await Promise.all([paintMath(sheet), paintMermaid(sheet)]);
-  const clean = () => sheet.remove();
-  window.addEventListener("afterprint", clean, { once: true });
-  window.print();
+let pdfCache,
+  pdfProfile = "screen";
+function requestPdf(force = false) {
+  const key = JSON.stringify([
+    doc.id,
+    doc.name,
+    doc.body,
+    doc.style,
+    pdfProfile,
+  ]);
+  if (!force && pdfCache?.key === key) return pdfCache.result;
+  const data = structuredClone(doc);
+  const blocks = parse(data.body);
+  const profile = pdfProfile;
+  const result = import("./pdf-export.js").then(async ({ exportPdf }) => ({
+    ...(await exportPdf(blocks, md, data, profile)),
+    name: data.name.replace(/\.md$/i, "") + ".pdf",
+    blocks: blocks.map((part, index) => {
+      const readable = part.tokens.find(
+        (token) => token.type === "inline",
+      )?.content;
+      const label =
+        part.t.type === "table_open"
+          ? "Таблица"
+          : part.t.type === "math_block"
+            ? "Формула"
+            : part.t.type === "fence"
+              ? isMermaid(part.t)
+                ? "Mermaid"
+                : part.t.info.trim() === "studio-diagram"
+                  ? "Блок-схема"
+                  : "Код"
+              : readable?.startsWith("![")
+                ? "Изображение"
+                : (readable || part.text)
+                    .replace(/\s+/g, " ")
+                    .trim()
+                    .slice(0, 75);
+      return {
+        index,
+        label: label || "Блок " + (index + 1),
+        rules: part.pdfRules,
+      };
+    }),
+  }));
+  pdfCache = { key, result };
+  void result.catch(() => {
+    if (pdfCache?.result === result) pdfCache = null;
+  });
+  return result;
+}
+const savePdf = ({ name, blob }) => download(name, blob, "application/pdf");
+const printGeneratedPdf = ({ name, blob }) =>
+  printPdf(blob, name, () => notice("PDF скачан. Откройте файл для печати."));
+const pdfViewer = pdfPreview($("#pdf-preview"), {
+  profile(value, force) {
+    pdfProfile = value;
+    showPdfPreview(force);
+  },
+  download: savePdf,
+  print: printGeneratedPdf,
+  edit(index) {
+    if (!parts[index]) return;
+    selected = index;
+    setMode("edit");
+    host.children[selected]?.scrollIntoView({ block: "center" });
+  },
+  rules(index, rule) {
+    const part = parts[index];
+    if (!part) return;
+    const rules = !rule
+      ? []
+      : part.pdfRules.includes(rule)
+        ? part.pdfRules.filter((item) => item !== rule)
+        : [...part.pdfRules, rule];
+    const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
+    selected = index;
+    patch(part.fullStart, part.start, formatPdfRules(rules, newline));
+    render();
+  },
+});
+function showPdfPreview(force = false) {
+  if (doc && mode === "pdf")
+    void pdfViewer.show(requestPdf(force), pdfProfile, selected, force);
 }
 function exportDialog() {
   const b = dialog(
     "Экспорт документа",
-    option("pdf", "Скачать PDF", "file-down") +
-      '<label class="style-check"><input type="checkbox" checked name="largeSheets">Увеличивать лист для крупных схем</label>' +
+    option("preview", "Предпросмотр PDF", "eye") +
+      option("pdf", "Скачать PDF", "file-down") +
+      '<label>Профиль PDF <select name="pdfProfile"><option value="screen">PDF для экрана</option><option value="a4">Строго A4</option></select></label>' +
       option("md", "Скачать Markdown (.md)", "file-text") +
       option("print", "Печать", "printer") +
       '<p role="status" hidden></p>',
   );
+  const profile = b.querySelector("[name=pdfProfile]");
+  profile.value = pdfProfile;
+  profile.onchange = () => {
+    pdfProfile = profile.value;
+    showPdfPreview();
+  };
   b.onclick = async (e) => {
     const target = e.target.closest("[data-id]");
     if (!target) return;
-    if (target.dataset.id === "pdf") {
-      const data = structuredClone(doc),
-        blocks = parse(),
-        enlarge = b.querySelector("[name=largeSheets]").checked;
-      const status = b.querySelector("[role=status]");
-      target.disabled = true;
-      status.hidden = false;
-      status.textContent = "Подготовка PDF…";
-      try {
-        const { exportPdf } = await import("./pdf-export.js");
-        const blob = await exportPdf(blocks, md, data, enlarge);
-        download(
-          data.name.replace(/\.md$/i, "") + ".pdf",
-          blob,
-          "application/pdf",
-        );
-        if (b.isConnected) modal.close();
-      } catch (error) {
-        status.textContent = "Не удалось создать PDF. " + error.message;
-      } finally {
-        target.disabled = false;
-      }
+    const action = target.dataset.id;
+    if (action === "preview" || action === "md") {
+      modal.close();
+      if (action === "preview") setMode("pdf");
+      else download(doc.name, doc.body);
       return;
     }
-    modal.close();
-    if (target.dataset.id === "md") download(doc.name, doc.body);
-    else printDoc();
+    const status = b.querySelector("[role=status]");
+    const controls = [...b.querySelectorAll("button,select")];
+    controls.forEach((control) => (control.disabled = true));
+    status.hidden = false;
+    status.textContent = "Подготовка PDF…";
+    try {
+      const result = await requestPdf();
+      if (!b.isConnected || !modal.open) return;
+      if (action === "print") printGeneratedPdf(result);
+      else savePdf(result);
+      modal.close();
+    } catch (error) {
+      status.textContent = "Не удалось создать PDF. " + error.message;
+    } finally {
+      controls.forEach((control) => (control.disabled = false));
+    }
   };
 }
 function styleDialog() {
@@ -2152,7 +2244,7 @@ const panels = specPanels({
   fence,
   addRequirement: () => {
     modal.close();
-    if (mode === "read") setMode("edit");
+    if (mode === "read" || mode === "pdf") setMode("edit");
     insertBlock("requirement");
   },
   commit: (start, end, text) => {
