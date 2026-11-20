@@ -1,5 +1,5 @@
 const directive =
-  /^<!--[ \t]*spec-pdf:[ \t]*((?:break-before|keep-next|separate-sheet)(?:[ \t]+(?:break-before|keep-next|separate-sheet))*)[ \t]*-->$/;
+  /^<!--[ \t]*spec-pdf:[ \t]*((?:break-before|break-after|keep-next|separate-sheet|landscape-sheet)(?:[ \t]+(?:break-before|break-after|keep-next|separate-sheet|landscape-sheet))*)[ \t]*-->$/;
 export function pdfRules(md) {
   md.block.ruler.before(
     "html_block",

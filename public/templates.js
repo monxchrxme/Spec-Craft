@@ -1,5 +1,11 @@
 import { examples } from "./documents.js";
 
+import {
+  paintDocumentStyle,
+  styleControls,
+  templateStyle,
+} from "./document-style.js";
+
 const prefix = "buro:template:";
 const fileFormat = "speccraft-template";
 const fields = /\{\{\s*([\p{L}\p{N}][\p{L}\p{N} _.-]{0,59}?)\s*\}\}/gu;
@@ -137,10 +143,28 @@ export function readTemplates() {
   return result.sort((a, b) => a.label.localeCompare(b.label, "ru"));
 }
 
+function templateRecord(template) {
+  const record = { label: template.label.trim(), body: template.body };
+  const style = templateStyle(template.style);
+  if (Object.keys(style).length) record.style = style;
+  const defaults = Object.fromEntries(
+    templateFields(record.body)
+      .filter(
+        (key) =>
+          Object.hasOwn(template.defaults ?? {}, key) &&
+          typeof template.defaults[key] === "string" &&
+          template.defaults[key],
+      )
+      .map((key) => [key, template.defaults[key]]),
+  );
+  if (Object.keys(defaults).length) record.defaults = defaults;
+  return record;
+}
+
 export function saveTemplate(template) {
   if (!valid(template)) throw Error("Укажите название и заполните Markdown.");
   const id = template.id || crypto.randomUUID();
-  const record = { id, label: template.label.trim(), body: template.body };
+  const record = { id, ...templateRecord(template) };
   localStorage.setItem(prefix + id, JSON.stringify(record));
   return record;
 }
@@ -151,13 +175,15 @@ export function restoreTemplates(items) {
   const existing = readTemplates();
   const previous = existing.length;
   for (const template of items) {
+    const record = templateRecord(template);
     if (
       existing.some(
-        (item) => item.label === template.label && item.body === template.body,
+        (item) =>
+          JSON.stringify(templateRecord(item)) === JSON.stringify(record),
       )
     )
       continue;
-    existing.push(saveTemplate({ label: template.label, body: template.body }));
+    existing.push(saveTemplate(record));
   }
   return existing.length - previous;
 }
@@ -188,6 +214,7 @@ export function templateTools({
   nameOf,
   download,
   current,
+  applyAppearance,
   preview,
   diagrams,
 }) {
@@ -232,6 +259,9 @@ export function templateTools({
       for (const field of templateFields(template.body)) {
         const input = node("input");
         input.dataset.templateField = field;
+        input.value = Object.hasOwn(template.defaults ?? {}, field)
+          ? template.defaults[field]
+          : "";
         values.append(label(field, input));
       }
     }
@@ -251,6 +281,7 @@ export function templateTools({
         nameOf(name.value),
         applyTemplate(template.body, data, diagrams(template.body)),
         template.label,
+        templateStyle(template.style),
       );
     };
   }
@@ -269,6 +300,45 @@ export function templateTools({
     output.hidden = true;
     const status = node("p");
     status.setAttribute("role", "status");
+    const settings = node("div", undefined, "template-form");
+    const appearance = styleControls(
+      settings,
+      templateStyle(template.style),
+      true,
+    );
+    const defaults = new Map(Object.entries(template.defaults || {}));
+    const defaultBox = node("details"),
+      defaultRows = node("div", undefined, "style-fields");
+    defaultBox.append(
+      node("summary", "Значения полей по умолчанию"),
+      defaultRows,
+    );
+    let lastFields;
+    function updateFields() {
+      const fields = templateFields(source.value);
+      const signature = JSON.stringify(fields);
+      if (lastFields === signature) return;
+      lastFields = signature;
+      defaultRows.replaceChildren();
+      defaultBox.hidden = !fields.length;
+      for (const key of fields) {
+        const input = node("input");
+        input.value = defaults.get(key) || "";
+        input.oninput = () => defaults.set(key, input.value);
+        defaultRows.append(label(key, input));
+      }
+    }
+    source.oninput = updateFields;
+    updateFields();
+    function refreshPreview() {
+      if (output.hidden) return;
+      paintDocumentStyle(output, appearance());
+      preview(
+        output,
+        applyTemplate(source.value, defaults, diagrams(source.value)),
+      );
+    }
+    form.addEventListener("input", refreshPreview);
     form.append(
       label("Название шаблона", title),
       label("Markdown шаблона", source),
@@ -276,11 +346,13 @@ export function templateTools({
         "small",
         "Поля для заполнения при создании документа оформляются как {{Название поля}}.",
       ),
+      defaultBox,
+      settings,
       button(
         "Предпросмотр",
         () => {
           output.hidden = !output.hidden;
-          if (!output.hidden) preview(output, source.value);
+          refreshPreview();
         },
         "option",
       ),
@@ -295,6 +367,8 @@ export function templateTools({
           ...template,
           label: title.value,
           body: source.value,
+          style: appearance(),
+          defaults: Object.fromEntries(defaults),
         });
         library(saved.id);
       } catch (error) {
@@ -336,7 +410,12 @@ export function templateTools({
       tools.before(
         button(
           "Сохранить документ как шаблон",
-          () => edit({ label: doc.name.replace(/\.md$/i, ""), body: doc.body }),
+          () =>
+            edit({
+              label: doc.name.replace(/\.md$/i, ""),
+              body: doc.body,
+              style: doc.style,
+            }),
           "option",
         ),
       );
@@ -350,7 +429,7 @@ export function templateTools({
             edit(
               template.id
                 ? template
-                : { label: template.label + " (копия)", body: template.body },
+                : { ...template, label: template.label + " (копия)" },
             ),
           "option",
         ),
@@ -363,8 +442,7 @@ export function templateTools({
                 {
                   format: fileFormat,
                   version: 1,
-                  label: template.label,
-                  body: template.body,
+                  ...templateRecord(template),
                 },
                 null,
                 2,
@@ -374,6 +452,18 @@ export function templateTools({
           "option",
         ),
       );
+      if (doc && template.style && Object.keys(template.style).length)
+        tools.append(
+          button(
+            "Применить оформление к документу",
+            () => {
+              const style = templateStyle(template.style);
+              applyAppearance(style, true);
+              close();
+            },
+            "option",
+          ),
+        );
       if (template.id)
         tools.append(
           button("Удалить шаблон", () => {
@@ -402,7 +492,7 @@ export function templateTools({
           const data = JSON.parse(body);
           if (data?.format !== fileFormat || data.version !== 1 || !valid(data))
             throw Error("Выберите шаблон JSON SpecCraft.");
-          template = { label: data.label, body: data.body };
+          template = templateRecord(data);
         }
         if (panel.isConnected) edit(template);
       } catch (error) {

@@ -1,3 +1,8 @@
+import {
+  paintDocumentStyle,
+  styleControls,
+  templateStyle,
+} from "./document-style.js";
 import { documentParts } from "./document-parts.js";
 import { readProject } from "./project-import.js";
 import { sourceWorkspace } from "./source-workspace.js";
@@ -525,30 +530,7 @@ viewport.addEventListener("click", (event) => {
 function styles() {
   const p = $(".paper"),
     s = doc.style || {};
-  p.style.setProperty(
-    "--doc-font",
-    s.font === "serif"
-      ? 'Georgia,"Times New Roman",serif'
-      : s.font === "mono"
-        ? "ui-monospace, Menlo, Consolas, monospace"
-        : 'Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-  );
-  p.style.setProperty("--doc-size", (Number(s.size) || 16) + "px");
-  p.style.setProperty(
-    "--doc-accent",
-    /^#[a-f\d]{6}$/i.test(s.accent) ? s.accent : "#6353bb",
-  );
-  p.style.setProperty("--doc-leading", Number(s.leading) || 1.65);
-  p.style.setProperty("--paragraph-gap", (Number(s.gap) || 12) + "px");
-  p.style.setProperty(
-    "--reading-width",
-    s.lineLength ? Number(s.lineLength) + "ch" : "none",
-  );
-  p.style.setProperty(
-    "--prose-align",
-    s.align === "justify" ? "justify" : "left",
-  );
-  p.style.tabSize = Number(s.tabSize) || 4;
+  paintDocumentStyle(p, s);
   source.spellcheck = !!s.spellcheck;
   source.wrap = s.wrap === false ? "off" : "soft";
 }
@@ -661,10 +643,12 @@ const sourcePane = sourceWorkspace({
     highlight(i);
   },
   renderBlock: block,
-  paint: (root) => {
+  paint: (blocks) => {
     icons();
-    void paintMath(root);
-    void paintMermaid(root);
+    for (const block of blocks) {
+      void paintMath(block);
+      void paintMermaid(block);
+    }
   },
 });
 function render() {
@@ -1569,7 +1553,9 @@ function buildTable(box, p, i) {
   actions.append(deleteBlockButton(i, "Удалить таблицу", "table-remove"));
   box.append(actions);
 }
+let sourceOutlineSignature;
 source.onfocus = () => {
+  sourceOutlineSignature = undefined;
   source.dataset.group = "";
 };
 source.oninput = () => {
@@ -1580,7 +1566,15 @@ source.oninput = () => {
   setText(sourcePane.read(), false);
   parts = parse();
   sourcePane.update();
-  outline();
+  const signature = JSON.stringify(
+    parts.flatMap((part, i) =>
+      part.t.type === "heading_open" ? [[i, part.text]] : [],
+    ),
+  );
+  if (signature !== sourceOutlineSignature) {
+    outline();
+    sourceOutlineSignature = signature;
+  }
 };
 source.onkeydown = (event) => {
   if (mode === "source") wrapTypedSelection(event);
@@ -1996,6 +1990,7 @@ const templates = templateTools({
   nameOf,
   download,
   current: () => doc,
+  applyAppearance,
   diagrams: (markdown) =>
     parse(markdown).filter(
       ({ t }) => t.type === "fence" && t.info.trim() === "studio-diagram",
@@ -2003,9 +1998,12 @@ const templates = templateTools({
   preview: (target, markdown) => {
     target.replaceChildren();
     for (const { t, tokens } of parse(markdown)) {
+      const box = document.createElement("div");
+      box.className = "block";
+      target.append(box);
       if (t.type === "fence" && t.info.trim() === "studio-diagram") {
         try {
-          target.append(diagramView(normalize(JSON.parse(t.content))));
+          box.append(diagramView(normalize(JSON.parse(t.content))));
           continue;
         } catch {
           // Keep invalid diagram source visible in the preview.
@@ -2013,7 +2011,7 @@ const templates = templateTools({
       }
       const content = document.createElement("template");
       content.innerHTML = md.renderer.render(tokens, md.options, {});
-      target.append(content.content);
+      box.append(content.content);
     }
     icons();
     void paintMath(target);
@@ -2021,20 +2019,21 @@ const templates = templateTools({
     void paintMermaid(target);
   },
 });
-let pdfCache,
-  pdfProfile = "screen";
+let pdfCache;
+const currentPdfProfile = () =>
+  doc?.style?.pdfProfile === "a4" ? "a4" : "screen";
+function setPdfProfile(value) {
+  doc.style = { ...doc.style, pdfProfile: value };
+  save();
+  if (isSource()) sourcePane.refreshPreview();
+}
 function requestPdf(force = false) {
-  const key = JSON.stringify([
-    doc.id,
-    doc.name,
-    doc.body,
-    doc.style,
-    pdfProfile,
-  ]);
-  if (!force && pdfCache?.key === key) return pdfCache.result;
-  const data = structuredClone(doc);
-  const blocks = parse(data.body);
-  const profile = pdfProfile;
+  const key = JSON.stringify([doc.id, doc.name, doc.style]);
+  if (!force && pdfCache?.key === key && pdfCache.body === doc.body)
+    return pdfCache.result;
+  const data = { name: doc.name, body: doc.body, style: { ...doc.style } };
+  const blocks = isSource() ? parts : parse(data.body);
+  const profile = currentPdfProfile();
   const result = import("./pdf-export.js").then(async ({ exportPdf }) => ({
     ...(await exportPdf(blocks, md, data, profile)),
     name: data.name.replace(/\.md$/i, "") + ".pdf",
@@ -2073,7 +2072,7 @@ function requestPdf(force = false) {
       };
     }),
   }));
-  pdfCache = { key, result };
+  pdfCache = { key, body: data.body, result };
   void result.catch(() => {
     if (pdfCache?.result === result) pdfCache = null;
   });
@@ -2085,11 +2084,12 @@ const printGeneratedPdf = ({ name, blob }) =>
 function setPdfNumbering(enabled) {
   doc.style = { ...doc.style, pdfPageNumbers: enabled };
   save();
+  if (isSource()) sourcePane.refreshPreview();
   showPdfPreview();
 }
 const pdfViewer = pdfPreview($("#pdf-preview"), {
   profile(value, force) {
-    pdfProfile = value;
+    setPdfProfile(value);
     showPdfPreview(force);
   },
   download: savePdf,
@@ -2119,7 +2119,7 @@ function showPdfPreview(force = false) {
     void pdfViewer.show(
       requestPdf(force),
       {
-        profile: pdfProfile,
+        profile: currentPdfProfile(),
         numbering: Boolean(doc.style?.pdfPageNumbers),
       },
       selected,
@@ -2138,9 +2138,9 @@ function exportDialog() {
       '<p role="status" hidden></p>',
   );
   const profile = b.querySelector("[name=pdfProfile]");
-  profile.value = pdfProfile;
+  profile.value = currentPdfProfile();
   profile.onchange = () => {
-    pdfProfile = profile.value;
+    setPdfProfile(profile.value);
     showPdfPreview();
   };
   const numbers = b.querySelector("[name=pdfNumbers]");
@@ -2174,78 +2174,39 @@ function exportDialog() {
     }
   };
 }
-function styleDialog() {
+function styleDialog(printOnly = false) {
   const s = doc.style || {};
   const body = dialog("Оформление документа", "");
-  const options = [
-    [
-      "font",
-      "Шрифт текста",
-      "sans",
-      { sans: "Без засечек", serif: "С засечками", mono: "Моноширинный" },
-    ],
-    ["size", "Размер текста, px", 16, [14, 15, 16, 17, 18, 20, 22, 24]],
-    ["leading", "Межстрочный интервал", 1.65, [1.25, 1.45, 1.65, 1.85, 2]],
-    ["gap", "Интервал между абзацами, px", 12, [6, 10, 12, 16, 20, 24]],
-    [
-      "lineLength",
-      "Ширина строки для чтения",
-      0,
-      {
-        0: "Вся ширина",
-        55: "Узкая · 55 знаков",
-        70: "Средняя · 70 знаков",
-        85: "Широкая · 85 знаков",
-      },
-    ],
-    [
-      "align",
-      "Выравнивание абзацев",
-      "left",
-      { left: "По левому краю", justify: "По ширине" },
-    ],
-    ["tabSize", "Ширина табуляции", 4, [2, 4, 8]],
-  ];
   const form = document.createElement("form");
   form.className = "style-form";
   body.append(form);
-  for (const [key, label, initial, values] of options) {
-    const wrap = document.createElement("label");
-    wrap.textContent = label;
-    const input = document.createElement("select");
-    input.name = key;
-    for (const [v, title] of Array.isArray(values)
-      ? values.map((x) => [x, x])
-      : Object.entries(values))
-      input.add(new Option(title, v));
-    input.value = s[key] ?? initial;
-    wrap.append(input);
-    form.append(wrap);
+  const controls = styleControls(form, s);
+  if (printOnly === true) {
+    const [text, print] = form.querySelectorAll("details");
+    text.open = false;
+    print.open = true;
   }
-  form.insertAdjacentHTML(
-    "beforeend",
-    '<label>Цвет акцента<input type="color" name="accent"></label><label class="style-check"><input type="checkbox" name="wrap">Перенос строк в исходнике</label><label class="style-check"><input type="checkbox" name="spellcheck">Проверка орфографии при вводе</label><button class="primary">Применить</button>',
-  );
-  form.elements.accent.value = s.accent || "#6353bb";
-  form.elements.wrap.checked = s.wrap !== false;
-  form.elements.spellcheck.checked = !!s.spellcheck;
-  form.onsubmit = (e) => {
-    e.preventDefault();
-    const fields = new FormData(form);
-    doc.style = {
-      ...s,
-      accent: fields.get("accent"),
-      wrap: fields.has("wrap"),
-      spellcheck: fields.has("spellcheck"),
-    };
-    for (const [key, , initial] of options)
-      doc.style[key] =
-        typeof initial === "number" ? Number(fields.get(key)) : fields.get(key);
-    styles();
-    save();
-    showPdfPreview();
+  const submit = document.createElement("button");
+  submit.textContent = "Применить";
+  submit.className = "primary";
+  form.append(submit);
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    applyAppearance(controls());
     modal.close();
   };
+}
+function applyAppearance(style, replace = false) {
+  if (replace) {
+    const stored = { ...doc.style };
+    for (const key of Object.keys(templateStyle(stored))) delete stored[key];
+    doc.style = stored;
+  }
+  doc.style = { ...doc.style, ...style };
+  save();
+  styles();
+  if (isSource()) sourcePane.refreshPreview();
+  showPdfPreview();
 }
 function aiDialog() {
   const b = dialog(
@@ -2895,6 +2856,7 @@ const actions = {
   ai: aiDialog,
   export: exportDialog,
   style: styleDialog,
+  "pdf-settings": () => styleDialog(true),
   insert: insertDialog,
   append: () => insertBlock("paragraph", parts.length - 1),
   undo: () => historyStep(false),

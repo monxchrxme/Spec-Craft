@@ -414,6 +414,10 @@ main {
   padding-bottom: 17px;
   margin-bottom: 17px;
 }
+.paper .block :is(h1, h2, h3, h4, h5, h6) {
+  text-align: var(--heading-align, left);
+  color: var(--heading-color, inherit);
+}
 .paper h1,
 .paper h2,
 .paper h3 {
@@ -2745,4 +2749,25 @@ g.workflow-anchored {
 }
 .controls:has(.source-controls:not([hidden])) > :not(.spacer) {
   flex-shrink: 0;
+}
+
+.style-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr));
+  gap: 10px 14px;
+  margin: 12px 0;
+}
+.style-fields label {
+  min-width: 0;
+}
+.template-form summary,
+.style-form summary {
+  cursor: pointer;
+}
+.page-margins {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid var(--line);
 }

@@ -1,3 +1,4 @@
+import { pageMargins } from "./document-style.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
@@ -8,9 +9,7 @@ import { codeLines } from "./code-highlight.js";
 
 const a4 = { width: 595.28, height: 841.89 };
 const landscape = { width: a4.height, height: a4.width };
-const margin = 38;
-const contentWidth = a4.width - margin * 2;
-const contentHeight = a4.height - margin * 2;
+
 const families = { sans: "Sans", serif: "Serif", mono: "Mono" };
 
 function fontFiles(name) {
@@ -154,8 +153,8 @@ async function markdownBlocks(html, settings) {
   const template = document.createElement("template");
   template.innerHTML = html;
   const { size, accent, gap, align, tabSize, note, pageSize } = settings;
-  const pageWidth = pageSize.width - margin * 2;
-  const pageHeight = pageSize.height - margin * 2;
+  const pageWidth = pageSize.width - settings.horizontal;
+  const pageHeight = pageSize.height - settings.vertical;
 
   async function flow(
     parent,
@@ -192,7 +191,13 @@ async function markdownBlocks(html, settings) {
         flush();
         const drawing = await mermaidBlock(
           node.querySelector("code").textContent,
-          { profile: "a4", labelWidth: widthLimit, note },
+          {
+            ...settings,
+            basePage: pageSize,
+            profile: "a4",
+            labelWidth: widthLimit,
+            note,
+          },
         );
         stack.push(drawing.node);
       } else if (tag === "img") {
@@ -441,6 +446,8 @@ async function markdownBlocks(html, settings) {
       return {
         stack: await flow(el),
         headlineLevel: level,
+        alignment: settings.headingAlign,
+        color: settings.headingColor,
         fontSize: size * [1.95, 1.43, 1.19, 1.1, 1, 1][level - 1],
         bold: true,
         lineHeight: 1.05,
@@ -467,33 +474,40 @@ function diagramSheet({
   desired,
   profile,
   separate,
+  basePage,
+  horizontal,
+  vertical,
   extra,
   fitted,
 }) {
   const fit = (page) =>
     Math.min(
-      (page.width - 2 * margin) / width,
-      (page.height - 2 * margin - extra) / height,
+      (page.width - horizontal) / width,
+      (page.height - vertical - extra) / height,
       1,
     );
   if (profile === "a4") {
-    return { scale: fitted, pageSize: separate ? a4 : null };
+    return { scale: fitted, pageSize: separate ? basePage : null };
   }
   if (!separate && fitted + 0.01 >= desired)
     return { scale: fitted, pageSize: null };
   const wide = fit(landscape);
-  if (fitted + 0.01 >= desired) return { scale: fitted, pageSize: a4 };
+  if (fitted + 0.01 >= desired) return { scale: fitted, pageSize: basePage };
   if (wide + 0.01 >= desired)
     return { scale: Math.min(wide, desired), pageSize: landscape };
   const scale = Math.min(
     desired,
-    (14400 - 2 * margin - extra - 2) / Math.max(width, height),
+    (14400 - Math.max(horizontal, vertical + extra) - 2) /
+      Math.max(width, height),
   );
   return {
     scale,
     pageSize: {
-      width: Math.max(a4.width, Math.ceil(width * scale + 2 * margin + 2)),
-      height: Math.max(360, Math.ceil(height * scale + 2 * margin + extra + 2)),
+      width: Math.max(
+        basePage.width,
+        Math.ceil(width * scale + horizontal + 2),
+      ),
+      height: Math.max(360, Math.ceil(height * scale + vertical + extra + 2)),
     },
   };
 }
@@ -544,8 +558,10 @@ function diagramBlock(raw, options) {
   const desiredScale = Math.min(1, 9 / smallest);
   const extra = 75 + Math.ceil((graph.title || "").length / 95) * 13;
   const fitted = Math.min(
-    (contentWidth * layout.width) / 100 / width,
-    (contentHeight - extra) / height,
+    ((options.basePage.width - options.horizontal) * layout.width) /
+      100 /
+      width,
+    (options.basePage.height - options.vertical - extra) / height,
     layout.height ? (layout.height * 0.75) / height : Infinity,
     1,
   );
@@ -582,8 +598,9 @@ async function mermaidBlock(source, options) {
     const extra = 75;
     const fitted = Math.min(
       0.75,
-      (options.labelWidth || contentWidth) / width,
-      (contentHeight - extra) / height,
+      (options.labelWidth || options.basePage.width - options.horizontal) /
+        width,
+      (options.basePage.height - options.vertical - extra) / height,
     );
     const { scale, pageSize } = diagramSheet({
       ...options,
@@ -641,10 +658,22 @@ async function mermaidBlock(source, options) {
 export async function exportPdf(parts, md, doc, profile = "screen") {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
+  const margins = pageMargins(style);
+  const basePage = style.pdfOrientation === "landscape" ? landscape : a4;
+  const pageLayout = {
+    basePage,
+    horizontal: margins[0] + margins[2],
+    vertical: margins[1] + margins[3],
+  };
   const font = families[style.font] || "Sans";
   const size = (Number(style.size) || 16) * 0.75;
   const leading = (Number(style.leading) || 1.65) * 0.74;
   const settings = {
+    ...pageLayout,
+    headingAlign: ["center", "right"].includes(style.headingAlign)
+      ? style.headingAlign
+      : "left",
+    headingColor: style.accentHeadings ? style.accent || "#6353bb" : "#262431",
     index: specIndex(parts),
     size,
     gap: (Number(style.gap) || 12) * 0.75,
@@ -675,15 +704,20 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     if (normal.length)
       sections.push({
         section: normal,
-        pageSize: a4,
-        pageOrientation: "portrait",
+        pageSize: basePage,
+        pageOrientation: basePage === landscape ? "landscape" : "portrait",
       });
     normal = [];
   };
   for (const [i, part] of parts.entries()) {
     const rules = part.pdfRules || [];
-    const separate = rules.includes("separate-sheet");
-    const manualBreak = rules.includes("break-before");
+    const forceLandscape = rules.includes("landscape-sheet");
+    const separate = forceLandscape || rules.includes("separate-sheet");
+    const headingLevel =
+      part.t.type === "heading_open" ? Number(part.t.tag.slice(1)) : 0;
+    const manualBreak =
+      rules.includes("break-before") ||
+      (headingLevel > 0 && headingLevel <= (style.pdfSectionLevel || 0));
     const note = (message) => {
       if (
         !warnings.some(
@@ -699,15 +733,18 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       part.t.type === "table_open"
         ? part.tokens.filter((token) => token.type === "th_open").length
         : 0;
-    let pageSize =
-      separate || (columns > 6 && profile === "screen")
-        ? columns > 6 && profile === "screen"
-          ? landscape
-          : a4
-        : null;
+    let pageSize = separate ? basePage : null;
+    if (forceLandscape || (columns > 6 && profile === "screen"))
+      pageSize = landscape;
     let blocks;
     if (diagram || mermaid) {
-      const options = { profile, separate, note };
+      const options = {
+        ...pageLayout,
+        basePage: forceLandscape ? landscape : basePage,
+        profile: forceLandscape ? "a4" : profile,
+        separate,
+        note,
+      };
       const rendered = mermaid
         ? await mermaidBlock(part.t.content, options)
         : diagramBlock(part.t.content, options);
@@ -721,7 +758,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         md.renderer.render(part.tokens, md.options, {}),
         {
           ...settings,
-          pageSize: pageSize || a4,
+          pageSize: pageSize || basePage,
           targets: selectedTargets,
           keepParagraph: (targets.get(i - 1) || []).some(
             (target) =>
@@ -748,7 +785,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     if (pageSize) {
       if (!separate) automaticSheets.add(i);
       const headings = [];
-      if (!manualBreak) {
+      if (!manualBreak && !forceLandscape) {
         while (normal.at(-1)?.heading) {
           const previous = normal.pop();
           headings.unshift(previous);
@@ -765,6 +802,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     } else {
       if (manualBreak) flush();
       normal.push(unit);
+      if (rules.includes("break-after")) flush();
     }
   }
   flush();
@@ -831,14 +869,14 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   const blob = await pdf
     .createPdf({
       info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
-      pageSize: "A4",
-      pageOrientation: "portrait",
-      pageMargins: margin,
+      pageSize: basePage,
+      pageOrientation: basePage === landscape ? "landscape" : "portrait",
+      pageMargins: margins,
       footer: style.pdfPageNumbers
         ? (page) => ({
             text: String(page),
             alignment: "center",
-            margin: [0, 12, 0, 0],
+            margin: [0, Math.min(12, Math.max(0, margins[3] - 13)), 0, 0],
             fontSize: 9,
             color: "#585363",
           })

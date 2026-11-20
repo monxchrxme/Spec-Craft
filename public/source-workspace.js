@@ -18,7 +18,8 @@ export function sourceWorkspace({
   const fold = document.querySelector("#source-fold");
   let markdown, nextSelection;
   let tex,
-    timer,
+    frame,
+    buildingPdf = false,
     generation = 0,
     visible = false,
     lastDoc,
@@ -28,10 +29,10 @@ export function sourceWorkspace({
   let spans = [],
     measured,
     scrollFrame = 0;
-  function indexSpans() {
+  function indexSpans(projection) {
     const { body, parts } = current();
     if (active()) {
-      const live = latexProjection(body, parts);
+      const live = projection ?? latexProjection(body, parts);
       // Keep original assets and opaque block references available throughout a draft.
       // A half-typed command can temporarily stop referring to its image or diagram.
       // Even a partial command has a corresponding literal block in the document.
@@ -50,32 +51,37 @@ export function sourceWorkspace({
   const span = (i) => spans[i] || [0, 0];
   let selectedScrollTop;
   const pages = sourcePages(preview, (i) => select(i, false));
-  function schedule(delay = 120) {
-    clearTimeout(timer);
+  function schedule() {
+    cancelAnimationFrame(frame);
     const stamp = ++generation;
     if (!visible) return;
     root.dataset.preview = view.value;
     sync.disabled = view.value === "off";
     if (view.value !== "pdf") pages.hide();
-    timer = setTimeout(async () => {
+    frame = requestAnimationFrame(async () => {
       if (stamp !== generation) return;
       if (view.value === "off") return;
       if (view.value === "pdf") {
-        const { body, id } = current();
-        await pages.show(
-          requestPdf(),
-          () =>
-            visible &&
-            view.value === "pdf" &&
-            current().body === body &&
-            current().id === id,
-        );
+        if (buildingPdf) return;
+        buildingPdf = true;
+        const { id } = current();
+        try {
+          await pages.show(
+            requestPdf(),
+            () => visible && view.value === "pdf" && current().id === id,
+          );
+        } finally {
+          buildingPdf = false;
+          if (stamp !== generation && visible && view.value === "pdf")
+            schedule();
+        }
         return;
       }
       const initialized = preview.firstElementChild?.matches(".block");
       const oldTop = preview.scrollTop,
         { parts } = current(),
-        nodes = [];
+        nodes = [],
+        changed = [];
       if (!preview.firstElementChild) preview.replaceChildren();
       const existing = [...preview.children];
       parts.forEach((p, i) => {
@@ -94,18 +100,20 @@ export function sourceWorkspace({
         if (box?.sourceSignature !== signature) {
           box = renderBlock(p, i);
           box.sourceSignature = signature;
+          changed.push(box);
         }
         nodes.push(box);
       });
       nodes.forEach((node, i) => {
-        if (preview.children[i] !== node)
-          preview.insertBefore(node, preview.children[i] || null);
+        if (preview.children[i] === node) return;
+        if (preview.children[i]) preview.children[i].replaceWith(node);
+        else preview.append(node);
       });
       while (preview.children.length > nodes.length) preview.lastChild.remove();
       preview.scrollTop = oldTop;
-      paint(preview);
+      if (changed.length) paint(changed);
       if (!initialized) followScroll();
-    }, delay);
+    });
   }
   function cursorBlock() {
     const pos = source.selectionStart;
@@ -309,8 +317,15 @@ export function sourceWorkspace({
         source.dispatchEvent(new Event("input", { bubbles: true }));
       }
     });
+  try {
+    const saved = localStorage.getItem("speccraft:source-preview");
+    if (["pdf", "document", "off"].includes(saved)) view.value = saved;
+  } catch {}
   view.onchange = () => {
-    schedule(0);
+    try {
+      localStorage.setItem("speccraft:source-preview", view.value);
+    } catch {}
+    schedule();
     if (view.value === "pdf") followScroll();
   };
   let dragging = false;
@@ -352,7 +367,7 @@ export function sourceWorkspace({
       visible = on;
       root.hidden = !on;
       generation++;
-      clearTimeout(timer);
+      cancelAnimationFrame(frame);
       const { body, mode, id, parts } = current();
       if (lastDoc !== id || mode !== lastMode) source.dataset.group = "";
       if (lastDoc !== id) {
@@ -378,8 +393,8 @@ export function sourceWorkspace({
         "aria-label",
         active() ? "Исходник LaTeX" : "Исходный Markdown",
       );
-      indexSpans();
-      schedule(0);
+      indexSpans(tex);
+      schedule();
     },
     read() {
       if (active()) return tex.apply(source.value);
@@ -409,8 +424,9 @@ export function sourceWorkspace({
         nextSelection = null;
       }
       indexSpans();
-      schedule(view.value === "pdf" ? 650 : 100);
+      schedule();
     },
+    refreshPreview: schedule,
     bodyOffset(offset) {
       return markdown.raw(offset);
     },

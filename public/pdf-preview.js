@@ -30,6 +30,9 @@ export function printPdf(blob, filename, onFallback) {
 
 const placementHelp = {
   auto: "Блок продолжит общий поток документа. Заголовки автоматически остаются с началом следующего блока.",
+  "landscape-sheet":
+    "Блок займёт отдельный альбомный лист A4. Длинный блок продолжится на таких же листах.",
+  "break-after": "Следующий блок начнётся на новой странице.",
   "break-before":
     "Перед блоком начнётся новая страница. Остальной текст сможет продолжиться под ним.",
   "separate-sheet":
@@ -128,16 +131,18 @@ export function pdfPreview(
     by("edit").disabled = placementRule.disabled = !entry;
     placementInfo.hidden = !entry;
     const activeRules = entry?.rules || [];
-    placementRule.value = activeRules.includes("separate-sheet")
-      ? "separate-sheet"
-      : activeRules.includes("break-before")
-        ? "break-before"
-        : "auto";
-    keepNext.checked = Boolean(
-      entry?.heading || activeRules.includes("keep-next"),
-    );
-    keepNext.disabled =
-      !entry || entry.heading || placementRule.value === "separate-sheet";
+    placementRule.value =
+      ["landscape-sheet", "separate-sheet", "break-before", "break-after"].find(
+        (rule) => activeRules.includes(rule),
+      ) || "auto";
+    const endsPage = [
+      "separate-sheet",
+      "landscape-sheet",
+      "break-after",
+    ].includes(placementRule.value);
+    keepNext.checked =
+      !endsPage && Boolean(entry?.heading || activeRules.includes("keep-next"));
+    keepNext.disabled = !entry || entry.heading || endsPage;
     by("clear").hidden = !activeRules.length;
     let description = "";
     if (entry) {
@@ -477,7 +482,9 @@ export function pdfPreview(
     if (
       keepNext.checked &&
       !byIndex.get(selected)?.heading &&
-      placementRule.value !== "separate-sheet"
+      !["separate-sheet", "landscape-sheet", "break-after"].includes(
+        placementRule.value,
+      )
     )
       next.push("keep-next");
     rules(selected, next);

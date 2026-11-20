@@ -222,7 +222,7 @@
               <label>
                 <select id="source-view" aria-label="Предпросмотр">
                   <option value="pdf">Печатный вид</option>
-                  <option value="document">Блоки</option>
+                  <option value="document" selected>Блоки</option>
                   <option value="off">Скрыт</option>
                 </select></label
               >
@@ -311,6 +311,9 @@
               <label>
                 <input type="checkbox" data-pdf="numbering" />Номера страниц
               </label>
+              <button type="button" data-action="pdf-settings">
+                Параметры страниц
+              </button>
               <button type="button" data-pdf="print">Печать</button>
               <button type="button" class="primary" data-pdf="download">
                 Скачать PDF
@@ -361,7 +364,11 @@
                   >
                     <option value="auto">Автоматически</option>
                     <option value="break-before">С новой страницы</option>
+                    <option value="break-after">Разрыв после блока</option>
                     <option value="separate-sheet">На отдельном листе</option>
+                    <option value="landscape-sheet">
+                      На альбомном листе A4
+                    </option>
                   </select>
                 </label>
                 <details
