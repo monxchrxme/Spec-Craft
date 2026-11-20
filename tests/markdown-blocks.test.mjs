@@ -201,6 +201,17 @@ test("the generated Markdown table of contents uses stable duplicate heading anc
   );
   assert(md.render(markdown).includes('id="doc-heading-проверка-1"'));
   assert(md.render(markdown).includes('<nav class="document-toc"'));
+  const numbered = materializeToc(
+    input.replace("<!-- spec-toc -->", "<!-- spec-toc numbered -->") +
+      "\r\n\r\n##### Ещё один подраздел",
+    md,
+  );
+  assert.equal(materializeToc(numbered, md), numbered);
+  assert(numbered.includes("[1 Проверка](#"));
+  assert(numbered.includes("[1.1 Дочерний](#"));
+  assert(numbered.includes("[2 Проверка](#"));
+  assert(numbered.includes("[2.1 Ещё один подраздел](#"));
+  assert(!numbered.includes("[Оглавление]"));
 });
 
 test("Mermaid view settings preserve front matter and nested state directions", () => {

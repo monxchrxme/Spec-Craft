@@ -3,8 +3,11 @@ const markers = {
   bibliography: ["<!-- spec-bibliography -->", "<!-- /spec-bibliography -->"],
 };
 
-export function portableBlock(kind, content) {
-  return [markers[kind][0], "", content, "", markers[kind][1]].join("\n");
+const numberedToc = "<!-- spec-toc numbered -->";
+
+export function portableBlock(kind, content, numbered = false) {
+  const open = kind === "toc" && numbered ? numberedToc : markers[kind][0];
+  return [open, "", content, "", markers[kind][1]].join("\n");
 }
 
 function plainHeading(inline) {
@@ -40,23 +43,30 @@ function linkLabel(title) {
   );
 }
 
-function tocMarkdown(headings) {
+export function tocMarkdown(headings, numbered = false) {
   if (!headings.length) return "Заголовки появятся здесь автоматически.";
   const ancestors = [];
+  const counters = [];
   return headings
     .map(({ level, label, slug }) => {
       while (ancestors.length && ancestors.at(-1) >= level) ancestors.pop();
-      const line =
-        "  ".repeat(ancestors.length) +
-        "- [" +
+      const depth = ancestors.length;
+      counters.length = depth + 1;
+      counters[depth] = (counters[depth] || 0) + 1;
+      ancestors.push(level);
+      const prefix = numbered ? "\u00a0\u00a0".repeat(depth) : "  ".repeat(depth) + "- ";
+      const number = numbered ? counters.join(".") + " " : "";
+      return (
+        prefix +
+        "[" +
+        number +
         linkLabel(label) +
         "](#" +
         encodeURIComponent(slug) +
-        ")";
-      ancestors.push(level);
-      return line;
+        ")"
+      );
     })
-    .join("\n");
+    .join(numbered ? "\n\n" : "\n");
 }
 
 export function portableBlocks(md) {
@@ -74,19 +84,26 @@ export function portableBlocks(md) {
       if (from && state.src[from - 1] !== "\n") return false;
       const line = (index) =>
         state.src.slice(state.bMarks[index], state.eMarks[index]).trim();
+      const numbered = line(start) === numberedToc;
       const matched = Object.entries(markers).find(
-        ([, pair]) => pair[0] === line(start),
+        ([kind, pair]) =>
+          pair[0] === line(start) || (kind === "toc" && numbered),
       );
       if (!matched) return false;
       const [kind, [, close]] = matched;
       let last = start + 1;
       while (last < end && line(last) !== close) {
-        if (line(last) === matched[1][0]) return false;
+        if (
+          line(last) === matched[1][0] ||
+          (kind === "toc" && line(last) === numberedToc)
+        )
+          return false;
         last++;
       }
       if (last === end) return false;
       if (silent) return true;
       const block = state.push("spec_" + kind, "", 0);
+      if (kind === "toc") block.meta = { numbered };
       block.map = [start, last + 1];
       block.content = state.src
         .slice(state.bMarks[start + 1], state.bMarks[last])
@@ -120,12 +137,15 @@ export function portableBlocks(md) {
         });
     }
     const titleTokens = new Set(titleIndexes.values());
+    const sections = headings.filter(
+      (heading) => !titleTokens.has(heading.index),
+    );
     for (const token of tokens) {
       if (token.type === "spec_toc")
         token.meta = {
-          markdown: tocMarkdown(
-            headings.filter((heading) => !titleTokens.has(heading.index)),
-          ),
+          ...token.meta,
+          headings: sections,
+          markdown: tocMarkdown(sections, token.meta.numbered),
         };
     }
   });
@@ -143,7 +163,7 @@ export function portableBlocks(md) {
 }
 
 export function materializeToc(body, md) {
-  if (!body.includes(markers.toc[0])) return body;
+  if (!body.includes("<!-- spec-toc")) return body;
   const tokens = md
     .parse(body, {})
     .filter((token) => token.type === "spec_toc");
@@ -155,10 +175,11 @@ export function materializeToc(body, md) {
     const start = starts[token.map[0]],
       end = starts[token.map[1]] ?? body.length;
     const suffix = /[\r\n]$/.test(body.slice(start, end)) ? newline : "";
-    const replacement = portableBlock("toc", token.meta.markdown).replaceAll(
-      "\n",
-      newline,
-    );
+    const replacement = portableBlock(
+      "toc",
+      token.meta.markdown,
+      token.meta.numbered,
+    ).replaceAll("\n", newline);
     body = body.slice(0, start) + replacement + suffix + body.slice(end);
   }
   return body;

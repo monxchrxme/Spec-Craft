@@ -160,7 +160,7 @@ export function paintDocumentStyle(p, s) {
   );
   p.style.setProperty(
     "--heading-color",
-    s.accentHeadings ? "var(--doc-accent)" : "inherit",
+    s.accentHeadings ? "var(--display-accent, var(--doc-accent))" : "inherit",
   );
   p.style.tabSize = Number(s.tabSize) || 4;
 }

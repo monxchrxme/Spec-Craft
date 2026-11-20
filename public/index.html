@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#24243a" />
     <title>SpecCraft</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="studio.css" />
     <script defer src="vendor/lucide.min.js"></script>
     <script defer src="vendor/markdown-it.min.js"></script>
@@ -48,6 +49,10 @@
         >
           <i data-lucide="settings-2"></i>
         </button>
+        <label class="rail-theme" title="Тема интерфейса">
+          <i data-lucide="palette" aria-hidden="true"></i>
+          <select data-theme-picker aria-label="Тема интерфейса"></select>
+        </label>
       </nav>
       <aside class="sidebar" id="workspace-sidebar">
         <div class="sidebar-navigation">
@@ -82,7 +87,15 @@
           <section class="outline-wrap">
             <div class="side-heading">
               <h2>Структура</h2>
-              <i data-lucide="list-tree"></i>
+              <button
+                id="outline-toggle-all"
+                type="button"
+                aria-label="Свернуть все подразделы"
+                aria-controls="outline"
+                disabled
+              >
+                <i data-lucide="list-tree"></i>
+              </button>
             </div>
             <div id="outline"></div>
           </section>
@@ -113,6 +126,10 @@
             <button class="mobile-style" data-action="style">
               <i data-lucide="settings-2"></i>Оформление документа
             </button>
+            <label class="mobile-style theme-field"
+              >Тема интерфейса
+              <select data-theme-picker></select>
+            </label>
             <button data-action="transfer">
               <i data-lucide="folder-sync"></i>Перенос данных
             </button>

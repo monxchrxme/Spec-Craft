@@ -57,7 +57,9 @@ import { pdfPreview, printPdf } from "./pdf-preview.js";
 import {
   bibliographyEntries,
   materializeToc,
+  portableBlock,
   portableBlocks,
+  tocMarkdown,
 } from "./portable-blocks.js";
 import { isProjectTree } from "./project-tree.js";
 import {
@@ -319,7 +321,32 @@ function outline() {
   const folded = foldedSections(id);
   const headings = outlineHierarchy(parts);
   const entries = new Map();
+  const toggleAll = $("#outline-toggle-all");
+  const branches = headings.filter((heading) => heading.hasChildren);
+  const canCollapse = () =>
+    branches.some((heading) => !heading.parent && !folded.has(heading.key));
+  function saveFolds() {
+    applyFolds();
+    try {
+      localStorage.setItem("buro:outline:" + id, JSON.stringify([...folded]));
+    } catch {
+      // The visible outline remains usable.
+    }
+  }
+  toggleAll.onclick = () => {
+    const collapse = canCollapse();
+    for (const { key } of branches) {
+      if (collapse) folded.add(key);
+      else folded.delete(key);
+    }
+    saveFolds();
+  };
   function applyFolds() {
+    toggleAll.disabled = !branches.length;
+    toggleAll.title = canCollapse()
+      ? "Свернуть все подразделы"
+      : "Развернуть все подразделы";
+    toggleAll.setAttribute("aria-label", toggleAll.title);
     for (const heading of headings) {
       const { row, toggle } = entries.get(heading);
       const parent = heading.parent;
@@ -360,15 +387,7 @@ function outline() {
       toggle.onclick = () => {
         if (folded.has(key)) folded.delete(key);
         else folded.add(key);
-        applyFolds();
-        try {
-          localStorage.setItem(
-            "buro:outline:" + id,
-            JSON.stringify([...folded]),
-          );
-        } catch {
-          // The visible outline remains usable.
-        }
+        saveFolds();
       };
       row.append(toggle);
     }
@@ -666,6 +685,7 @@ function render() {
     sourcePane.show(false);
     source.value = "";
     $("#outline").replaceChildren();
+    $("#outline-toggle-all").disabled = true;
     $("#wordcount").textContent = "";
     return;
   }
@@ -853,7 +873,35 @@ function closeBibliography(save = true) {
 function documentBlockTools(box, part, index, kind) {
   const tools = document.createElement("div");
   tools.className = "document-block-tools";
-  if (kind !== "toc") {
+  if (kind === "toc") {
+    const label = document.createElement("label");
+    label.append("Обозначения ");
+    const select = document.createElement("select");
+    select.add(new Option("Маркеры", "bullets"));
+    select.add(new Option("Номера разделов", "numbers"));
+    select.value = part.t.meta.numbered ? "numbers" : "bullets";
+    select.onchange = () => {
+      const numbered = select.value === "numbers";
+      const state = prepareBlockChange(index);
+      if (!state) {
+        select.value = part.t.meta.numbered ? "numbers" : "bullets";
+        return;
+      }
+      const current = parts[state.origin];
+      if (current?.t.type !== "spec_toc") return;
+      const content = tocMarkdown(current.t.meta.headings, numbered);
+      if (
+        patchStructuredBlock(state, portableBlock("toc", content, numbered))
+      ) {
+        replaceStructuredView(state.origin);
+        host.children[state.origin]
+          .querySelector("select")
+          .focus({ preventScroll: true });
+      }
+    };
+    label.append(select);
+    tools.append(label);
+  } else {
     const edit = document.createElement("button");
     edit.type = "button";
     edit.innerHTML = icon("square-pen");
@@ -1311,7 +1359,6 @@ function editBlock(i, selectAll = false) {
       ta.selectionStart === ta.value.length
     ) {
       e.preventDefault();
-      flush();
       insertBlock("paragraph", i);
     }
   };
@@ -1610,8 +1657,45 @@ function setMode(next) {
     source.setSelectionRange(source.selectionStart, source.selectionStart);
   } else host.children[selected]?.scrollIntoView({ block: "nearest" });
 }
-function insertBlock(type, idx = insertionBlock(), content) {
+// Panel widths change line wrapping throughout the document. Keep the chosen
+// block at its screen coordinate across that reflow and editor teardown.
+function prepareInsertion(index) {
+  const box = mode === "edit" && host.children[index];
+  const top = box ? blockTop(box) : null;
+  let end = parts[index]?.end ?? doc.body.length;
+  if (editor && editor.i <= index) {
+    liveBlock();
+    end += editor.end - parts[editor.i].end;
+  }
+  const length = doc.body.length;
+  const changesBeforeEnd =
+    (tableEdit && tableEdit.i <= index) ||
+    (inlineBibliography && inlineBibliography.state.origin <= index);
   flush();
+  if (changesBeforeEnd) end += doc.body.length - length;
+  if (box) index = parts.findLastIndex((part) => part.start < end);
+  return { index, top, id: doc?.id };
+}
+function restoreInsertion({ index, top, id }) {
+  const box = host.children[index];
+  if (top !== null && box && mode === "edit" && id === doc?.id)
+    restoreBlockTop(box, top);
+}
+function anchorInsertPanel(panel, anchor) {
+  restoreInsertion(anchor);
+  const restoreOnCancel = () => {
+    if (!modal.open && panel.isConnected) restoreInsertion(anchor);
+  };
+  modal.addEventListener("close", restoreOnCancel, { once: true });
+  return () => {
+    modal.removeEventListener("close", restoreOnCancel);
+    modal.close();
+    restoreInsertion(anchor);
+  };
+}
+function insertBlock(type, idx = insertionBlock(), content) {
+  const anchor = prepareInsertion(idx);
+  idx = anchor.index;
   const item = content === undefined ? blocksToInsert[type] : ["", content];
   if (!item) return;
   let body = item[1];
@@ -1626,7 +1710,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
   const pos =
       mode === "source"
         ? sourcePane.bodyOffset(source.selectionStart)
-        : (parts[idx]?.end ?? doc.body.length),
+        : (parts[idx]?.end ?? (idx < 0 ? 0 : doc.body.length)),
     before = doc.body.slice(0, pos),
     after = doc.body.slice(pos);
   const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
@@ -1653,6 +1737,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
   } else if (mode === "latex") {
     sourcePane.select(selected);
   } else {
+    restoreInsertion(anchor);
     host.children[selected]?.scrollIntoView({ block: "nearest" });
     if (["paragraph", "heading", "code", "list", "math"].includes(type))
       editBlock(selected, true);
@@ -1709,7 +1794,8 @@ function option(id, label, symbol) {
   );
 }
 function insertDialog() {
-  const index = insertionBlock();
+  const anchor = prepareInsertion(insertionBlock());
+  const index = anchor.index;
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
@@ -1735,16 +1821,17 @@ function insertDialog() {
       )
       .join("") + option("image", "Изображение", "image"),
   );
+  const close = anchorInsertPanel(b, anchor);
   b.onclick = (e) => {
     const k = e.target.closest("[data-id]")?.dataset.id;
-    if (k === "image") imageDialog(index);
+    if (k === "image") imageDialog(index, null, anchor);
     else if (k) {
-      modal.close();
+      close();
       insertBlock(k, index);
     }
   };
 }
-function imageDialog(index, initial) {
+function imageDialog(index, initial, anchor) {
   const id = doc.id;
   const panel = dialog(
     initial ? "Изменить изображение" : "Вставить изображение",
@@ -1757,12 +1844,13 @@ function imageDialog(index, initial) {
       (initial ? "Сохранить изображение" : "Вставить изображение") +
       "</button></form>",
   );
+  const close = anchor ? anchorInsertPanel(panel, anchor) : () => modal.close();
   modal.classList.add("image-dialog");
   const release = imageCropForm(panel, initial, (markdown) => {
     if (!modal.open || doc?.id !== id) return;
     if (initial && parts[index]?.text !== initial.source)
       throw Error("Изображение изменилось. Откройте его настройки снова.");
-    modal.close();
+    close();
     if (initial) replaceImage(index, markdown, false);
     else insertBlock("image", index, markdown);
   });
