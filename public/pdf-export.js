@@ -1,4 +1,4 @@
-import { pageMargins } from "./document-style.js";
+import { formulaSettings, pageMargins } from "./document-style.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
@@ -75,35 +75,44 @@ async function imageBlock(element, widthLimit, heightLimit) {
   }
 }
 
-async function pdfFormula(element, size, widthLimit, heightLimit, note) {
+async function pdfFormula(element, settings, widthLimit, heightLimit) {
+  const { math, note } = settings;
   const display = element.classList.contains("math-display");
+  const size =
+    (settings.size *
+      (display ? math.formulaDisplaySize : math.formulaInlineSize)) /
+    100;
+  const margin = display
+    ? [0, math.formulaSpaceBefore * 0.75, 0, math.formulaSpaceAfter * 0.75]
+    : undefined;
+  if (display) heightLimit = Math.max(1, heightLimit - margin[1] - margin[3]);
   const content = element.dataset.tex;
   try {
     const svg = await formulaSvg(content, display);
     if (!svg.hasAttribute("viewBox")) {
-      // MathJax uses a responsive SVG for tagged equations. Give it the PDF
-      // column's viewport before serializing it as a self-contained image.
-      svg.style.cssText = "position:fixed;visibility:hidden;font-size:16px";
-      svg.setAttribute("width", widthLimit / 0.75);
+      // MathJax positions equation numbers in a responsive outer SVG. Give
+      // that viewport the same 1000-units-per-em scale as unnumbered math.
+      Object.assign(svg.style, {
+        position: "fixed",
+        visibility: "hidden",
+        fontSize: "16px",
+      });
       document.body.append(svg);
-      const box = svg.getBoundingClientRect();
-      const contentBox = svg.getBBox();
-      svg.remove();
-      svg.removeAttribute("style");
-      svg.setAttribute("viewBox", [0, 0, box.width, box.height].join(" "));
-      const scale = Math.min(0.75, heightLimit / box.height);
-      if (scale < 0.72 || contentBox.width > widthLimit / 0.75 + 1)
-        note("Нумерованная формула уменьшена. Проверьте её читаемость.");
-      svg.setAttribute("width", box.width * scale);
-      svg.setAttribute("height", box.height * scale);
-      return {
-        svg: svg.outerHTML,
-        width: box.width * scale,
-        height: box.height * scale,
-        font: "Sans",
-        alignment: "center",
-        margin: [0, 2, 0, 5],
-      };
+      try {
+        const pixels = svg.getBoundingClientRect().height;
+        const units =
+          svg.querySelector("svg[data-table]")?.viewBox.baseVal.height ||
+          (pixels * 1000) / 16;
+        const minWidth = parseFloat(getComputedStyle(svg).minWidth) || 0;
+        const width = Math.max(
+          (widthLimit * 1000) / size,
+          (minWidth * units) / pixels,
+        );
+        svg.setAttribute("viewBox", [0, 0, width, units].join(" "));
+      } finally {
+        svg.remove();
+        svg.removeAttribute("style");
+      }
     }
     const { y, width, height } = svg.viewBox.baseVal;
     const scale = Math.min(
@@ -127,7 +136,7 @@ async function pdfFormula(element, size, widthLimit, heightLimit, note) {
         width: width * scale,
         height: height * scale,
         alignment: "center",
-        margin: [0, 2, 0, 5],
+        margin,
       };
     return {
       text: "\uFFFC",
@@ -142,6 +151,7 @@ async function pdfFormula(element, size, widthLimit, heightLimit, note) {
     note("В формуле есть ошибка LaTeX.");
     return {
       text: content + " [Ошибка LaTeX]",
+      margin,
       font: "Mono",
       color: "#8b2841",
       fontSize: size * 0.9,
@@ -179,10 +189,9 @@ async function markdownBlocks(html, settings) {
       if (node.hasAttribute?.("data-tex")) {
         const formula = await pdfFormula(
           node,
-          size,
+          settings,
           widthLimit,
           heightLimit,
-          note,
         );
         if (node.classList.contains("math-display")) {
           flush();
@@ -693,6 +702,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   const leading = (Number(style.leading) || 1.65) * 0.74;
   const settings = {
     ...pageLayout,
+    math: formulaSettings(style),
     headingAlign: ["center", "right"].includes(style.headingAlign)
       ? style.headingAlign
       : "left",

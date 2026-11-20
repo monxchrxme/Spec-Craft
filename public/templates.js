@@ -304,7 +304,7 @@ export function templateTools({
     const appearance = styleControls(
       settings,
       templateStyle(template.style),
-      true,
+      "none",
     );
     const defaults = new Map(Object.entries(template.defaults || {}));
     const defaultBox = node("details"),

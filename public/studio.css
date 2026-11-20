@@ -83,6 +83,7 @@ button.primary:hover:enabled {
 }
 #workspace {
   --status-height: 32px;
+  --topbar-height: 60px;
   --sidebar-default-width: 228px;
   --sidebar-min-width: 155px;
   --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 550px, 480px);
@@ -161,21 +162,9 @@ button.primary:hover:enabled {
   cursor: col-resize;
   touch-action: none;
 }
-.panel-resizer::after {
-  content: "";
-  position: absolute;
-  top: calc(50% - 11px);
-  left: calc(50% - 1.5px);
-  width: 3px;
-  height: 22px;
-  border-radius: 2px;
-  background: #a9a5bb;
-}
-.panel-resizer:focus-visible::after {
-  background: currentColor;
-}
 .panel-resizer:focus-visible {
-  outline: none;
+  outline: 1px dashed var(--muted);
+  outline-offset: -3px;
 }
 .inspector-resizer {
   display: none;
@@ -279,7 +268,7 @@ main {
   padding: 0 25px;
 }
 .topbar {
-  height: 60px;
+  height: var(--topbar-height, 60px);
 }
 .topbar .primary {
   padding: 9px 14px;
@@ -1004,6 +993,12 @@ dialog .dialog-head {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
+}
+@media (min-width: 761px) {
+  #modal .dialog-head {
+    min-height: var(--topbar-height);
+    padding-block: 4px;
+  }
 }
 .dialog-head h2 {
   margin: 0;
@@ -1847,6 +1842,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 }
 
 .math-inline {
+  font-size: var(--formula-inline-size, 100%);
   display: inline-block;
   max-width: 100%;
   font-family: inherit;
@@ -1857,8 +1853,9 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   height: auto;
 }
 .math-display {
+  font-size: var(--formula-display-size, 125%);
   overflow: auto;
-  padding: 4px 0;
+  padding: var(--formula-space-before, 12px) 0 var(--formula-space-after, 12px);
   text-align: center;
 }
 .math-display svg {

@@ -2180,12 +2180,11 @@ function styleDialog(printOnly = false) {
   const form = document.createElement("form");
   form.className = "style-form";
   body.append(form);
-  const controls = styleControls(form, s);
-  if (printOnly === true) {
-    const [text, print] = form.querySelectorAll("details");
-    text.open = false;
-    print.open = true;
-  }
+  const controls = styleControls(
+    form,
+    s,
+    printOnly === true ? "print" : "text",
+  );
   const submit = document.createElement("button");
   submit.textContent = "Применить";
   submit.className = "primary";

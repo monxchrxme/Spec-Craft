@@ -33,6 +33,33 @@ const typography = [
   ],
   ["tabSize", "Ширина табуляции", 4, [2, 4, 8]],
 ];
+const formulaFields = [
+  ["formulaInlineSize", "Размер в строке, %", 100, 50, 250],
+  ["formulaDisplaySize", "Размер отдельной формулы, %", 125, 50, 250],
+  ["formulaSpaceBefore", "Интервал перед отдельной формулой, px", 12, 0, 64],
+  ["formulaSpaceAfter", "Интервал после отдельной формулы, px", 12, 0, 64],
+];
+export function formulaSettings(input, includeDefaults = true) {
+  const settings = {};
+  for (const [key, , initial, min, max] of formulaFields) {
+    const value = input?.[key];
+    if (Number.isInteger(value) && value >= min && value <= max)
+      settings[key] = value;
+    else if (includeDefaults) settings[key] = initial;
+  }
+  return settings;
+}
+export function paintFormulaStyle(paper, style) {
+  const f = formulaSettings(style);
+  paper.style.setProperty("--formula-inline-size", f.formulaInlineSize + "%");
+  paper.style.setProperty("--formula-display-size", f.formulaDisplaySize + "%");
+  paper.style.setProperty(
+    "--formula-space-before",
+    f.formulaSpaceBefore + "px",
+  );
+  paper.style.setProperty("--formula-space-after", f.formulaSpaceAfter + "px");
+}
+
 const printOptions = [
   [
     "pdfProfile",
@@ -75,7 +102,7 @@ function choices(values) {
     : Object.entries(values);
 }
 export function templateStyle(input = {}) {
-  const style = {};
+  const style = formulaSettings(input, false);
   for (const [key, , initial, values] of [...typography, ...printOptions]) {
     const value = input?.[key];
     if (
@@ -103,6 +130,7 @@ export function pageMargins(style) {
   });
 }
 export function paintDocumentStyle(p, s) {
+  paintFormulaStyle(p, s);
   p.style.setProperty(
     "--doc-font",
     s.font === "serif"
@@ -138,7 +166,7 @@ export function paintDocumentStyle(p, s) {
 }
 
 // The library and the document editor use the same controls and allowed values.
-export function styleControls(container, style = {}, compact = false) {
+export function styleControls(container, style = {}, openGroup = "text") {
   const fields = [];
   function group(name, open) {
     const details = document.createElement("details"),
@@ -151,8 +179,9 @@ export function styleControls(container, style = {}, compact = false) {
     container.append(details);
     return body;
   }
-  const text = group("Текст и интервалы", !compact),
-    print = group("Параметры страниц PDF", false);
+  const text = group("Текст и интервалы", openGroup === "text"),
+    formulas = group("Формулы", false),
+    print = group("Параметры страниц PDF", openGroup === "print");
   function field(group, key, title, input, read) {
     const label = document.createElement("label");
     label.textContent = title;
@@ -172,6 +201,18 @@ export function styleControls(container, style = {}, compact = false) {
     if (el.selectedIndex < 0) el.value = initial;
     field(key.startsWith("pdf") ? print : text, key, title, el, () =>
       typeof initial === "number" ? Number(el.value) : el.value,
+    );
+  }
+  const math = formulaSettings(style);
+  for (const [key, title, initial, min, max] of formulaFields) {
+    const el = document.createElement("input");
+    el.type = "number";
+    el.min = min;
+    el.max = max;
+    el.placeholder = String(initial);
+    el.value = math[key];
+    field(formulas, key, title, el, () =>
+      el.value === "" ? undefined : el.valueAsNumber,
     );
   }
   const color = document.createElement("input");

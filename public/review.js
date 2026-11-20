@@ -1,3 +1,4 @@
+import { paintFormulaStyle } from "./document-style.js";
 import { paintMath } from "./math.js";
 import { mermaidControls, paintMermaid } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
@@ -334,6 +335,7 @@ export function showReview({
     markers.clear();
     const parts = parse(snapshot.body);
     const style = snapshot.style || {};
+    paintFormulaStyle(paper, style);
     paper.style.setProperty("--doc-size", (Number(style.size) || 16) + "px");
     paper.style.setProperty("--doc-leading", Number(style.leading) || 1.65);
     paper.style.setProperty(

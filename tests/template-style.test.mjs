@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pageMargins, templateStyle } from "../public/document-style.js";
+import {
+  formulaSettings,
+  pageMargins,
+  templateStyle,
+} from "../public/document-style.js";
 import {
   readTemplates,
   restoreTemplates,
@@ -70,4 +74,28 @@ test("template style imports only supported values and legacy margins retain exa
     (5 * 72) / 25.4,
   ]);
   assert.deepEqual(pageMargins({}), [38, 38, 38, 38]);
+});
+
+test("formula scales and zero spacing survive template import and default independently", () => {
+  const style = templateStyle({
+    formulaInlineSize: 85,
+    formulaDisplaySize: 160,
+    formulaSpaceBefore: 0,
+    formulaSpaceAfter: 64,
+  });
+  assert.deepEqual(formulaSettings(style), {
+    formulaInlineSize: 85,
+    formulaDisplaySize: 160,
+    formulaSpaceBefore: 0,
+    formulaSpaceAfter: 64,
+  });
+  assert.deepEqual(
+    formulaSettings({ formulaInlineSize: -5, formulaSpaceAfter: 0 }),
+    {
+      formulaInlineSize: 100,
+      formulaDisplaySize: 125,
+      formulaSpaceBefore: 12,
+      formulaSpaceAfter: 0,
+    },
+  );
 });
