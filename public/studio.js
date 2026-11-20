@@ -2193,7 +2193,6 @@ function styleDialog(printOnly = false) {
   form.onsubmit = (event) => {
     event.preventDefault();
     applyAppearance(controls());
-    modal.close();
   };
 }
 function applyAppearance(style, replace = false) {
