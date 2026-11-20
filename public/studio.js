@@ -341,13 +341,14 @@ function styles() {
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
-const diagramCards = () => [...host.querySelectorAll(".diagram-card")];
+const diagramCards = () =>
+  [...host.querySelectorAll(".diagram-card:not(.inline-graph)")];
+const isExpanded = (card) => card.classList.contains("diagram-expanded");
 function updateExpandButton() {
   const button = $("[data-action=expand-diagrams]");
   const cards = diagramCards();
   const allExpanded =
-    cards.length &&
-    cards.every((card) => card.classList.contains("diagram-expanded"));
+    cards.every(isExpanded) && (!inlineGraph || inlineGraph.expanded);
   button.hidden = !cards.length;
   button.lastChild.textContent = allExpanded
     ? "Свернуть все схемы"
@@ -355,9 +356,9 @@ function updateExpandButton() {
 }
 function toggleAllDiagrams() {
   const cards = diagramCards();
-  expandAll = cards.some(
-    (card) => !card.classList.contains("diagram-expanded"),
-  );
+  expandAll =
+    cards.some((card) => !isExpanded(card)) ||
+    (inlineGraph !== null && !inlineGraph.expanded);
   cards.forEach((card) => card.setExpanded(expandAll));
   if (inlineGraph) inlineGraph.expanded = expandAll;
   updateExpandButton();
@@ -484,7 +485,7 @@ function block(p, i, expanded = expandAll) {
       const edit = (initialNode) => {
         if (mode === "read") return;
         const top = blockTop(box);
-        const openedWide = card.classList.contains("diagram-expanded");
+        const openedWide = isExpanded(card);
         flush();
         if (modal.open) modal.close();
         const target = host.children[i],
