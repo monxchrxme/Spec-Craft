@@ -1,5 +1,6 @@
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
-import { embeddedImage, imageMarkdown } from "./images.js";
+import { imageSizes, imageWidthMarkdown } from "./images.js";
+import { imageCropForm, imageInspector } from "./image-editor.js";
 import {
   coloredHighlights,
   formatSelection,
@@ -47,7 +48,8 @@ const md = window
   .use(coloredHighlights)
   .use(wikiLinks)
   .use(latex)
-  .use(mermaidBlocks);
+  .use(mermaidBlocks)
+  .use(imageSizes);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
@@ -330,7 +332,7 @@ function sortGrip(label, block) {
   grip.onclick = (event) => event.stopPropagation();
   return grip;
 }
-function prepareOrder(index) {
+function prepareBlockChange(index) {
   if (mode !== "edit" || modal.open || !parts[index]) return null;
   let offset = parts[index].start;
   if (editor) {
@@ -382,7 +384,7 @@ const blockSorting = dragOrder({
   scroller: viewport,
   item: ":scope > .block",
   handle: ".block-grip",
-  prepare: prepareOrder,
+  prepare: prepareBlockChange,
   targets: () => parts.map((_, index) => index),
   move: (state, index, below) => moveOrder(state, index, below, false),
 });
@@ -391,7 +393,7 @@ const outlineSorting = dragOrder({
   scroller: $(".sidebar"),
   item: ".outline-item",
   handle: ".outline-grip",
-  prepare: prepareOrder,
+  prepare: prepareBlockChange,
   targets: (index) =>
     parts.flatMap((part, i) =>
       part.t.type === "heading_open" && part.t.tag === parts[index].t.tag
@@ -688,6 +690,35 @@ function buildBlock(p, i, expanded) {
     return box;
   } else box.innerHTML = md.renderer.render(p.tokens, md.options, {});
   if (mode === "edit") {
+    const paragraph = box.firstElementChild;
+    const image =
+      paragraph?.matches("p") &&
+      paragraph.querySelector(":scope > img:only-child");
+    if (image && !paragraph.textContent.trim()) {
+      const initial = {
+        url: image.src,
+        alt: image.alt,
+        title: image.title,
+        width: Number(image.dataset.imageWidth) || null,
+      };
+      box.showImageSettings = imageInspector(paragraph, image, p.text, {
+        width: (value, open, focus) =>
+          reviseImage(
+            i,
+            p.text,
+            imageWidthMarkdown(p.text, value),
+            open,
+            focus,
+          ),
+        source: (value) => reviseImage(i, p.text, value, true),
+        replace: () => {
+          const state = imagePosition(i, p.text);
+          if (state) imageDialog(state.origin, { ...initial, source: p.text });
+        },
+      });
+      box.append(deleteBlockButton(i, "Удалить изображение", "block-remove"));
+      return box;
+    }
     box.tabIndex = 0;
     box.title = "Нажмите, чтобы редактировать";
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
@@ -706,6 +737,31 @@ function buildBlock(p, i, expanded) {
   }
   return box;
 }
+function imagePosition(index, expected) {
+  const state = prepareBlockChange(index);
+  if (state && parts[state.origin]?.text === expected) return state;
+  notice("Изображение изменилось. Откройте его настройки снова.");
+  return null;
+}
+function reviseImage(index, expected, markdown, open, focus) {
+  const state = imagePosition(index, expected);
+  if (!state) return false;
+  replaceImage(state.origin, markdown, open);
+  if (focus)
+    host.children[state.origin]
+      ?.querySelector(".image-grip")
+      ?.focus({ preventScroll: true });
+  return true;
+}
+function replaceImage(index, markdown, open) {
+  const { start, end } = parts[index];
+  const newline = doc.body.includes("\r\n") ? "\r\n" : "\n";
+  const updated = markdown.replace(/\r\n|\n/g, newline);
+  if (doc.body.slice(start, end) === updated) return;
+  patch(start, end, updated);
+  render();
+  if (open) host.children[index]?.showImageSettings?.(true);
+}
 function editBlock(i, selectAll = false) {
   if (editor?.i === i) return;
   flush();
@@ -718,6 +774,8 @@ function editBlock(i, selectAll = false) {
   ta.spellcheck = !!doc.style?.spellcheck;
   ta.setAttribute("aria-label", "Редактировать блок Markdown");
   ta.value = p.text;
+  const embeddedImage = /data:image\/[a-z]+;base64,/i.test(ta.value);
+  if (embeddedImage) ta.wrap = "off";
   editor = { i, ta, baseline: p.text, start: p.start, end: p.end };
   const toolbar = document.createElement("div");
   toolbar.className = "inline-tools";
@@ -842,7 +900,12 @@ function editBlock(i, selectAll = false) {
   box.replaceChildren(toolbar, ta, preview);
   updatePreview();
   icons();
-  ta.style.height = Math.max(52, ta.scrollHeight + 4) + "px";
+  const resizeText = () => {
+    ta.style.height = "auto";
+    const height = Math.max(52, ta.scrollHeight + 4);
+    ta.style.height = (embeddedImage ? Math.min(height, 84) : height) + "px";
+  };
+  resizeText();
   ta.focus({ preventScroll: true });
   ta.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (selectAll) ta.select();
@@ -850,8 +913,7 @@ function editBlock(i, selectAll = false) {
   ta.oninput = () => {
     liveBlock();
     schedulePreview();
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + 4 + "px";
+    resizeText();
     if (ta.value === "/") {
       ta.value = "";
       liveBlock();
@@ -1190,7 +1252,9 @@ function insertBlock(type, idx = insertionBlock(), content) {
       host.children[selected]?.querySelector("button")?.click();
   }
 }
+let disposeImageDialog;
 function resetModal() {
+  disposeImageDialog?.();
   modal.removeAttribute("aria-label");
   modal.onclick = null;
   modal.oncancel = null;
@@ -1257,40 +1321,35 @@ function insertDialog() {
     }
   };
 }
-function imageDialog(index) {
+function imageDialog(index, initial) {
   const id = doc.id;
   const panel = dialog(
-    "Вставить изображение",
+    initial ? "Изменить изображение" : "Вставить изображение",
     '<form class="template-form"><label>Файл изображения<input name="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>' +
       '<label>Или ссылка на изображение<input name="url" type="url" placeholder="https://"></label>' +
       '<label>Описание для изображения<input name="alt" placeholder="Например, схема подключения"></label>' +
-      '<button class="primary">Вставить изображение</button></form><p role="status"></p>',
+      '<div class="image-crop-actions" hidden><button type="button" data-crop>Обрезать</button><button type="button" data-reset-crop hidden>Сбросить обрезку</button></div>' +
+      '<div class="image-crop-preview" hidden></div><p class="image-crop-status" role="status"></p>' +
+      '<button type="submit" class="primary">' +
+      (initial ? "Сохранить изображение" : "Вставить изображение") +
+      "</button></form>",
   );
-  const form = panel.querySelector("form"),
-    status = panel.querySelector("[role=status]");
-  const submit = form.querySelector("button");
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    submit.disabled = true;
-    status.textContent = "";
-    try {
-      const file = form.elements.file.files[0];
-      const url = file
-        ? await embeddedImage(file)
-        : form.elements.url.value.trim();
-      const markdown = imageMarkdown(url, form.elements.alt.value);
-      if (!panel.isConnected || !modal.open || doc?.id !== id) return;
-      modal.close();
-      insertBlock("image", index, markdown);
-    } catch (error) {
-      status.textContent =
-        error instanceof Error
-          ? error.message
-          : "Не удалось прочитать изображение.";
-    } finally {
-      submit.disabled = false;
-    }
-  };
+  modal.classList.add("image-dialog");
+  const release = imageCropForm(panel, initial, (markdown) => {
+    if (!modal.open || doc?.id !== id) return;
+    if (initial && parts[index]?.text !== initial.source)
+      throw Error("Изображение изменилось. Откройте его настройки снова.");
+    modal.close();
+    if (initial) replaceImage(index, markdown, false);
+    else insertBlock("image", index, markdown);
+  });
+  function cleanup() {
+    release();
+    modal.removeEventListener("close", cleanup);
+    disposeImageDialog = null;
+  }
+  disposeImageDialog = cleanup;
+  modal.addEventListener("close", cleanup);
 }
 function download(name, body, type = "text/markdown;charset=utf-8") {
   const a = document.createElement("a");
@@ -1949,6 +2008,7 @@ function startLiveEditing(share, initial) {
       !modal.open &&
       !blockSorting.active() &&
       !outlineSorting.active() &&
+      !host.querySelector(".image-stage[data-resizing]") &&
       document.activeElement !== source,
     status(message, conflict = false) {
       $("#save").textContent = message;

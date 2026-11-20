@@ -26,7 +26,7 @@ function fontFiles(name) {
   );
 }
 
-async function imageBlock(element) {
+async function imageBlock(element, widthLimit = contentWidth) {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = new URL(element.getAttribute("src"), document.baseURI).href;
@@ -36,10 +36,13 @@ async function imageBlock(element) {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     canvas.getContext("2d").drawImage(img, 0, 0);
+    const width = Number(element.dataset.imageWidth);
     return {
       image: canvas.toDataURL("image/png"),
       fit: [
-        Math.min(img.naturalWidth * 0.75, contentWidth),
+        width >= 10 && width <= 100
+          ? (widthLimit * width) / 100
+          : Math.min(img.naturalWidth * 0.75, widthLimit),
         a4.height - 2 * margin - 24,
       ],
     };
@@ -150,7 +153,7 @@ async function markdownBlocks(html, settings) {
         stack.push(drawing.node);
       } else if (tag === "img") {
         flush();
-        stack.push(await imageBlock(node));
+        stack.push(await imageBlock(node, widthLimit));
       } else if (/^(p|h[1-6]|ul|ol|table|blockquote|pre|hr)$/.test(tag)) {
         flush();
         stack.push(await block(node));
