@@ -1,3 +1,4 @@
+import { documentTypes, templateBody } from "./espd.js";
 import { examples } from "./documents.js";
 
 const prefix = "buro:template:";
@@ -15,6 +16,12 @@ function outline(title, sections) {
 
 export const builtinTemplates = {
   ...examples,
+  ...Object.fromEntries(
+    Object.entries(documentTypes).map(([type, [label]]) => [
+      "espd-" + type,
+      { label, body: templateBody(type), espd: type },
+    ]),
+  ),
   spec: {
     ...examples.spec,
     body: outline("Техническое задание", [
@@ -190,6 +197,7 @@ export function templateTools({
   current,
   preview,
   diagrams,
+  applyProfile,
 }) {
   function createFrom(initial = "spec") {
     const panel = dialog("Новый документ", "");
@@ -202,7 +210,11 @@ export function templateTools({
     const picker = node("select");
     picker.id = "template";
     for (const [caption, entries] of [
-      ["Встроенные", Object.entries(builtinTemplates)],
+      ["Обычные", Object.entries(builtinTemplates).filter(([, t]) => !t.espd)],
+      [
+        "ЕСПД · ГОСТ 19.106-78",
+        Object.entries(builtinTemplates).filter(([, t]) => t.espd),
+      ],
       ["Мои шаблоны", own.map((t) => [t.id, t])],
     ]) {
       if (!entries.length) continue;
@@ -314,8 +326,16 @@ export function templateTools({
       ...own.map((t) => [t.id, t]),
     ]);
     const picker = node("select");
-    for (const [id, t] of items)
-      picker.add(new Option(t.id ? t.label + " · мой шаблон" : t.label, id));
+    for (const [label, list] of [
+      ["Обычные", [...items].filter(([, t]) => !t.id && !t.espd)],
+      ["ЕСПД · ГОСТ 19.106-78", [...items].filter(([, t]) => t.espd)],
+      ["Мои шаблоны", [...items].filter(([, t]) => t.id)],
+    ]) {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const [id, t] of list) group.append(new Option(t.label, id));
+      if (list.length) picker.append(group);
+    }
     if (items.has(selected)) picker.value = selected;
     const tools = node("div", undefined, "template-form");
     const status = node("p");
@@ -374,6 +394,14 @@ export function templateTools({
           "option",
         ),
       );
+      if (doc && template.espd)
+        tools.append(
+          button(
+            "Применить оформление к копии документа",
+            () => applyProfile(template.espd),
+            "option",
+          ),
+        );
       if (template.id)
         tools.append(
           button("Удалить шаблон", () => {

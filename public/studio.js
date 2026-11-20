@@ -1,3 +1,17 @@
+import { documentParts } from "./document-parts.js";
+import {
+  objectLabel,
+  standard,
+  fields as espdFields,
+  documentTypes,
+  declaration,
+  readProfile,
+  espdBlocks,
+  encodeProject,
+  decodeProject,
+  markdownCopy,
+} from "./espd.js";
+import { sourceWorkspace } from "./source-workspace.js";
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
 import { imageSizes, imageWidthMarkdown } from "./images.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
@@ -82,7 +96,8 @@ const md = window
   .use(mermaidBlocks)
   .use(imageSizes)
   .use(pdfRules)
-  .use(portableBlocks);
+  .use(portableBlocks)
+  .use(espdBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   toolbarKey = "buro:topbar-collapsed",
@@ -229,48 +244,7 @@ function setText(text, record = true) {
 function patch(start, end, body) {
   setText(doc.body.slice(0, start) + body + doc.body.slice(end));
 }
-function parse(body = doc.body) {
-  const starts = [0];
-  for (const m of body.matchAll(/\r\n|\r|\n/g))
-    starts.push(m.index + m[0].length);
-  const tokens = md.parse(body, {}),
-    res = [];
-  let options = [],
-    fullStart;
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if (t.level || !t.map) continue;
-    if (t.type === "spec_pdf") {
-      fullStart ??= starts[t.map[0]];
-      options.push(...t.meta);
-      continue;
-    }
-    let j = i;
-    if (t.nesting === 1)
-      while (
-        j + 1 < tokens.length &&
-        !(tokens[++j].level === 0 && tokens[j].nesting === -1)
-      ) {}
-    const start = starts[t.map[0]],
-      rawEnd = starts[t.map[1]] ?? body.length;
-    let end = rawEnd;
-    const tail = body.slice(start, end).match(/(?:\r\n|\n|\r)$/);
-    if (tail) end -= tail[0].length;
-    res.push({
-      t,
-      tokens: tokens.slice(i, j + 1),
-      start,
-      fullStart: fullStart ?? start,
-      pdfRules: [...new Set(options)],
-      end,
-      text: body.slice(start, end),
-    });
-    fullStart = undefined;
-    options = [];
-    i = j;
-  }
-  return res;
-}
+const parse = (body = doc.body) => documentParts(md, body);
 function updateDocumentLabel() {
   const label = typeof doc?.kind === "string" ? doc.kind : "";
   const text = $("#kind");
@@ -415,12 +389,8 @@ function outline() {
       if (event.target.closest("[data-order-grip]")) return;
       flush();
       selected = index;
-      if (mode === "source") {
-        source.focus();
-        source.setSelectionRange(parts[index].start, parts[index].end);
-        source.scrollTop =
-          source.scrollHeight *
-          (parts[index].start / Math.max(1, doc.body.length));
+      if (isSource()) {
+        sourcePane.select(index);
       } else if (mode === "pdf") showPdfPreview();
       else {
         host.children[index]?.scrollIntoView({ block: "start" });
@@ -494,6 +464,7 @@ function moveOrder(state, index, below, section) {
       ? headingSpan(parts, index)[1]
       : index + 1
     : index;
+  if (parts[0]?.t.type === "espd_title" && (!start || !boundary)) return;
   const next = reorderMarkdown(doc.body, parts, start, end, boundary);
   if (!next) return;
   setText(next.body);
@@ -543,6 +514,7 @@ function visibleBlock() {
   return index;
 }
 function insertionBlock() {
+  if (isSource()) return sourcePane.cursorBlock();
   const current = host.children[selected]?.getBoundingClientRect();
   const bounds = viewport.getBoundingClientRect();
   return current && current.bottom > bounds.top && current.top < bounds.bottom
@@ -692,6 +664,22 @@ function closeGraph(restore = true) {
     icons();
   }
 }
+const isSource = () => mode === "source" || mode === "latex";
+const sourcePane = sourceWorkspace({
+  source,
+  requestPdf,
+  current: () => ({ mode, body: doc?.body || "", id: doc?.id, parts }),
+  choose: (i) => {
+    selected = i;
+    highlight(i);
+  },
+  renderBlock: block,
+  paint: (root) => {
+    icons();
+    void paintMath(root);
+    void paintMermaid(root);
+  },
+});
 function render() {
   const scrollTop = viewport.scrollTop;
   closeGraph(false);
@@ -704,6 +692,7 @@ function render() {
     pdfViewer.hide();
     parts = [];
     host.replaceChildren();
+    sourcePane.show(false);
     source.value = "";
     $("#outline").replaceChildren();
     $("#wordcount").textContent = "";
@@ -722,18 +711,17 @@ function render() {
   $(".add-end").hidden = mode !== "edit";
   $("[data-action=insert]").disabled = mode === "read" || mode === "pdf";
   $(".controls").classList.toggle("pdf-mode", mode === "pdf");
-  host.hidden = mode === "source" || mode === "pdf";
-  source.hidden = mode !== "source";
+  $(".paper").classList.toggle(
+    "espd-document",
+    parts[0]?.t.type === "espd_title",
+  );
+  host.hidden = isSource() || mode === "pdf";
+  sourcePane.show(isSource());
   if (mode === "pdf") {
     host.replaceChildren();
     showPdfPreview();
-  } else if (mode === "source") {
+  } else if (isSource()) {
     pdfViewer.hide();
-    if (source.value !== doc.body) {
-      const top = source.scrollTop;
-      source.value = doc.body;
-      source.scrollTop = top;
-    }
     host.replaceChildren();
   } else {
     pdfViewer.hide();
@@ -784,6 +772,58 @@ function deleteBlockButton(index, label, className) {
 }
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
+  const notes = p.tokens.flatMap((token) =>
+    (token.children || []).filter((child) => child.type === "espd_note"),
+  );
+  if (notes.length) {
+    const list = document.createElement("aside");
+    list.className = "espd-notes";
+    for (const note of notes) {
+      const line = document.createElement("div");
+      line.textContent = note.meta.number + ") " + note.content;
+      list.append(line);
+    }
+    box.append(list);
+  }
+  const heading = p.t.meta?.espd;
+  if (heading?.appendixMark) {
+    const title = box.querySelector("h1");
+    if (title) {
+      const marker = document.createElement("div");
+      marker.className = "espd-appendix";
+      marker.textContent = heading.appendixMark;
+      title.before(marker);
+      title.textContent = heading.title;
+    }
+  }
+  const object = p.t.meta?.object;
+  if (object?.key) box.id = "equation-" + object.key;
+  if (
+    objectLabel(object) &&
+    !(object.kind === "equation" && /\\tag\s*\{/.test(p.t.content))
+  ) {
+    const caption = document.createElement("div");
+    caption.className = "espd-caption " + object.kind;
+    caption.textContent = objectLabel(object);
+    if (object.kind === "table") box.prepend(caption);
+    else box.append(caption);
+  }
+  if (p.t.meta?.espd?.contents && !parts.some((p) => p.t.type === "spec_toc")) {
+    const nav = document.createElement("nav");
+    nav.className = "document-toc";
+    for (const part of parts.filter(
+      (p) =>
+        p.t.meta?.espd &&
+        !/^(аннотация|содержание|оглавление)$/i.test(p.t.meta.espd.label),
+    )) {
+      const link = document.createElement("a");
+      link.href = "#" + encodeURIComponent(part.t.meta.anchor);
+      link.textContent = part.t.meta.espd.prefix + part.t.meta.espd.label;
+      link.style.display = "block";
+      nav.append(link);
+    }
+    box.append(nav);
+  }
   const editableMermaid = mode === "edit" && isMermaid(p.t);
   mermaidControls(box, {
     edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
@@ -797,7 +837,7 @@ function block(p, i, expanded = expandAll) {
     expanded,
     onExpand: updateExpandButton,
   });
-  if (mode === "edit") {
+  if (mode === "edit" && p.t.type !== "espd_title") {
     box.append(sortGrip("Перетащить блок", true));
   }
   return box;
@@ -940,11 +980,16 @@ function buildBlock(p, i, expanded) {
   box.onpointerdown = () => {
     selected = i;
   };
+  if (p.t.type === "espd_title") {
+    box.innerHTML = md.renderer.render(p.tokens, md.options, {});
+    if (mode === "edit") addCoverFields(box, i, p.t.meta);
+    return box;
+  }
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
       const edit = (initialNode) => {
-        if (mode === "read") return;
+        if (mode !== "edit") return;
         const top = blockTop(box);
         const openedWide = isExpanded(card);
         const position = diagramViewport(card.querySelector(".diagram-window"));
@@ -1006,7 +1051,7 @@ function buildBlock(p, i, expanded) {
       };
       box.openGraph = edit;
       const card = diagramView(g, {
-        edit: mode === "read" ? undefined : edit,
+        edit: mode === "edit" ? edit : undefined,
         expanded,
         onExpand: updateExpandButton,
         resize:
@@ -1123,6 +1168,57 @@ function buildBlock(p, i, expanded) {
     };
   }
   return box;
+}
+function addCoverFields(box, index, data) {
+  const details = document.createElement("details");
+  details.className = "espd-edit";
+  const summary = document.createElement("summary");
+  summary.textContent = "Реквизиты титула и листа утверждения";
+  const form = document.createElement("form");
+  form.onsubmit = (e) => e.preventDefault();
+  for (const [key, label] of Object.entries({
+    type: "Вид документа",
+    ...espdFields,
+  })) {
+    const wrapper = document.createElement("label");
+    wrapper.textContent = label;
+    const multi = ["agreed", "approved", "authors"].includes(key);
+    const input = document.createElement(
+      key === "type" ? "select" : multi ? "textarea" : "input",
+    );
+    if (key === "type")
+      for (const [id, [name]] of Object.entries(documentTypes))
+        input.add(new Option(name, id));
+    input.value = data[key] || "";
+    input.onfocus = () => {
+      flush();
+      input.dataset.group = "";
+    };
+    input.oninput = () => {
+      const p = parts[index];
+      if (p?.t.type !== "espd_title") return;
+      if (!input.dataset.group) {
+        snapshot();
+        input.dataset.group = "yes";
+      }
+      const next = { ...p.t.meta, [key]: input.value };
+      const nl = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
+      setText(
+        declaration(next).replaceAll("\n", nl) + doc.body.slice(p.end),
+        false,
+      );
+      parts = parse();
+      box.querySelector(".espd-cover").outerHTML = md.renderer.render(
+        parts[index].tokens,
+        md.options,
+        {},
+      );
+    };
+    wrapper.append(input);
+    form.append(wrapper);
+  }
+  details.append(summary, form);
+  box.append(details);
 }
 function imagePosition(index, expected) {
   const state = prepareBlockChange(index);
@@ -1606,12 +1702,17 @@ source.oninput = () => {
     snapshot();
     source.dataset.group = "yes";
   }
-  setText(source.value, false);
+  setText(sourcePane.read(), false);
   parts = parse();
+  $(".paper").classList.toggle(
+    "espd-document",
+    parts[0]?.t.type === "espd_title",
+  );
+  sourcePane.update();
   outline();
 };
 source.onkeydown = (event) => {
-  wrapTypedSelection(event);
+  if (mode === "source") wrapTypedSelection(event);
 };
 source.onbeforeinput = (event) => {
   if (
@@ -1623,32 +1724,21 @@ source.onbeforeinput = (event) => {
   historyStep(event.inputType === "historyRedo");
 };
 source.onkeyup = source.onclick = () => {
-  const i = parts.findLastIndex((p) => p.start <= source.selectionStart);
+  const i = sourcePane.cursorBlock();
+  sourcePane.reveal(i);
   selected = Math.max(0, i);
   highlight(i);
 };
 function setMode(next) {
   flush();
-  if (next === "source" && mode !== "source") {
-    const synchronized = materializeToc(doc.body, md);
-    if (synchronized !== doc.body) {
-      setText(synchronized, false);
-      parts = parse();
-    }
-  }
-  const offset =
-    mode === "source" ? source.selectionStart : parts[selected]?.start || 0;
+  if (isSource()) selected = sourcePane.cursorBlock();
   mode = next;
   outlineScrollPosition = undefined;
-  selected = Math.max(
-    0,
-    parts.findLastIndex((p) => p.start <= offset),
-  );
   render();
   if (next === "pdf") return;
-  if (next === "source") {
-    source.focus();
-    source.setSelectionRange(offset, offset);
+  if (isSource()) {
+    sourcePane.select(selected);
+    source.setSelectionRange(source.selectionStart, source.selectionStart);
   } else host.children[selected]?.scrollIntoView({ block: "nearest" });
 }
 function insertBlock(type, idx = insertionBlock(), content) {
@@ -1666,7 +1756,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
   }
   const pos =
       mode === "source"
-        ? source.selectionStart
+        ? sourcePane.bodyOffset(source.selectionStart)
         : (parts[idx]?.end ?? doc.body.length),
     before = doc.body.slice(0, pos),
     after = doc.body.slice(pos);
@@ -1689,7 +1779,10 @@ function insertBlock(type, idx = insertionBlock(), content) {
       type === "toc" &&
       parts.find((part) => part.start >= pos && part.t.type === "spec_toc");
     const caret = insertedToc ? insertedToc.end : pos + add.length;
-    source.setSelectionRange(caret, caret);
+    const offset = doc.body.slice(0, caret).replace(/\r\n?/g, "\n").length;
+    source.setSelectionRange(offset, offset);
+  } else if (mode === "latex") {
+    sourcePane.select(selected);
   } else {
     host.children[selected]?.scrollIntoView({ block: "nearest" });
     if (["paragraph", "heading", "code", "list", "math"].includes(type))
@@ -1819,8 +1912,9 @@ function download(name, body, type = "text/markdown;charset=utf-8") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-function create(name, body, kind) {
+function create(name, body, kind, style = {}) {
   const next = newDoc(name, body, kind);
+  next.style = style;
   docs.set(next.id, next);
   mode = "edit";
   switchDoc(next);
@@ -2004,6 +2098,21 @@ const templates = templateTools({
   create,
   nameOf,
   download,
+  applyProfile: (type) => {
+    const base = readProfile(doc.body);
+    const data = {
+      ...base?.data,
+      type,
+      program: base?.data.program || doc.name.replace(/\.md$/i, ""),
+      year: base?.data.year || String(new Date().getFullYear()),
+    };
+    create(
+      copyName(doc.name),
+      declaration(data) + (base ? doc.body.slice(base.end) : "\n\n" + doc.body),
+      documentTypes[type][0],
+      structuredClone(doc.style),
+    );
+  },
   current: () => doc,
   diagrams: (markdown) =>
     parse(markdown).filter(
@@ -2043,7 +2152,7 @@ function requestPdf(force = false) {
   if (!force && pdfCache?.key === key) return pdfCache.result;
   const data = structuredClone(doc);
   const blocks = parse(data.body);
-  const profile = pdfProfile;
+  const profile = readProfile(data.body) ? "a4" : pdfProfile;
   const result = import("./pdf-export.js").then(async ({ exportPdf }) => ({
     ...(await exportPdf(blocks, md, data, profile)),
     name: data.name.replace(/\.md$/i, "") + ".pdf",
@@ -2052,28 +2161,30 @@ function requestPdf(force = false) {
         (token) => token.type === "inline",
       )?.content;
       const label =
-        part.t.type === "spec_toc"
-          ? "Оглавление"
-          : part.t.type === "spec_bibliography"
-            ? "Список литературы"
-            : isProjectTree(part.t)
-              ? "Структура проекта"
-              : part.t.type === "table_open"
-                ? "Таблица"
-                : part.t.type === "math_block"
-                  ? "Формула"
-                  : part.t.type === "fence"
-                    ? isMermaid(part.t)
-                      ? "Mermaid"
-                      : part.t.info.trim() === "studio-diagram"
-                        ? "Блок-схема"
-                        : "Код"
-                    : readable?.startsWith("![")
-                      ? "Изображение"
-                      : (readable || part.text)
-                          .replace(/\s+/g, " ")
-                          .trim()
-                          .slice(0, 75);
+        part.t.type === "espd_title"
+          ? "Титульная часть"
+          : part.t.type === "spec_toc"
+            ? "Оглавление"
+            : part.t.type === "spec_bibliography"
+              ? "Список литературы"
+              : isProjectTree(part.t)
+                ? "Структура проекта"
+                : part.t.type === "table_open"
+                  ? "Таблица"
+                  : part.t.type === "math_block"
+                    ? "Формула"
+                    : part.t.type === "fence"
+                      ? isMermaid(part.t)
+                        ? "Mermaid"
+                        : part.t.info.trim() === "studio-diagram"
+                          ? "Блок-схема"
+                          : "Код"
+                      : readable?.startsWith("![")
+                        ? "Изображение"
+                        : (readable || part.text)
+                            .replace(/\s+/g, " ")
+                            .trim()
+                            .slice(0, 75);
       return {
         index,
         label: label || "Блок " + (index + 1),
@@ -2098,7 +2209,7 @@ function setPdfNumbering(enabled) {
 }
 const pdfViewer = pdfPreview($("#pdf-preview"), {
   profile(value, force) {
-    pdfProfile = value;
+    if (value !== "espd") pdfProfile = value;
     showPdfPreview(force);
   },
   download: savePdf,
@@ -2116,7 +2227,7 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
   },
   rules(index, rules) {
     const part = parts[index];
-    if (!part) return;
+    if (!part || part.t.type === "espd_title") return;
     const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
     selected = index;
     patch(part.fullStart, part.start, formatPdfRules(rules, newline));
@@ -2128,12 +2239,19 @@ function showPdfPreview(force = false) {
     void pdfViewer.show(
       requestPdf(force),
       {
-        profile: pdfProfile,
-        numbering: Boolean(doc.style?.pdfPageNumbers),
+        profile: readProfile(doc.body) ? "espd" : pdfProfile,
+        numbering: Boolean(readProfile(doc.body) || doc.style?.pdfPageNumbers),
       },
       selected,
       force,
     );
+}
+function downloadProject() {
+  download(
+    doc.name.replace(/\.md$/i, "") + ".speccraft",
+    encodeProject(doc),
+    "application/json",
+  );
 }
 function exportDialog() {
   const b = dialog(
@@ -2142,27 +2260,35 @@ function exportDialog() {
       option("pdf", "Скачать PDF", "file-down") +
       '<label>Профиль PDF <select name="pdfProfile"><option value="screen">PDF для экрана</option><option value="a4">Строго A4</option></select></label>' +
       '<label class="style-check"><input type="checkbox" name="pdfNumbers">Номера страниц</label>' +
+      option("project", "Скачать проект (.speccraft)", "archive") +
       option("md", "Скачать Markdown (.md)", "file-text") +
       option("print", "Печать", "printer") +
       '<p role="status" hidden></p>',
   );
   const profile = b.querySelector("[name=pdfProfile]");
-  profile.value = pdfProfile;
+  const gost = readProfile(doc.body);
+  if (gost) {
+    profile.add(new Option(standard, "espd"));
+    profile.disabled = true;
+  }
+  profile.value = gost ? "espd" : pdfProfile;
   profile.onchange = () => {
     pdfProfile = profile.value;
     showPdfPreview();
   };
   const numbers = b.querySelector("[name=pdfNumbers]");
-  numbers.checked = Boolean(doc.style?.pdfPageNumbers);
+  numbers.disabled = Boolean(gost);
+  numbers.checked = Boolean(gost || doc.style?.pdfPageNumbers);
   numbers.onchange = () => setPdfNumbering(numbers.checked);
   b.onclick = async (e) => {
     const target = e.target.closest("[data-id]");
     if (!target) return;
     const action = target.dataset.id;
-    if (action === "preview" || action === "md") {
+    if (["preview", "md", "project"].includes(action)) {
       modal.close();
       if (action === "preview") setMode("pdf");
-      else download(doc.name, materializeToc(doc.body, md));
+      else if (action === "project") downloadProject();
+      else download(doc.name, markdownCopy(materializeToc(doc.body, md)));
       return;
     }
     const status = b.querySelector("[role=status]");
@@ -2361,10 +2487,9 @@ function undo(forward) {
     from = forward ? s.forward : s.back,
     to = forward ? s.back : s.forward;
   if (!from.length) return;
-  const caret =
-    mode === "source"
-      ? [source.selectionStart, source.selectionEnd, source.selectionDirection]
-      : null;
+  const caret = isSource()
+    ? [source.selectionStart, source.selectionEnd, source.selectionDirection]
+    : null;
   to.push(doc.body);
   setText(from.pop(), false);
   render();
@@ -2384,7 +2509,7 @@ function historyStep(forward) {
 function jumpTo(target) {
   flush();
   if (modal.open) modal.close();
-  if (mode === "source") {
+  if (isSource()) {
     mode = "edit";
     render();
   }
@@ -2596,7 +2721,7 @@ function startLiveEditing(share, initial) {
         ".diagram-title strong",
       )?.textContent;
       if (graph) return "Схема · " + graph;
-      const index = mode === "source" ? selected : visibleBlock();
+      const index = isSource() ? selected : visibleBlock();
       return (
         specIndex(parts).headings.findLast((heading) => heading.index <= index)
           ?.label || "Редактирование документа"
@@ -2953,7 +3078,14 @@ document.addEventListener("click", (e) => {
 $("#file-input").onchange = async (e) => {
   for (const f of e.target.files) {
     try {
-      const text = await f.text();
+      const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+        await f.arrayBuffer(),
+      );
+      if (/\.speccraft$/i.test(f.name)) {
+        const project = decodeProject(text);
+        create(nameOf(project.name), project.body, project.kind, project.style);
+        continue;
+      }
       const diagram = /\.(mmd|mermaid)$/i.test(f.name);
       create(
         nameOf(diagram ? f.name.replace(/\.(mmd|mermaid)$/i, "") : f.name),
@@ -2993,7 +3125,8 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     flush();
     save();
-    download(doc.name, materializeToc(doc.body, md));
+    if (readProfile(doc.body)) downloadProject();
+    else download(doc.name, materializeToc(doc.body, md));
   }
   if (
     cmd &&

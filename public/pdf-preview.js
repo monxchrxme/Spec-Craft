@@ -507,6 +507,11 @@ export function pdfPreview(
     async show(pending, settings, block, force = false) {
       root.hidden = false;
       numberingToggle.checked = settings.numbering;
+      const gost = settings.profile === "espd";
+      if (gost && !profilePicker.querySelector('[value="espd"]'))
+        profilePicker.add(new Option("ГОСТ 19.106-78", "espd"));
+      if (!gost) profilePicker.querySelector('[value="espd"]')?.remove();
+      profilePicker.disabled = numberingToggle.disabled = gost;
       if (request === pending && !force) {
         if (sheets.length && layout.blocksOnPages.has(block))
           jump(layout.blocksOnPages.get(block)[0], block);

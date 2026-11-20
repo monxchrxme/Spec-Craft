@@ -1,3 +1,10 @@
+import { objectLabel } from "./espd.js";
+import {
+  frontMatter,
+  registrationTable,
+  pageMargins as espdMargins,
+  pageFurniture,
+} from "./espd-print.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
@@ -30,7 +37,7 @@ function fontFiles(name) {
   );
 }
 
-async function imageBlock(element, widthLimit, heightLimit) {
+async function imageBlock(element, widthLimit, heightLimit, gost) {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = new URL(element.getAttribute("src"), document.baseURI).href;
@@ -62,7 +69,7 @@ async function imageBlock(element, widthLimit, heightLimit) {
       margin: [0, 3, 0, 0],
     };
     return {
-      stack: [drawing, label],
+      stack: gost ? [label, drawing] : [drawing, label],
       // Overlong author-supplied captions remain readable as a text flow.
       unbreakable: captionHeight < heightLimit / 2,
       specMeasuredHeight: heightLimit,
@@ -154,8 +161,12 @@ async function markdownBlocks(html, settings) {
   const template = document.createElement("template");
   template.innerHTML = html;
   const { size, accent, gap, align, tabSize, note, pageSize } = settings;
-  const pageWidth = pageSize.width - margin * 2;
-  const pageHeight = pageSize.height - margin * 2;
+  const pageWidth =
+    pageSize.width -
+    (settings.gost ? espdMargins[0] + espdMargins[2] : margin * 2);
+  const pageHeight =
+    pageSize.height -
+    (settings.gost ? espdMargins[1] + espdMargins[3] : margin * 2);
 
   async function flow(
     parent,
@@ -176,7 +187,9 @@ async function markdownBlocks(html, settings) {
         return;
       }
       const tag = node.localName;
-      if (node.hasAttribute?.("data-tex")) {
+      if (node.hasAttribute?.("data-espd-note")) {
+        runs.push({ text: node.dataset.espdNote + ")", sup: true });
+      } else if (node.hasAttribute?.("data-tex")) {
         const formula = await pdfFormula(
           node,
           size,
@@ -197,7 +210,9 @@ async function markdownBlocks(html, settings) {
         stack.push(drawing.node);
       } else if (tag === "img") {
         flush();
-        stack.push(await imageBlock(node, widthLimit, heightLimit));
+        stack.push(
+          await imageBlock(node, widthLimit, heightLimit, settings.gost),
+        );
       } else if (/^(p|h[1-6]|ul|ol|table|blockquote|pre|hr)$/.test(tag)) {
         flush();
         stack.push(await block(node));
@@ -301,7 +316,7 @@ async function markdownBlocks(html, settings) {
             measured,
             bold: header,
             alignment: cell.style.textAlign || "left",
-            fillColor: header ? "#efedf7" : null,
+            fillColor: header ? (settings.gost ? "#eeeeee" : "#efedf7") : null,
           });
         }
         const rowHeight = Math.max(
@@ -544,8 +559,8 @@ function diagramBlock(raw, options) {
   const desiredScale = Math.min(1, 9 / smallest);
   const extra = 75 + Math.ceil((graph.title || "").length / 95) * 13;
   const fitted = Math.min(
-    (contentWidth * layout.width) / 100 / width,
-    (contentHeight - extra) / height,
+    ((options.contentWidth || contentWidth) * layout.width) / 100 / width,
+    ((options.contentHeight || contentHeight) - extra) / height,
     layout.height ? (layout.height * 0.75) / height : Infinity,
     1,
   );
@@ -572,6 +587,7 @@ function diagramBlock(raw, options) {
       alignment: layout.align,
       margin: [0, 3, 0, 0],
     });
+  if (graph.title && options.gost) stack.reverse();
   const node = { stack, unbreakable: true, margin: [0, 2, 0, 8] };
   return { node, pageSize };
 }
@@ -582,8 +598,8 @@ async function mermaidBlock(source, options) {
     const extra = 75;
     const fitted = Math.min(
       0.75,
-      (options.labelWidth || contentWidth) / width,
-      (contentHeight - extra) / height,
+      (options.labelWidth || options.contentWidth || contentWidth) / width,
+      ((options.contentHeight || contentHeight) - extra) / height,
     );
     const { scale, pageSize } = diagramSheet({
       ...options,
@@ -638,13 +654,30 @@ async function mermaidBlock(source, options) {
   }
 }
 
-export async function exportPdf(parts, md, doc, profile = "screen") {
+export async function exportPdf(
+  parts,
+  md,
+  doc,
+  profile = "screen",
+  pagination = { approval: 1, total: 0, pages: {}, pass: 0 },
+) {
   await import("./vendor/pdf/pdfmake.min.js");
-  const style = doc.style || {};
+  const gost = parts[0]?.t.type === "espd_title" ? parts[0].t.meta : null;
+  if (gost) profile = "a4";
+  const style = gost
+    ? {
+        font: "serif",
+        size: 16,
+        leading: 1.6,
+        align: "justify",
+        accent: "#191919",
+      }
+    : doc.style || {};
   const font = families[style.font] || "Sans";
   const size = (Number(style.size) || 16) * 0.75;
   const leading = (Number(style.leading) || 1.65) * 0.74;
   const settings = {
+    gost,
     index: specIndex(parts),
     size,
     gap: (Number(style.gap) || 12) * 0.75,
@@ -659,12 +692,24 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       return slug ? [[slug, "spec-" + heading.key]] : [];
     }),
   );
+  for (const p of parts) {
+    const key = p.t.meta?.object?.key;
+    if (key)
+      settings.headingDestinations.set("equation-" + key, "equation-" + key);
+  }
   const targets = new Map();
   for (const target of settings.index.targets) {
     if (!targets.has(target.index)) targets.set(target.index, []);
     targets.get(target.index).push(target);
   }
-  const sections = [];
+  const sections = gost ? frontMatter(gost, pagination) : [];
+  let observedApproval = 1;
+  const headingPages = {};
+  const notePages = {},
+    pageNotes = new Map(),
+    sectionReserves = { ...pagination.reserves };
+  const measureNote = tableMeasurer(fontFiles, font, 9, 1.1);
+
   let normal = [];
   const warnings = [];
   const blocksOnPages = new Map();
@@ -681,9 +726,12 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     normal = [];
   };
   for (const [i, part] of parts.entries()) {
+    if (part.t.type === "espd_title") continue;
+    const espdHeading = part.t.meta?.espd;
     const rules = part.pdfRules || [];
     const separate = rules.includes("separate-sheet");
-    const manualBreak = rules.includes("break-before");
+    const manualBreak =
+      rules.includes("break-before") || espdHeading?.level === 1;
     const note = (message) => {
       if (
         !warnings.some(
@@ -707,12 +755,31 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         : null;
     let blocks;
     if (diagram || mermaid) {
-      const options = { profile, separate, note };
+      const options = {
+        profile,
+        separate,
+        note,
+        gost,
+        contentWidth: gost && a4.width - espdMargins[0] - espdMargins[2],
+        contentHeight: gost && a4.height - espdMargins[1] - espdMargins[3] - 25,
+      };
       const rendered = mermaid
         ? await mermaidBlock(part.t.content, options)
         : diagramBlock(part.t.content, options);
       pageSize = rendered.pageSize || pageSize;
       blocks = [rendered.node];
+    } else if (part.t.meta?.changeRegister) {
+      const rows = [];
+      let row;
+      for (const token of part.tokens) {
+        if (token.type === "tr_open") row = [];
+        else if (token.type === "inline" && row) row.push(token.content);
+        else if (token.type === "tr_close") {
+          rows.push(row);
+          row = null;
+        }
+      }
+      blocks = [registrationTable(rows.slice(1))];
     } else {
       if (columns > 6 && profile === "a4")
         note("В таблице много столбцов для A4. Проверьте ширину и читаемость.");
@@ -730,13 +797,124 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
           note,
         },
       );
+      if (espdHeading && blocks[0]?.headlineLevel) {
+        const { title, prefix, level, contents, appendixMark } = espdHeading;
+        const heading = blocks[0];
+        if (appendixMark) {
+          heading.stack = [
+            { text: appendixMark, alignment: "right", margin: [0, 0, 0, size] },
+            { text: title.toLocaleUpperCase("ru") },
+          ];
+        } else {
+          for (const line of heading.stack) {
+            if (Array.isArray(line.text) && level === 1)
+              for (const run of line.text) {
+                if (typeof run.text === "string" && !run.sup)
+                  run.text = run.text.toLocaleUpperCase("ru");
+              }
+          }
+          const first = heading.stack.find((n) => Array.isArray(n.text));
+          if (first && prefix) first.text.unshift({ text: prefix });
+        }
+        heading.alignment = level === 1 ? "center" : "left";
+        heading.fontSize = size;
+        heading.margin = [0, level === 1 ? 0 : size * 4, 0, size * 3];
+        if (contents) {
+          blocks.push(
+            ...settings.index.headings
+              .filter(
+                (h) =>
+                  h.index !== i &&
+                  !/^(аннотация|содержание|оглавление)$/i.test(h.label),
+              )
+              .map((h) => ({
+                columns: [
+                  {
+                    width: "*",
+                    text: (parts[h.index].t.meta.espd?.prefix || "") + h.label,
+                  },
+                  {
+                    width: 34,
+                    text: String(pagination.pages[h.index] || "—"),
+                    alignment: "right",
+                  },
+                ],
+                linkToDestination: "spec-" + h.key,
+                margin: [(h.depth - 1) * 10, 0, 0, 3],
+                unbreakable: true,
+              })),
+          );
+        }
+      }
+      if (
+        gost &&
+        part.t.type === "spec_toc" &&
+        parts[i - 1]?.t.meta?.espd?.contents
+      )
+        continue;
       if (blocks[0]?.headlineLevel) {
         const target = selectedTargets.find((t) => t.row < 0);
         const first = blocks[0].stack.find((node) => node.text);
         if (first && target) first.id = "spec-" + target.key;
       }
     }
+    const notes = part.tokens.flatMap((t) =>
+      (t.children || []).filter((c) => c.type === "espd_note"),
+    );
+    for (const note of notes) {
+      const number = note.meta.number,
+        text = number + ") " + note.content;
+      if (columns) {
+        blocks.push({ text, fontSize: 9, margin: [0, 1, 0, 0] });
+      } else {
+        const { height } = await measureNote(
+          [{ text }],
+          a4.width - espdMargins[0] - espdMargins[2] - 8,
+          false,
+          Infinity,
+        );
+        pageNotes.set(number, { number, text, height: height + 3, index: i });
+      }
+    }
     if (!blocks.length) continue;
+    const object = part.t.meta?.object,
+      label = objectLabel(object);
+    if (label) {
+      if (object.kind === "table" && blocks[0].table) {
+        const table = blocks[0].table;
+        const row = [
+          {
+            text: label,
+            colSpan: table.widths.length,
+            border: [false, false, false, false],
+            alignment: "right",
+          },
+        ];
+        while (row.length < table.widths.length) row.push({});
+        table.body.unshift(row);
+        table.headerRows += 1;
+      } else if (object.kind === "figure")
+        blocks = [
+          {
+            stack: [
+              ...blocks,
+              { text: label, alignment: "center", fontSize: 10 },
+            ],
+            unbreakable: true,
+          },
+        ];
+      else if (object.kind === "equation" && !/\\tag\s*\{/.test(part.t.content))
+        blocks = [
+          {
+            columns: [
+              { width: "*", stack: blocks },
+              { width: 34, text: label, alignment: "right" },
+            ],
+            unbreakable: true,
+          },
+        ];
+    }
+    if (object?.key) blocks[0].id = "equation-" + object.key;
     const heading = Boolean(blocks[0].headlineLevel);
     const unit = {
       id: "spec-pdf-block-" + i,
@@ -768,6 +946,18 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     }
   }
   flush();
+  const sectionOf = new Map();
+  sections.forEach((section, k) => {
+    for (const unit of section.section) {
+      if (unit.id?.startsWith("spec-pdf-block-"))
+        sectionOf.set(Number(unit.id.slice("spec-pdf-block-".length)), k);
+    }
+    if (gost)
+      section.pageMargins = [
+        ...espdMargins.slice(0, 3),
+        espdMargins[3] + (sectionReserves[k] || 0),
+      ];
+  });
   const nextBlock = new Map();
   for (const section of sections) {
     const units = section.section;
@@ -799,10 +989,41 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       ...pageSize,
       marginLeft: pageMargins.left,
     }));
+    if (pageNotes.size)
+      pages.forEach((page, i) => {
+        const found = new Set();
+        for (const item of page.items)
+          for (const run of item.item?.inlines || []) {
+            if (!run.sup) continue;
+            const number = Number.parseInt(run.text, 10);
+            if (pageNotes.has(number)) found.add(number);
+          }
+        if (!found.size) return;
+        const notes = [...found].map((n) => pageNotes.get(n));
+        notePages[i + 1] = notes.map((n) => n.text);
+        const k = sectionOf.get(notes[0].index);
+        const reserve = 12 + notes.reduce((h, n) => h + n.height, 0);
+        if (reserve > a4.height - espdMargins[1] - espdMargins[3] - 60)
+          throw Error(
+            "Сноски занимают весь лист. Перенесите длинное пояснение в приложение.",
+          );
+        sectionReserves[k] = Math.max(sectionReserves[k] || 0, reserve);
+      });
     for (const node of nodes) {
+      if (gost && node.id === "espd-title" && node.positions.length) {
+        const page = node.positions[0].pageNumber;
+        observedApproval = page - 1;
+        blocksOnPages.set(
+          0,
+          Array.from({ length: page }, (_, i) => i + 1),
+        );
+        locations.set(page, [{ index: 0, top: espdMargins[1] }]);
+      }
       if (!node.id?.startsWith("spec-pdf-block-") || !node.positions.length)
         continue;
       const index = Number(node.id.slice("spec-pdf-block-".length));
+      if (gost && parts[index]?.t.meta?.espd)
+        headingPages[index] = node.positions[0].pageNumber - observedApproval;
       blocksOnPages.set(index, [
         ...new Set(node.positions.map((position) => position.pageNumber)),
       ]);
@@ -833,7 +1054,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
       pageSize: "A4",
       pageOrientation: "portrait",
-      pageMargins: margin,
+      pageMargins: gost ? espdMargins : margin,
       footer: style.pdfPageNumbers
         ? (page) => ({
             text: String(page),
@@ -843,6 +1064,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
             color: "#585363",
           })
         : null,
+      ...(gost ? pageFurniture(gost, pagination) : {}),
       defaultStyle: {
         font,
         fontSize: size,
@@ -853,6 +1075,26 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       pageBreakBefore,
     })
     .getBlob();
+  if (
+    gost &&
+    (pageSizes.length !== pagination.total ||
+      observedApproval !== pagination.approval ||
+      JSON.stringify(headingPages) !== JSON.stringify(pagination.pages) ||
+      JSON.stringify(notePages) !== JSON.stringify(pagination.notes || {}) ||
+      JSON.stringify(sectionReserves) !==
+        JSON.stringify(pagination.reserves || {}))
+  ) {
+    if (pagination.pass >= 5)
+      throw Error("Не удалось согласовать номера страниц содержания.");
+    return exportPdf(parts, md, doc, profile, {
+      total: pageSizes.length,
+      approval: observedApproval,
+      pages: headingPages,
+      notes: notePages,
+      reserves: sectionReserves,
+      pass: pagination.pass + 1,
+    });
+  }
   return {
     blob,
     warnings,

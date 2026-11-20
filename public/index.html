@@ -201,6 +201,8 @@
                 <i data-lucide="square-pen"></i>Редактор</button
               ><button data-mode="source">
                 <i data-lucide="code-xml"></i>Markdown</button
+              ><button data-mode="latex">
+                <i data-lucide="sigma"></i>LaTeX</button
               ><button data-mode="read"><i data-lucide="eye"></i>Чтение</button
               ><button
                 data-mode="pdf"
@@ -389,13 +391,38 @@
               </button>
             </div>
             <div id="blocks"></div>
-            <textarea
-              hidden
-              id="source"
-              aria-label="Исходный Markdown"
-              spellcheck="false"
-            ></textarea
-            ><button class="add-end" data-action="append">
+            <section id="source-workspace" hidden>
+              <div class="source-controls">
+                <label
+                  >Предпросмотр
+                  <select id="source-view">
+                    <option value="document">Документ</option>
+                    <option value="pdf">Листы PDF</option>
+                    <option value="off">Скрыт</option>
+                  </select></label
+                >
+                <label
+                  ><input type="checkbox" id="source-sync" checked /> Следовать
+                  за текстом</label
+                >
+              </div>
+              <div class="source-columns">
+                <textarea
+                  id="source"
+                  aria-label="Исходный Markdown"
+                  spellcheck="false"
+                ></textarea>
+                <div
+                  role="separator"
+                  tabindex="0"
+                  aria-label="Ширина исходника"
+                  aria-orientation="vertical"
+                  id="source-divider"
+                ></div>
+                <section id="source-preview" aria-label="Результат"></section>
+              </div>
+            </section>
+            <button class="add-end" data-action="append">
               <i data-lucide="plus"></i>Абзац
             </button>
           </article>
@@ -430,7 +457,7 @@
     <input
       id="file-input"
       type="file"
-      accept=".md,.markdown,.txt,.mmd,.mermaid,text/markdown"
+      accept=".speccraft,.md,.markdown,.txt,.mmd,.mermaid,text/markdown"
       hidden
       multiple
     />
