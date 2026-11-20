@@ -93,7 +93,7 @@ test("formula scales and zero spacing survive template import and default indepe
     formulaSettings({ formulaInlineSize: -5, formulaSpaceAfter: 0 }),
     {
       formulaInlineSize: 100,
-      formulaDisplaySize: 125,
+      formulaDisplaySize: 115,
       formulaSpaceBefore: 12,
       formulaSpaceAfter: 0,
     },

@@ -35,7 +35,7 @@ const typography = [
 ];
 const formulaFields = [
   ["formulaInlineSize", "Размер в строке, %", 100, 50, 250],
-  ["formulaDisplaySize", "Размер отдельной формулы, %", 125, 50, 250],
+  ["formulaDisplaySize", "Размер отдельной формулы, %", 115, 50, 250],
   ["formulaSpaceBefore", "Интервал перед отдельной формулой, px", 12, 0, 64],
   ["formulaSpaceAfter", "Интервал после отдельной формулы, px", 12, 0, 64],
 ];

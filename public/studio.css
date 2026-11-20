@@ -1853,7 +1853,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   height: auto;
 }
 .math-display {
-  font-size: var(--formula-display-size, 125%);
+  font-size: var(--formula-display-size, 115%);
   overflow: auto;
   padding: var(--formula-space-before, 12px) 0 var(--formula-space-after, 12px);
   text-align: center;
