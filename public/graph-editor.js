@@ -23,12 +23,13 @@ export function graphEditor(
   onDone,
   initialNode,
   trace,
+  { expanded = false, zoom: initialZoom } = {},
 ) {
   let graph = normalize(raw),
     node = null,
     link = null,
     connecting = false,
-    zoom = 0.9,
+    zoom = initialZoom ? Math.max(0.05, Math.min(2.5, initialZoom)) : 0.9,
     snap = false,
     drag = null,
     activeSegment = null,
@@ -43,14 +44,18 @@ export function graphEditor(
     future = [];
   let layoutPreview = null;
   panel.className = "diagram-card inline-graph";
+  panel.classList.toggle("diagram-expanded", expanded);
   panel.innerHTML = `
     <header class="diagram-title">
-      <strong></strong><span class="spacer"></span><button data-cmd="save">Готово</button>
+      <strong></strong><span class="spacer"></span>
+      <button type="button" data-view-expand><i data-lucide="maximize-2" aria-hidden="true"></i><span></span></button>
+      <button data-cmd="save">Готово</button>
     </header>
     <div class="graph-tools" role="group" aria-label="Инструменты схемы">
       <select aria-label="Фигура"></select>
       <button data-cmd="add">+ Фигура</button>
       <button data-cmd="multi" aria-pressed="false">Выделение</button>
+      <button data-cmd="pin" aria-pressed="false" aria-label="Закрепить позиции" title="Закрепить позиции для авторасстановки" disabled><i data-lucide="pin" aria-hidden="true"></i></button>
       <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
@@ -122,6 +127,15 @@ export function graphEditor(
     activeModule = moduleId;
     selectedEdges.clear();
     activeSegment = null;
+  }
+  function togglePinned() {
+    const nodes = graph.nodes.filter(({ id }) => selected.has(id));
+    if (!nodes.length) return;
+    const pinned = !nodes.some((node) => node.pinned);
+    checkpoint();
+    for (const node of nodes)
+      if (Boolean(node.pinned) !== pinned) node.pinned = pinned;
+    refresh();
   }
   function selectEdge(id, additive = false) {
     const ids = additive ? new Set(selectedEdges) : new Set();
@@ -211,6 +225,18 @@ export function graphEditor(
     panel.querySelector("output").textContent = Math.round(zoom * 100) + "%";
     command("undo").disabled = !!layoutPreview || !history.length;
     command("redo").disabled = !!layoutPreview || !future.length;
+    const pin = command("pin");
+    const pinned = graph.nodes.filter(
+      (node) => selected.has(node.id) && node.pinned,
+    ).length;
+    const pinLabel = pinned ? "Открепить позиции" : "Закрепить позиции";
+    pin.disabled = !!layoutPreview || !selected.size;
+    pin.title = pinLabel + " выбранных фигур";
+    pin.setAttribute("aria-label", pinLabel);
+    pin.setAttribute(
+      "aria-pressed",
+      pinned && pinned < selected.size ? "mixed" : String(!!pinned),
+    );
     panel
       .querySelector("[data-cmd=connect]")
       .setAttribute("aria-pressed", connecting);
@@ -496,11 +522,7 @@ export function graphEditor(
     } else if (node) {
       action(
         current().pinned ? "Открепить позицию" : "Закрепить позицию",
-        () => {
-          checkpoint();
-          current().pinned = !current().pinned;
-          refresh();
-        },
+        togglePinned,
       );
       field("Подпись", "label", "textarea", "");
       field("Форма", "shape", "text", "process", shapes);
@@ -946,6 +968,10 @@ export function graphEditor(
       );
       return;
     }
+    if (cmd === "pin") {
+      togglePinned();
+      return;
+    }
     if (cmd === "save") {
       publish();
       onDone();
@@ -1067,7 +1093,8 @@ export function graphEditor(
   };
   grip.onpointermove = (e) => {
     if (!frameDrag) return;
-    const dx = e.clientX - frameDrag.x,
+    const expanded = panel.classList.contains("diagram-expanded");
+    const dx = expanded ? 0 : e.clientX - frameDrag.x,
       dy = e.clientY - frameDrag.y;
     if (!frameDrag.started && Math.abs(dx) + Math.abs(dy) < 4) return;
     if (!frameDrag.started) {
@@ -1075,16 +1102,17 @@ export function graphEditor(
       frameDrag.started = true;
     }
     const layout = (graph.layout ??= {});
-    layout.width = Math.max(
-      25,
-      Math.min(
-        100,
-        Math.round(
-          ((frameDrag.width + dx * frameDrag.multiplier) * 100) /
-            frameDrag.available,
+    if (!expanded)
+      layout.width = Math.max(
+        25,
+        Math.min(
+          100,
+          Math.round(
+            ((frameDrag.width + dx * frameDrag.multiplier) * 100) /
+              frameDrag.available,
+          ),
         ),
-      ),
-    );
+      );
     layout.height = Math.max(
       150,
       Math.min(1400, Math.round(frameDrag.height + dy)),

@@ -327,27 +327,36 @@
               ></select>
               <span class="pdf-block-location" data-pdf="placement"></span>
               <button type="button" data-pdf="edit">К блоку в редакторе</button>
-              <details class="pdf-rules-menu" data-pdf="rules">
-                <summary>Размещение блока</summary>
-                <div class="pdf-rule-fields">
-                  <label>
-                    Начало блока
-                    <select data-pdf="placement-rule" aria-label="Начало блока">
-                      <option value="auto">Автоматически</option>
-                      <option value="break-before">С новой страницы</option>
-                      <option value="separate-sheet">На отдельном листе</option>
-                    </select>
-                  </label>
-                  <p data-pdf="placement-help"></p>
-                  <label class="pdf-keep-next">
-                    <input type="checkbox" data-pdf="keep-next" />Вместе со
-                    следующим блоком
-                  </label>
-                  <button type="button" data-pdf="clear" hidden>
-                    Вернуть автоматическое размещение
-                  </button>
-                </div>
-              </details>
+              <div
+                class="pdf-rule-fields"
+                role="group"
+                aria-label="Размещение блока"
+              >
+                <label>
+                  Размещение блока
+                  <select
+                    data-pdf="placement-rule"
+                    aria-label="Начало блока"
+                    aria-describedby="pdf-placement-help"
+                  >
+                    <option value="auto">Автоматически</option>
+                    <option value="break-before">С новой страницы</option>
+                    <option value="separate-sheet">На отдельном листе</option>
+                  </select>
+                </label>
+                <label class="pdf-keep-next">
+                  <input type="checkbox" data-pdf="keep-next" />Вместе со
+                  следующим блоком
+                </label>
+                <button type="button" data-pdf="clear" hidden>
+                  Вернуть автоматическое размещение
+                </button>
+              </div>
+              <p
+                class="pdf-placement-help"
+                id="pdf-placement-help"
+                data-pdf="placement-help"
+              ></p>
             </div>
           </section>
           <article class="paper">

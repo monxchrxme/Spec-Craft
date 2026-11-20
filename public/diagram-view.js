@@ -3,6 +3,37 @@
 import { draw, frameLayout, styleFrame } from "./graph.js";
 import { addHeightHandle, setDiagramHeight } from "./diagram-height.js";
 
+function viewportGeometry(frame) {
+  const svg = frame?.querySelector("svg");
+  if (!svg) return null;
+  const graphic = svg.getBoundingClientRect();
+  const surface = frame.getBoundingClientRect();
+  const view = svg.viewBox.baseVal;
+  const zoom = graphic.width / view.width;
+  if (!(zoom > 0)) return null;
+  return {
+    zoom,
+    view,
+    offsetX: surface.left + frame.clientWidth / 2 - graphic.left,
+    offsetY: surface.top + frame.clientHeight / 2 - graphic.top,
+  };
+}
+
+export function diagramViewport(frame) {
+  const geometry = viewportGeometry(frame);
+  if (!geometry) return null;
+  const { zoom, view, offsetX, offsetY } = geometry;
+  return { zoom, x: view.x + offsetX / zoom, y: view.y + offsetY / zoom };
+}
+
+export function restoreDiagramViewport(frame, position) {
+  const geometry = position && viewportGeometry(frame);
+  if (!geometry) return;
+  const { zoom, view, offsetX, offsetY } = geometry;
+  frame.scrollLeft += (position.x - view.x) * zoom - offsetX;
+  frame.scrollTop += (position.y - view.y) * zoom - offsetY;
+}
+
 export function diagramView(
   graph,
   { edit, expanded = false, onExpand, resize } = {},

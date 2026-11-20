@@ -63,7 +63,6 @@ export function pdfPreview(
   const blockPicker = by("block");
   const warnings = by("warnings");
   const placementRule = by("placement-rule");
-  const rulesMenu = by("rules");
   const keepNext = by("keep-next");
   const profilePicker = by("profile");
   const numberingToggle = by("numbering");
@@ -160,9 +159,7 @@ export function pdfPreview(
       placementRule.value === "auto" && layout.automaticSheets.has(index)
         ? "PDF-профиль вынес этот широкий блок на отдельный лист."
         : placementHelp[placementRule.value];
-    by("placement-help").textContent = description
-      ? description + ". " + help
-      : "";
+    by("placement-help").textContent = description ? help : "";
     markSelection();
   }
   function updateThumbnails(previous) {
@@ -490,20 +487,9 @@ export function pdfPreview(
     rules(selected, next);
   };
   placementRule.onchange = keepNext.onchange = saveRule;
-  root.addEventListener("pointerdown", (event) => {
-    if (!rulesMenu.contains(event.target) && event.target !== blockPicker)
-      rulesMenu.open = false;
-  });
-  root.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && rulesMenu.open) {
-      rulesMenu.open = false;
-      rulesMenu.querySelector("summary").focus();
-    }
-  });
   return {
     hide() {
       if (!root.hidden) stop();
-      rulesMenu.open = false;
       root.hidden = true;
     },
     async show(pending, settings, block, force = false) {

@@ -370,6 +370,9 @@ main {
   overflow: auto;
   padding: 30px clamp(16px, 3.8vw, 68px) 45px;
 }
+#scroll[data-graph-transition] {
+  overflow-anchor: none;
+}
 .paper {
   --paper-inline-padding: clamp(24px, 4.4vw, 72px);
   max-width: 1000px;
@@ -748,48 +751,34 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   border-bottom: 1px solid var(--line);
 }
 .pdf-block-controls {
-  position: relative;
   border-top: 1px solid var(--line);
-  z-index: 1;
+  column-gap: 10px;
 }
-.pdf-rules-menu summary {
-  cursor: pointer;
-  font-size: 13px;
-  padding: 6px;
-}
-.pdf-rules-menu > div {
-  position: absolute;
-  inset-inline-end: 8px;
-  bottom: calc(100% + 4px);
-  width: min(280px, calc(100% - 16px));
-  max-height: min(40dvh, 220px);
-  overflow: auto;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: white;
-  box-shadow: 0 4px 16px #25273524;
-}
-.pdf-rules-menu button {
-  width: 100%;
-  justify-content: flex-start;
-  text-align: left;
-}
+.pdf-rule-fields,
 .pdf-rule-fields label {
-  display: grid;
-  gap: 5px;
-  padding: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
   font-size: 13px;
 }
-.pdf-rule-fields p {
-  margin: 4px 5px;
+.pdf-rule-fields {
+  column-gap: 12px;
+}
+.pdf-rule-fields button {
+  color: var(--accent);
+}
+.pdf-placement-help {
+  flex-basis: 100%;
+  min-height: 1.4em;
+  margin: 0;
   font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
 }
-.pdf-rule-fields .pdf-keep-next {
-  display: flex;
-  align-items: center;
+.pdf-keep-next input {
+  margin: 0;
 }
 .pdf-block-location {
   color: var(--muted);
@@ -817,7 +806,7 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   background: white;
   font-size: 13px;
 }
-.pdf-block-controls select {
+.pdf-block-controls [data-pdf="block"] {
   width: min(220px, 100%);
 }
 .pdf-thumbnails button[aria-current="page"] {
@@ -918,6 +907,9 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   .pdf-block-controls {
     padding: 5px;
     gap: 3px;
+  }
+  .pdf-rule-fields {
+    flex-basis: 100%;
   }
   .pdf-block-controls button,
   .pdf-controls button {
@@ -1078,6 +1070,12 @@ select {
 .graph-tools button[aria-pressed="true"] {
   background: var(--lavender);
   color: var(--accent);
+}
+.graph-tools button[aria-pressed="mixed"] {
+  background: var(--lavender);
+  color: var(--accent);
+  outline: 1px dashed currentColor;
+  outline-offset: -2px;
 }
 .graph-stage {
   overflow: auto;
@@ -1452,14 +1450,27 @@ select {
 .diagram-expanded .diagram-window {
   height: var(--view-height);
 }
+.inline-graph.diagram-expanded .graph-placement {
+  width: 100% !important;
+  margin-inline: 0 !important;
+}
+.inline-graph.diagram-expanded .graph-stage {
+  min-height: 150px;
+}
+.inline-graph.diagram-expanded .graph-placement.auto-frame .graph-stage {
+  height: var(--view-height);
+}
+.inline-graph.diagram-expanded .frame-grip {
+  cursor: ns-resize;
+}
 .paper:has(.diagram-expanded) {
   max-width: none;
   --paper-inline-padding: 16px;
 }
-body:has(.inline-graph) #scroll {
+#scroll:has(.diagram-expanded, .inline-graph) {
   padding-inline: clamp(8px, 1.4vw, 26px);
 }
-body:has(.inline-graph) .paper {
+body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   --paper-inline-padding: clamp(12px, 2vw, 32px);
 }
 @media (min-width: 761px) and (max-width: 1130px) {

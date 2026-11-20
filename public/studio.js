@@ -30,7 +30,11 @@ import { participantName, presencePanel, presenceSession } from "./presence.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
-import { diagramView } from "./diagram-view.js";
+import {
+  diagramView,
+  diagramViewport,
+  restoreDiagramViewport,
+} from "./diagram-view.js";
 import {
   dragOrder,
   headingSpan,
@@ -592,6 +596,7 @@ function styles() {
 }
 let inlineGraph = null;
 let inlineBibliography = null;
+let graphTransition = 0;
 const diagramCards = () => [
   ...host.querySelectorAll(".diagram-card:not(.inline-graph)"),
 ];
@@ -601,7 +606,7 @@ function updateExpandButton() {
   const cards = diagramCards();
   const allExpanded =
     cards.every(isExpanded) && (!inlineGraph || inlineGraph.expanded);
-  button.hidden = !cards.length;
+  button.hidden = !cards.length && !inlineGraph;
   button.lastChild.textContent = allExpanded
     ? "Свернуть все схемы"
     : "Развернуть все схемы";
@@ -611,8 +616,12 @@ function toggleAllDiagrams() {
   expandAll =
     cards.some((card) => !isExpanded(card)) ||
     (inlineGraph !== null && !inlineGraph.expanded);
-  cards.forEach((card) => card.setExpanded(expandAll));
-  if (inlineGraph) inlineGraph.expanded = expandAll;
+  if (inlineGraph) {
+    keepGraphPosition(inlineGraph, () => {
+      cards.forEach((card) => card.setExpanded(expandAll));
+      setGraphExpanded(inlineGraph, expandAll);
+    });
+  } else cards.forEach((card) => card.setExpanded(expandAll));
   updateExpandButton();
 }
 const blockTop = (box) =>
@@ -621,11 +630,45 @@ function restoreBlockTop(box, top) {
   const delta = blockTop(box) - top;
   if (Math.abs(delta) > 0.5) viewport.scrollTop += delta;
 }
+function suspendGraphScrollAnchoring() {
+  const current = ++graphTransition;
+  viewport.dataset.graphTransition = "";
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (current === graphTransition) delete viewport.dataset.graphTransition;
+    }),
+  );
+}
+function setGraphExpanded(session, value) {
+  session.expanded = value;
+  session.panel.classList.toggle("diagram-expanded", value);
+  const button = session.panel.querySelector("[data-view-expand]");
+  button.lastElementChild.textContent = value ? "Свернуть" : "Развернуть";
+  button.setAttribute("aria-expanded", String(value));
+  session.panel.querySelector(".frame-grip").title = value
+    ? "Потяните для изменения высоты"
+    : "Потяните для изменения ширины и высоты";
+}
+function keepGraphPosition(session, change) {
+  const box = session.panel.parentElement;
+  const stage = session.panel.querySelector(".graph-stage");
+  const top = blockTop(box);
+  const position = diagramViewport(stage);
+  suspendGraphScrollAnchoring();
+  change();
+  restoreDiagramViewport(stage, position);
+  restoreBlockTop(box, top);
+}
 function closeGraph(restore = true) {
   if (!inlineGraph) return;
   const session = inlineGraph;
   const box = session.panel.parentElement;
   const top = restore && box?.isConnected ? blockTop(box) : null;
+  const position =
+    top === null
+      ? null
+      : diagramViewport(session.panel.querySelector(".graph-stage"));
+  if (top !== null) suspendGraphScrollAnchoring();
   session.editor?.publish();
   inlineGraph = null;
   const dock = $("#graph-dock");
@@ -639,6 +682,10 @@ function closeGraph(restore = true) {
     if (p) {
       const restored = block(p, session.index, session.expanded);
       box.replaceWith(restored);
+      restoreDiagramViewport(
+        restored.querySelector(".diagram-window"),
+        position,
+      );
       updateExpandButton();
       restoreBlockTop(restored, top);
     }
@@ -900,6 +947,8 @@ function buildBlock(p, i, expanded) {
         if (mode === "read") return;
         const top = blockTop(box);
         const openedWide = isExpanded(card);
+        const position = diagramViewport(card.querySelector(".diagram-window"));
+        suspendGraphScrollAnchoring();
         flush();
         if (modal.open) modal.close();
         const target = host.children[i],
@@ -934,13 +983,26 @@ function buildBlock(p, i, expanded) {
               else panels.links(id);
             },
           },
+          { expanded: openedWide, zoom: position?.zoom },
         );
+        setGraphExpanded(session, openedWide);
+        panel.querySelector("[data-view-expand]").onclick = () => {
+          keepGraphPosition(session, () =>
+            setGraphExpanded(session, !session.expanded),
+          );
+          updateExpandButton();
+        };
         panel
           .querySelector("header")
           .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
         icons();
         updateExpandButton();
-        if (typeof initialNode !== "string") restoreBlockTop(target, top);
+        if (typeof initialNode !== "string") {
+          const stage = panel.querySelector(".graph-stage");
+          stage.focus({ preventScroll: true });
+          restoreDiagramViewport(stage, position);
+          restoreBlockTop(target, top);
+        }
       };
       box.openGraph = edit;
       const card = diagramView(g, {
