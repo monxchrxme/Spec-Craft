@@ -109,6 +109,12 @@ button.primary:hover:enabled {
 .rail button:hover:enabled {
   background: #49465f;
 }
+.rail .topbar-toggle {
+  display: none;
+}
+.hide-side .rail .topbar-toggle {
+  display: inline-flex;
+}
 .brand-icon {
   width: 30px;
   height: 31px;
@@ -158,6 +164,12 @@ button.primary:hover:enabled {
   letter-spacing: 0.2px;
   color: var(--muted);
   margin-top: 5px;
+}
+.sidebar > .topbar-toggle {
+  margin: 0 12px;
+  justify-content: flex-start;
+  color: var(--muted);
+  text-align: left;
 }
 .sidebar section {
   margin: 12px 12px 5px;
@@ -231,6 +243,9 @@ main {
   flex-direction: column;
   background: var(--canvas);
 }
+#workspace-toolbar {
+  flex: none;
+}
 .topbar,
 .controls {
   display: flex;
@@ -289,7 +304,8 @@ main {
   border: 1px solid var(--line);
   margin-left: 8px;
 }
-.mobile-menu {
+.mobile-menu,
+.compact-mobile-header {
   display: none;
 }
 #scroll {
@@ -813,6 +829,20 @@ select {
   }
   .mobile-menu {
     display: inline-flex;
+  }
+  #workspace:has(#workspace-toolbar[hidden]) {
+    --compact-header-height: 36px;
+  }
+  #workspace:has(#workspace-toolbar[hidden]) .sidebar {
+    top: var(--compact-header-height);
+  }
+  #workspace-toolbar[hidden] + .compact-mobile-header {
+    display: flex;
+    flex: 0 0 var(--compact-header-height);
+    align-items: center;
+    padding-inline: 8px;
+    border-bottom: 1px solid var(--line);
+    background: white;
   }
   .crumb,
   .slash {

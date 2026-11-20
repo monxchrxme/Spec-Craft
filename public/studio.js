@@ -37,7 +37,8 @@ const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
   source = $("#source"),
-  viewport = $("#scroll");
+  viewport = $("#scroll"),
+  toolbar = $("#workspace-toolbar");
 const md = window
   .markdownit({
     html: false,
@@ -52,6 +53,8 @@ const md = window
   .use(imageSizes);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
+  toolbarKey = "buro:topbar-collapsed",
+  mobileLayout = matchMedia("(max-width: 760px)"),
   icons = () => window.lucide?.createIcons();
 for (const [id, item] of Object.entries(highlightColors))
   document.documentElement.style.setProperty("--marker-" + id, item.color);
@@ -2271,6 +2274,42 @@ function transferDialog() {
     event.target.value = "";
   };
 }
+function setToolbarCollapsed(collapsed) {
+  const scrollTop = viewport.scrollTop;
+  toolbar.hidden = collapsed;
+  const label = collapsed ? "Показать верхнюю панель" : "Скрыть верхнюю панель";
+  for (const button of document.querySelectorAll(
+    '[data-action="toggle-topbar"]',
+  )) {
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.firstElementChild.outerHTML = icon(
+      collapsed ? "panel-top-open" : "panel-top-close",
+    );
+    const text = button.querySelector("span");
+    if (text) text.textContent = label;
+  }
+  icons();
+  viewport.scrollTop = scrollTop;
+}
+function toggleToolbar() {
+  const collapsed = !toolbar.hidden;
+  setToolbarCollapsed(collapsed);
+  if (mobileLayout.matches) {
+    document.body.classList.remove("show-side");
+    $(
+      collapsed
+        ? ".compact-mobile-header .mobile-menu"
+        : ".topbar .mobile-menu",
+    ).focus({ preventScroll: true });
+  }
+  try {
+    localStorage.setItem(toolbarKey, String(collapsed));
+  } catch {
+    // The current view still works when browser storage is unavailable.
+  }
+}
 const actions = {
   "collaboration-people": toggleLivePeople,
   share: sharingDialog,
@@ -2288,9 +2327,10 @@ const actions = {
     panels.links(h?.id || h?.label);
   },
   versions: () => panels.versions(),
+  "toggle-topbar": toggleToolbar,
   files: () =>
     document.body.classList.toggle(
-      matchMedia("(max-width:760px)").matches ? "show-side" : "hide-side",
+      mobileLayout.matches ? "show-side" : "hide-side",
     ),
   open: () => $("#file-input").click(),
   new: () => templates.createFrom(),
@@ -2435,6 +2475,11 @@ document.addEventListener("visibilitychange", () => {
 });
 nav();
 render();
+try {
+  if (localStorage.getItem(toolbarKey) === "true") setToolbarCollapsed(true);
+} catch {
+  // Leave the toolbar visible if browser storage is unavailable.
+}
 save();
 if (!loaded) notice("Не удалось восстановить часть локальных данных");
 
