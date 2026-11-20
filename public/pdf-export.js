@@ -1,3 +1,4 @@
+import { formulaSvg } from "./math.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 
@@ -49,12 +50,55 @@ async function imageBlock(element) {
   }
 }
 
+async function pdfFormula(element, size, widthLimit) {
+  const display = element.classList.contains("math-display");
+  const content = element.dataset.tex;
+  try {
+    const svg = await formulaSvg(content, display);
+    const { y, width, height } = svg.viewBox.baseVal;
+    const scale = Math.min(
+      size / 1000,
+      widthLimit / width,
+      (a4.height - 2 * margin - 24) / height,
+    );
+    if (!Number.isFinite(scale) || width <= 0 || height <= 0)
+      throw Error("Пустая формула.");
+    svg.setAttribute("width", width * scale);
+    svg.setAttribute("height", height * scale);
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const math = { svg: svg.outerHTML, font: "Sans" };
+    if (display)
+      return {
+        ...math,
+        width: width * scale,
+        alignment: "center",
+        margin: [0, 2, 0, 5],
+      };
+    return {
+      text: "\uFFFC",
+      inlineSvg: {
+        ...math,
+        _width: width * scale,
+        _height: height * scale,
+        ascent: -y * scale,
+      },
+    };
+  } catch {
+    return {
+      text: content + " [Ошибка LaTeX]",
+      font: "Mono",
+      color: "#8b2841",
+      fontSize: size * 0.9,
+    };
+  }
+}
+
 async function markdownBlocks(html, settings) {
   const template = document.createElement("template");
   template.innerHTML = html;
   const { size, accent, gap, align, tabSize } = settings;
 
-  async function flow(parent, defaults = {}) {
+  async function flow(parent, defaults = {}, widthLimit = contentWidth) {
     const stack = [];
     let runs = [];
     const flush = () => {
@@ -68,7 +112,13 @@ async function markdownBlocks(html, settings) {
         return;
       }
       const tag = node.localName;
-      if (tag === "img") {
+      if (node.hasAttribute?.("data-tex")) {
+        const formula = await pdfFormula(node, size, widthLimit);
+        if (node.classList.contains("math-display")) {
+          flush();
+          stack.push(formula);
+        } else runs.push({ ...style, ...formula });
+      } else if (tag === "img") {
         flush();
         stack.push(await imageBlock(node));
       } else if (/^(p|h[1-6]|ul|ol|table|blockquote|pre|hr)$/.test(tag)) {
@@ -108,25 +158,12 @@ async function markdownBlocks(html, settings) {
   async function block(el) {
     const tag = el.localName;
     if (tag === "table") {
-      const body = [];
-      for (const row of el.rows) {
-        const cells = [];
-        for (const cell of row.cells) {
-          const header = cell.localName === "th";
-          cells.push({
-            stack: await flow(cell),
-            bold: header,
-            alignment: cell.style.textAlign || "left",
-            fillColor: header ? "#efedf7" : null,
-          });
-        }
-        body.push(cells);
-      }
-      const weights = body[0].map((_, i) =>
+      const rows = Array.from(el.rows);
+      const weights = Array.from(rows[0].cells, (_, i) =>
         Math.sqrt(
           Math.max(
             6,
-            ...Array.from(el.rows, (row) =>
+            ...rows.map((row) =>
               Math.min(65, row.cells[i]?.textContent.length || 0),
             ),
           ),
@@ -134,6 +171,24 @@ async function markdownBlocks(html, settings) {
       );
       const total = weights.reduce((a, b) => a + b, 0);
       const widths = weights.map((w) => (100 * w) / total + "%");
+      const body = [];
+      for (const row of rows) {
+        const cells = [];
+        for (const cell of row.cells) {
+          const header = cell.localName === "th";
+          const width = Math.max(
+            8,
+            (contentWidth * weights[cell.cellIndex]) / total - 12,
+          );
+          cells.push({
+            stack: await flow(cell, {}, width),
+            bold: header,
+            alignment: cell.style.textAlign || "left",
+            fillColor: header ? "#efedf7" : null,
+          });
+        }
+        body.push(cells);
+      }
       return {
         table: { headerRows: el.tHead?.rows.length || 0, widths, body },
         layout: {

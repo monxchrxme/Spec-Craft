@@ -1,3 +1,4 @@
+import { latex, paintMath } from "./math.js";
 import { showReview } from "./review.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
@@ -18,7 +19,8 @@ const md = window
     typographer: false,
   })
   .use(window.markdownitMark)
-  .use(wikiLinks);
+  .use(wikiLinks)
+  .use(latex);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
@@ -372,6 +374,7 @@ function render() {
   outline();
   icons();
   viewport.scrollTop = scrollTop;
+  void paintMath(host);
   $("#wordcount").textContent =
     (
       doc.body
@@ -515,6 +518,23 @@ function editBlock(i, selectAll = false) {
   editor = { i, ta, baseline: p.text, start: p.start, end: p.end };
   const toolbar = document.createElement("div");
   toolbar.className = "inline-tools";
+  const preview = document.createElement("div");
+  preview.className = "math-preview";
+  preview.setAttribute("aria-label", "Предпросмотр формул");
+  let previewTimer;
+  function updatePreview() {
+    const template = document.createElement("template");
+    template.innerHTML = md.render(ta.value);
+    preview.replaceChildren(...template.content.querySelectorAll("[data-tex]"));
+    preview.hidden = !preview.childElementCount;
+    if (!preview.hidden) void paintMath(preview);
+  }
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      if (preview.isConnected) updatePreview();
+    }, 140);
+  }
   for (const [label, mark, symbol] of [
     ["Полужирный", "**", "bold"],
     ["Курсив", "*", "italic"],
@@ -522,6 +542,7 @@ function editBlock(i, selectAll = false) {
     ["Маркер", "==", "highlighter"],
     ["Строчный код", String.fromCharCode(96), "code"],
     ["Ссылка", "link", "link"],
+    ["Формула в строке", "math", "sigma"],
   ]) {
     const btn = document.createElement("button");
     btn.title = label;
@@ -531,20 +552,29 @@ function editBlock(i, selectAll = false) {
     btn.onclick = (e) => {
       e.stopPropagation();
       const a = ta.selectionStart,
-        b = ta.selectionEnd,
-        part = ta.value.slice(a, b) || "текст";
+        b = ta.selectionEnd;
+      const selection = ta.value.slice(a, b);
+      const part =
+        mark === "math"
+          ? selection.trim().replace(/\r?\n/g, " ") || "x^2"
+          : selection || "текст";
+      const open = mark === "math" ? "\\(" : mark;
       const insert =
-        mark === "link" ? "[" + part + "](https://)" : mark + part + mark;
+        mark === "link"
+          ? "[" + part + "](https://)"
+          : open + part + (mark === "math" ? "\\)" : mark);
       ta.setRangeText(insert, a, b, "end");
       ta.focus();
       if (mark === "link")
         ta.setSelectionRange(a + part.length + 3, a + insert.length - 1);
-      else ta.setSelectionRange(a + mark.length, a + mark.length + part.length);
+      else ta.setSelectionRange(a + open.length, a + open.length + part.length);
       liveBlock();
+      schedulePreview();
     };
     toolbar.append(btn);
   }
-  box.replaceChildren(toolbar, ta);
+  box.replaceChildren(toolbar, ta, preview);
+  updatePreview();
   icons();
   ta.style.height = Math.max(52, ta.scrollHeight + 4) + "px";
   ta.focus({ preventScroll: true });
@@ -553,6 +583,7 @@ function editBlock(i, selectAll = false) {
   else ta.setSelectionRange(ta.value.length, ta.value.length);
   ta.oninput = () => {
     liveBlock();
+    schedulePreview();
     ta.style.height = "auto";
     ta.style.height = ta.scrollHeight + 4 + "px";
     if (ta.value === "/") {
@@ -582,6 +613,7 @@ function editBlock(i, selectAll = false) {
       flush();
     } else if (
       e.key === "Enter" &&
+      p.t.type !== "math_block" &&
       !e.shiftKey &&
       !ta.value.includes("\n") &&
       !/^[-*\d>]/.test(ta.value) &&
@@ -719,6 +751,7 @@ function buildTable(box, p, i) {
         if (tableEdit?.cell === cell) {
           finishCell();
           cell.innerHTML = md.renderInline(data.rows[r][c]);
+          void paintMath(cell);
         }
       };
       cell.onkeydown = (e) => {
@@ -749,6 +782,7 @@ function buildTable(box, p, i) {
     parts = parse();
     const next = block(parts[i], i);
     box.replaceWith(next);
+    void paintMath(next);
     next.querySelector(".table-scroll").scrollLeft = left;
     viewport.scrollTop = top;
     const cell = next.querySelector("table").rows[row]?.cells[column];
@@ -875,8 +909,11 @@ function insertBlock(type, idx = insertionBlock()) {
     source.setSelectionRange(pos + add.length, pos + add.length);
   } else {
     host.children[selected]?.scrollIntoView({ block: "nearest" });
-    if (["paragraph", "heading", "code", "list"].includes(type))
+    if (["paragraph", "heading", "code", "list", "math"].includes(type))
       editBlock(selected, true);
+    if (type === "math" && editor) {
+      editor.ta.setSelectionRange(3, editor.ta.value.length - 3);
+    }
     if (type === "diagram")
       host.children[selected]?.querySelector("button")?.click();
   }
@@ -931,6 +968,7 @@ function insertDialog() {
             diagram: "workflow",
             requirement: "list-checks",
             code: "code",
+            math: "sigma",
             list: "list",
           }[k],
         ),
@@ -1130,7 +1168,7 @@ function newDialog() {
     create(name, text, t.label);
   };
 }
-function printDoc() {
+async function printDoc() {
   flush();
   const old = mode;
   mode = "read";
@@ -1141,6 +1179,7 @@ function printDoc() {
   document.body.append(sheet);
   mode = old;
   render();
+  await paintMath(sheet);
   const clean = () => sheet.remove();
   window.addEventListener("afterprint", clean, { once: true });
   window.print();

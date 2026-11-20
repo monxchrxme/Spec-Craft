@@ -1411,3 +1411,47 @@ body:has(.inline-graph) .paper {
     display: none;
   }
 }
+
+.math-inline {
+  display: inline-block;
+  max-width: 100%;
+  font-family: inherit;
+}
+.math-inline svg {
+  display: inline;
+  max-width: 100%;
+  height: auto;
+}
+.math-display {
+  overflow: auto;
+  padding: 4px 0;
+  text-align: center;
+}
+.math-display svg {
+  display: block;
+  margin: 0 auto;
+}
+.math-error {
+  color: #8b2841;
+  overflow-wrap: anywhere;
+}
+.math-error-label {
+  display: inline-block;
+  font-size: 0.8em;
+}
+.math-preview {
+  max-width: 100%;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+}
+@media print {
+  .math-display {
+    break-inside: avoid;
+  }
+  .print-surface :is(.math-display, .math-inline) svg {
+    max-width: 100%;
+    height: auto;
+  }
+}

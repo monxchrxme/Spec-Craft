@@ -1,3 +1,4 @@
+import { paintMath } from "./math.js";
 import { specIndex } from "./spec-index.js";
 import { diagramView } from "./diagram-view.js";
 import { normalize } from "./graph.js";
@@ -253,6 +254,7 @@ export function showReview({ share, parse, renderMarkdown, onClose }) {
       }
       paper.append(el);
     }
+    void paintMath(paper);
     const structure = specIndex(parts);
     paper.onclick = (event) => {
       const link = event.target.closest("[data-wiki]");
