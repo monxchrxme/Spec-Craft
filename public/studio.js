@@ -1,3 +1,10 @@
+import {
+  coloredHighlights,
+  formatSelection,
+  highlightColors,
+  highlightSelection,
+  wrapTypedSelection,
+} from "./formatting.js";
 import { latex, paintMath } from "./math.js";
 import { showReview } from "./review.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
@@ -19,11 +26,14 @@ const md = window
     typographer: false,
   })
   .use(window.markdownitMark)
+  .use(coloredHighlights)
   .use(wikiLinks)
   .use(latex);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
+for (const [id, item] of Object.entries(highlightColors))
+  document.documentElement.style.setProperty("--marker-" + id, item.color);
 const icon = (n) => '<i aria-hidden="true" data-lucide="' + n + '"></i>';
 const docs = new Map(),
   history = new Map(),
@@ -551,28 +561,33 @@ function editBlock(i, selectAll = false) {
     btn.onmousedown = (e) => e.preventDefault();
     btn.onclick = (e) => {
       e.stopPropagation();
-      const a = ta.selectionStart,
-        b = ta.selectionEnd;
-      const selection = ta.value.slice(a, b);
-      const part =
-        mark === "math"
-          ? selection.trim().replace(/\r?\n/g, " ") || "x^2"
-          : selection || "текст";
-      const open = mark === "math" ? "\\(" : mark;
-      const insert =
-        mark === "link"
-          ? "[" + part + "](https://)"
-          : open + part + (mark === "math" ? "\\)" : mark);
-      ta.setRangeText(insert, a, b, "end");
-      ta.focus();
-      if (mark === "link")
-        ta.setSelectionRange(a + part.length + 3, a + insert.length - 1);
-      else ta.setSelectionRange(a + open.length, a + open.length + part.length);
-      liveBlock();
-      schedulePreview();
+      if (mark === "math") formatSelection(ta, "\\(", "\\)", "x^2");
+      else if (mark === "link") {
+        formatSelection(ta, "[", "](https://)", "текст");
+        const start = ta.selectionEnd + 2;
+        ta.setSelectionRange(start, start + "https://".length);
+      } else if (mark === "==") highlightSelection(ta, "yellow");
+      else formatSelection(ta, mark, mark, "текст");
     };
     toolbar.append(btn);
   }
+  const palette = document.createElement("select");
+  palette.className = "highlight-palette";
+  palette.setAttribute("aria-label", "Цвет маркера");
+  const label = new Option("Цвет маркера", "");
+  label.disabled = true;
+  palette.add(label);
+  for (const [id, item] of Object.entries(highlightColors)) {
+    const option = new Option(item.label, id);
+    option.style.backgroundColor = item.color;
+    palette.add(option);
+  }
+  palette.value = "";
+  palette.onchange = () => {
+    highlightSelection(ta, palette.value);
+    palette.value = "";
+  };
+  toolbar.append(palette);
   box.replaceChildren(toolbar, ta, preview);
   updatePreview();
   icons();
@@ -592,12 +607,13 @@ function editBlock(i, selectAll = false) {
       insertDialog();
     }
   };
-  ta.onblur = () => {
+  box.onfocusout = () => {
     setTimeout(() => {
-      if (editor?.ta === ta && document.activeElement !== ta) flush();
+      if (editor?.ta === ta && !box.contains(document.activeElement)) flush();
     }, 0);
   };
   ta.onkeydown = (e) => {
+    if (wrapTypedSelection(e)) return;
     const shortcut =
       (e.ctrlKey || e.metaKey) &&
       !e.altKey &&
@@ -857,6 +873,9 @@ source.oninput = () => {
   setText(source.value, false);
   parts = parse();
   outline();
+};
+source.onkeydown = (event) => {
+  wrapTypedSelection(event);
 };
 source.onkeyup = source.onclick = () => {
   const i = parts.findLastIndex((p) => p.start <= source.selectionStart);

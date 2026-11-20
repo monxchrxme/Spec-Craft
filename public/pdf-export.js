@@ -1,3 +1,4 @@
+import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
@@ -55,6 +56,26 @@ async function pdfFormula(element, size, widthLimit) {
   const content = element.dataset.tex;
   try {
     const svg = await formulaSvg(content, display);
+    if (!svg.hasAttribute("viewBox")) {
+      // MathJax uses a responsive SVG for tagged equations. Give it the PDF
+      // column's viewport before serializing it as a self-contained image.
+      svg.style.cssText = "position:fixed;visibility:hidden;font-size:16px";
+      svg.setAttribute("width", widthLimit / 0.75);
+      document.body.append(svg);
+      const box = svg.getBoundingClientRect();
+      svg.remove();
+      svg.removeAttribute("style");
+      svg.setAttribute("viewBox", [0, 0, box.width, box.height].join(" "));
+      svg.setAttribute("width", box.width * 0.75);
+      svg.setAttribute("height", box.height * 0.75);
+      return {
+        svg: svg.outerHTML,
+        width: box.width * 0.75,
+        font: "Sans",
+        alignment: "center",
+        margin: [0, 2, 0, 5],
+      };
+    }
     const { y, width, height } = svg.viewBox.baseVal;
     const scale = Math.min(
       size / 1000,
@@ -131,7 +152,10 @@ async function markdownBlocks(html, settings) {
         if (tag === "strong") childStyle.bold = true;
         if (tag === "em") childStyle.italics = true;
         if (tag === "s" || tag === "del") childStyle.decoration = "lineThrough";
-        if (tag === "mark") childStyle.background = "#fff0a1";
+        if (tag === "mark")
+          childStyle.background = (
+            highlightColors[node.dataset.highlight] || highlightColors.yellow
+          ).color;
         if (tag === "code")
           Object.assign(childStyle, { font: "Mono", background: "#f0eef4" });
         if (tag === "a" && node.hasAttribute("data-wiki")) {

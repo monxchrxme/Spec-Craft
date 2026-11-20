@@ -335,13 +335,17 @@ export function draw(g, options = {}) {
       [start, end] = anchors(a, b, e);
     const col = safeColor(e.color, colors.edge),
       marker = uid("arrow");
+    const weight = num(e.weight, 1.6, 1, 8);
+    const markerSize = Math.min(24, Math.max(12, weight * 4 + 6));
+    const tipGap = num(b.weight, 1.6, 0, 10) / 2 + 1.5;
     const arrow = el("marker", {
       id: marker,
       viewBox: "-1 -1 12 12",
-      refX: 10,
+      refX: 10 + (tipGap * 12) / markerSize,
       refY: 5,
-      markerWidth: 9,
-      markerHeight: 9,
+      markerUnits: "userSpaceOnUse",
+      markerWidth: markerSize,
+      markerHeight: markerSize,
       orient: "auto-start-reverse",
     });
     const diamond = ["composition", "aggregation"].includes(e.arrow);
@@ -418,7 +422,7 @@ export function draw(g, options = {}) {
       d: path,
       fill: "none",
       stroke: col,
-      "stroke-width": options.edge === e.id ? 3.5 : num(e.weight, 1.6, 1, 8),
+      "stroke-width": options.edge === e.id ? Math.max(3.5, weight) : weight,
       "stroke-linejoin": "round",
     });
     if (e.dashed) line.setAttribute("stroke-dasharray", "6 4");

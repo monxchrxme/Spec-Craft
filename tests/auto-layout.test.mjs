@@ -84,3 +84,42 @@ test("a fully blocked port keeps the hand-routed path", () => {
   );
   assert.deepEqual(e, before);
 });
+
+test("open corridors center bends and provide a straight run into the arrowhead", () => {
+  const a = node("a", 25, 25),
+    b = node("b", 395, 120);
+  const edge = {
+    id: "e",
+    from: a.id,
+    to: b.id,
+    fromSide: "right",
+    toSide: "left",
+    weight: 8,
+  };
+  const graph = { nodes: [a, b], edges: [edge] };
+  assert.equal(routeEdges(graph, new Set(["a", "b"])), 0);
+  const [[startX, startY], [endX, endY]] = anchors(a, b, edge);
+  const centralX = (startX + endX) / 2;
+  assert.deepEqual(edge.points, [
+    { x: centralX, y: startY },
+    { x: centralX, y: endY },
+  ]);
+  assert(endX - edge.points.at(-1).x >= 32);
+});
+
+test("aligned blocks stay connected by a straight line even with a narrow gap", () => {
+  const a = node("a", 0, 0),
+    b = node("b", 135, 0);
+  const edge = {
+    id: "e",
+    from: a.id,
+    to: b.id,
+    fromSide: "right",
+    toSide: "left",
+  };
+  assert.equal(
+    routeEdges({ nodes: [a, b], edges: [edge] }, new Set(["a", "b"])),
+    0,
+  );
+  assert.deepEqual(edge.points, [{ x: 117.5, y: 30 }]);
+});

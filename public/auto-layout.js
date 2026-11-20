@@ -2,14 +2,15 @@
 // Each search state includes the incoming direction so extra bends carry a cost.
 import { anchors } from "./graph.js";
 
-const padding = 12;
+const obstaclePadding = 12;
+const portClearance = 32;
 const sides = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
 function clearance(n) {
   return {
-    left: n.x - padding,
-    right: n.x + n.width + padding,
-    top: n.y - padding,
-    bottom: n.y + n.height + padding,
+    left: n.x - obstaclePadding,
+    right: n.x + n.width + obstaclePadding,
+    top: n.y - obstaclePadding,
+    bottom: n.y + n.height + obstaclePadding,
   };
 }
 function blocked(a, b, boxes) {
@@ -35,7 +36,8 @@ function simple(points) {
     if (b && b[0] === p[0] && b[1] === p[1]) continue;
     if (
       a &&
-      ((a[0] === b[0] && b[0] === p[0]) || (a[1] === b[1] && b[1] === p[1]))
+      ((a[0] === b[0] && b[0] === p[0] && (b[1] - a[1]) * (p[1] - b[1]) >= 0) ||
+        (a[1] === b[1] && b[1] === p[1] && (b[0] - a[0]) * (p[0] - b[0]) >= 0))
     )
       out.pop();
     out.push(p);
@@ -43,13 +45,40 @@ function simple(points) {
   return out;
 }
 
-function pathBetween(start, end, boxes) {
-  for (const turn of [
-    [end[0], start[1]],
-    [start[0], end[1]],
-  ]) {
-    if (!blocked(start, turn, boxes) && !blocked(turn, end, boxes))
-      return [start, turn, end];
+function pathBetween(start, end, boxes, fromSide, toSide) {
+  const alongPort = (from, to, side) =>
+    sides[side][0] * (to[0] - from[0]) + sides[side][1] * (to[1] - from[1]);
+  const candidates = [];
+  const horizontal = sides[fromSide][0] !== 0;
+  if (
+    sides[fromSide].every((v, i) => v === -sides[toSide][i]) &&
+    alongPort(start, end, fromSide) >= 0
+  ) {
+    // Put dogleg turns midway across a clear corridor, away from both ports.
+    if (horizontal) {
+      const mid = (start[0] + end[0]) / 2;
+      candidates.push([
+        [mid, start[1]],
+        [mid, end[1]],
+      ]);
+    } else {
+      const mid = (start[1] + end[1]) / 2;
+      candidates.push([
+        [start[0], mid],
+        [end[0], mid],
+      ]);
+    }
+  }
+  candidates.push([[end[0], start[1]]], [[start[0], end[1]]]);
+  for (const turns of candidates) {
+    const path = simple([start, ...turns, end]);
+    if (path.length === 1) return path;
+    if (
+      alongPort(start, path[1], fromSide) >= 0 &&
+      alongPort(end, path.at(-2), toSide) >= 0 &&
+      path.slice(1).every((point, i) => !blocked(path[i], point, boxes))
+    )
+      return path;
   }
   const axis = (i, lo, hi) =>
     [
@@ -114,7 +143,15 @@ function pathBetween(start, end, boxes) {
         y = p.y + dy,
         dir = dx ? 1 : 2;
       if (x < 0 || x >= xs.length || y < 0 || y >= ys.length) continue;
-      if (!blocked(here, [xs[x], ys[y]], boxes))
+      const next = [xs[x], ys[y]];
+      if (
+        (!p.parent && alongPort(here, next, fromSide) < 0) ||
+        (next[0] === end[0] &&
+          next[1] === end[1] &&
+          alongPort(end, here, toSide) < 0)
+      )
+        continue;
+      if (!blocked(here, next, boxes))
         visit(
           x,
           y,
@@ -141,7 +178,7 @@ function portChoices(preferred, fixed) {
     : [preferred, ...Object.keys(sides).filter((s) => s !== preferred)];
 }
 function offset(point, side) {
-  return point.map((v, i) => v + sides[side][i] * padding);
+  return point.map((v, i) => v + sides[side][i] * portClearance);
 }
 function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
   const [start, end] = anchors(fromNode, toNode, edge);
@@ -153,9 +190,25 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
       const [from, to] = anchors(fromNode, toNode, { fromSide, toSide });
       const s = offset(from, fromSide),
         t = offset(to, toSide);
-      if (blocked(from, s, fromObstacles) || blocked(to, t, toObstacles))
+      const direction = sides[fromSide];
+      const directlyFacing =
+        direction.every((v, i) => v === -sides[toSide][i]) &&
+        (direction[0] ? from[1] === to[1] : from[0] === to[0]) &&
+        (to[0] - from[0]) * direction[0] + (to[1] - from[1]) * direction[1] >=
+          26;
+      const direct =
+        directlyFacing &&
+        !blocked(
+          from,
+          to,
+          fromObstacles.filter((box) => toObstacles.includes(box)),
+        );
+      if (
+        !direct &&
+        (blocked(from, s, fromObstacles) || blocked(to, t, toObstacles))
+      )
         continue;
-      const route = pathBetween(s, t, boxes);
+      const route = direct ? [] : pathBetween(s, t, boxes, fromSide, toSide);
       if (!route) continue;
       const bends = simple([from, ...route, to]).slice(1, -1);
       edge.route = "orthogonal";

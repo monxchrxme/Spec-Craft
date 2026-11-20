@@ -1455,3 +1455,33 @@ body:has(.inline-graph) .paper {
     height: auto;
   }
 }
+
+.paper mark[data-highlight="green"] {
+  background: var(--marker-green);
+}
+.paper mark[data-highlight="blue"] {
+  background: var(--marker-blue);
+}
+.paper mark[data-highlight="pink"] {
+  background: var(--marker-pink);
+}
+.paper mark[data-highlight="violet"] {
+  background: var(--marker-violet);
+}
+.paper mark[data-highlight="orange"] {
+  background: var(--marker-orange);
+}
+.inline-tools .highlight-palette {
+  max-width: 140px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.graph-stage.is-panning svg,
+.graph-stage.is-panning svg * {
+  cursor: grab !important;
+}
+.graph-stage.is-panning:active svg,
+.graph-stage.is-panning:active svg * {
+  cursor: grabbing !important;
+}

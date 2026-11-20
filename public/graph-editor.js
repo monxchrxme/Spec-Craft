@@ -42,7 +42,7 @@ export function graphEditor(
       <select aria-label="Фигура"></select>
       <button data-cmd="add">+ Фигура</button>
       <button data-cmd="multi" aria-pressed="false">Выделение</button>
-      <button data-cmd="pan" aria-pressed="false">Панорама</button>
+      <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
       <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
@@ -146,13 +146,16 @@ export function graphEditor(
     panel
       .querySelector("[data-cmd=connect]")
       .setAttribute("aria-pressed", connecting);
-    hint.textContent = connecting
-      ? link
-        ? "Выберите конечную фигуру"
-        : "Выберите начальную фигуру"
-      : selected.size > 1
-        ? "Выбрано фигур: " + selected.size
-        : "Shift + щелчок или рамка для выделения";
+    stage.classList.toggle("is-panning", panMode);
+    hint.textContent = panMode
+      ? "Перетащите холст мышью или пальцем, чтобы увидеть другую часть схемы."
+      : connecting
+        ? link
+          ? "Выберите конечную фигуру"
+          : "Выберите начальную фигуру"
+        : selected.size > 1
+          ? "Выбрано фигур: " + selected.size
+          : "Shift + щелчок или рамка для выделения";
   }
   function field(label, key, kind, def, opts) {
     const l = document.createElement("label");
