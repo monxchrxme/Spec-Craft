@@ -1,16 +1,5 @@
 import { documentParts } from "./document-parts.js";
-import {
-  objectLabel,
-  standard,
-  fields as espdFields,
-  documentTypes,
-  declaration,
-  readProfile,
-  espdBlocks,
-  encodeProject,
-  decodeProject,
-  markdownCopy,
-} from "./espd.js";
+import { readProject } from "./project-import.js";
 import { sourceWorkspace } from "./source-workspace.js";
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
 import { imageSizes, imageWidthMarkdown } from "./images.js";
@@ -96,8 +85,7 @@ const md = window
   .use(mermaidBlocks)
   .use(imageSizes)
   .use(pdfRules)
-  .use(portableBlocks)
-  .use(espdBlocks);
+  .use(portableBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   toolbarKey = "buro:topbar-collapsed",
@@ -464,7 +452,6 @@ function moveOrder(state, index, below, section) {
       ? headingSpan(parts, index)[1]
       : index + 1
     : index;
-  if (parts[0]?.t.type === "espd_title" && (!start || !boundary)) return;
   const next = reorderMarkdown(doc.body, parts, start, end, boundary);
   if (!next) return;
   setText(next.body);
@@ -711,10 +698,6 @@ function render() {
   $(".add-end").hidden = mode !== "edit";
   $("[data-action=insert]").disabled = mode === "read" || mode === "pdf";
   $(".controls").classList.toggle("pdf-mode", mode === "pdf");
-  $(".paper").classList.toggle(
-    "espd-document",
-    parts[0]?.t.type === "espd_title",
-  );
   host.hidden = isSource() || mode === "pdf";
   sourcePane.show(isSource());
   if (mode === "pdf") {
@@ -772,58 +755,6 @@ function deleteBlockButton(index, label, className) {
 }
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
-  const notes = p.tokens.flatMap((token) =>
-    (token.children || []).filter((child) => child.type === "espd_note"),
-  );
-  if (notes.length) {
-    const list = document.createElement("aside");
-    list.className = "espd-notes";
-    for (const note of notes) {
-      const line = document.createElement("div");
-      line.textContent = note.meta.number + ") " + note.content;
-      list.append(line);
-    }
-    box.append(list);
-  }
-  const heading = p.t.meta?.espd;
-  if (heading?.appendixMark) {
-    const title = box.querySelector("h1");
-    if (title) {
-      const marker = document.createElement("div");
-      marker.className = "espd-appendix";
-      marker.textContent = heading.appendixMark;
-      title.before(marker);
-      title.textContent = heading.title;
-    }
-  }
-  const object = p.t.meta?.object;
-  if (object?.key) box.id = "equation-" + object.key;
-  if (
-    objectLabel(object) &&
-    !(object.kind === "equation" && /\\tag\s*\{/.test(p.t.content))
-  ) {
-    const caption = document.createElement("div");
-    caption.className = "espd-caption " + object.kind;
-    caption.textContent = objectLabel(object);
-    if (object.kind === "table") box.prepend(caption);
-    else box.append(caption);
-  }
-  if (p.t.meta?.espd?.contents && !parts.some((p) => p.t.type === "spec_toc")) {
-    const nav = document.createElement("nav");
-    nav.className = "document-toc";
-    for (const part of parts.filter(
-      (p) =>
-        p.t.meta?.espd &&
-        !/^(аннотация|содержание|оглавление)$/i.test(p.t.meta.espd.label),
-    )) {
-      const link = document.createElement("a");
-      link.href = "#" + encodeURIComponent(part.t.meta.anchor);
-      link.textContent = part.t.meta.espd.prefix + part.t.meta.espd.label;
-      link.style.display = "block";
-      nav.append(link);
-    }
-    box.append(nav);
-  }
   const editableMermaid = mode === "edit" && isMermaid(p.t);
   mermaidControls(box, {
     edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
@@ -837,7 +768,7 @@ function block(p, i, expanded = expandAll) {
     expanded,
     onExpand: updateExpandButton,
   });
-  if (mode === "edit" && p.t.type !== "espd_title") {
+  if (mode === "edit") {
     box.append(sortGrip("Перетащить блок", true));
   }
   return box;
@@ -980,11 +911,6 @@ function buildBlock(p, i, expanded) {
   box.onpointerdown = () => {
     selected = i;
   };
-  if (p.t.type === "espd_title") {
-    box.innerHTML = md.renderer.render(p.tokens, md.options, {});
-    if (mode === "edit") addCoverFields(box, i, p.t.meta);
-    return box;
-  }
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
@@ -1168,66 +1094,6 @@ function buildBlock(p, i, expanded) {
     };
   }
   return box;
-}
-function addCoverFields(box, index, data) {
-  const details = document.createElement("details");
-  details.className = "espd-edit";
-  const summary = document.createElement("summary");
-  summary.textContent = "Реквизиты титула и листа утверждения";
-  const form = document.createElement("form");
-  form.onsubmit = (e) => e.preventDefault();
-  for (const [key, label] of Object.entries({
-    type: "Вид документа",
-    ...espdFields,
-  })) {
-    const wrapper = document.createElement("label");
-    wrapper.textContent = label;
-    const multi = ["program", "agreed", "approved", "authors"].includes(key);
-    const input = document.createElement(
-      ["type", "printSet"].includes(key)
-        ? "select"
-        : multi
-          ? "textarea"
-          : "input",
-    );
-    if (key === "type")
-      for (const [id, [name]] of Object.entries(documentTypes))
-        input.add(new Option(name, id));
-    input.setAttribute("aria-label", label);
-    if (key === "printSet") {
-      input.add(new Option("Документ с титула", "document"));
-      input.add(new Option("Лист утверждения и документ", "complete"));
-    }
-    input.value = data[key] || (key === "printSet" ? "complete" : "");
-    input.onfocus = () => {
-      flush();
-      input.dataset.group = "";
-    };
-    input.oninput = () => {
-      const p = parts[index];
-      if (p?.t.type !== "espd_title") return;
-      if (!input.dataset.group) {
-        snapshot();
-        input.dataset.group = "yes";
-      }
-      const next = { ...p.t.meta, [key]: input.value };
-      const nl = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
-      setText(
-        declaration(next).replaceAll("\n", nl) + doc.body.slice(p.end),
-        false,
-      );
-      parts = parse();
-      box.querySelector(".espd-cover").outerHTML = md.renderer.render(
-        parts[index].tokens,
-        md.options,
-        {},
-      );
-    };
-    wrapper.append(input);
-    form.append(wrapper);
-  }
-  details.append(summary, form);
-  box.append(details);
 }
 function imagePosition(index, expected) {
   const state = prepareBlockChange(index);
@@ -1713,10 +1579,6 @@ source.oninput = () => {
   }
   setText(sourcePane.read(), false);
   parts = parse();
-  $(".paper").classList.toggle(
-    "espd-document",
-    parts[0]?.t.type === "espd_title",
-  );
   sourcePane.update();
   outline();
 };
@@ -1741,6 +1603,10 @@ source.onkeyup = source.onclick = () => {
 function setMode(next) {
   flush();
   if (isSource()) selected = sourcePane.cursorBlock();
+  if ((next === "source" || next === "latex") && next !== mode) {
+    const synchronized = materializeToc(doc.body, md);
+    if (synchronized !== doc.body) setText(synchronized, false);
+  }
   mode = next;
   outlineScrollPosition = undefined;
   render();
@@ -2107,21 +1973,6 @@ const templates = templateTools({
   create,
   nameOf,
   download,
-  applyProfile: (type) => {
-    const base = readProfile(doc.body);
-    const data = {
-      ...base?.data,
-      type,
-      program: base?.data.program || doc.name.replace(/\.md$/i, ""),
-      year: base?.data.year || String(new Date().getFullYear()),
-    };
-    create(
-      copyName(doc.name),
-      declaration(data) + (base ? doc.body.slice(base.end) : "\n\n" + doc.body),
-      documentTypes[type][0],
-      structuredClone(doc.style),
-    );
-  },
   current: () => doc,
   diagrams: (markdown) =>
     parse(markdown).filter(
@@ -2161,7 +2012,7 @@ function requestPdf(force = false) {
   if (!force && pdfCache?.key === key) return pdfCache.result;
   const data = structuredClone(doc);
   const blocks = parse(data.body);
-  const profile = readProfile(data.body) ? "a4" : pdfProfile;
+  const profile = pdfProfile;
   const result = import("./pdf-export.js").then(async ({ exportPdf }) => ({
     ...(await exportPdf(blocks, md, data, profile)),
     name: data.name.replace(/\.md$/i, "") + ".pdf",
@@ -2170,30 +2021,28 @@ function requestPdf(force = false) {
         (token) => token.type === "inline",
       )?.content;
       const label =
-        part.t.type === "espd_title"
-          ? "Титульная часть"
-          : part.t.type === "spec_toc"
-            ? "Оглавление"
-            : part.t.type === "spec_bibliography"
-              ? "Список литературы"
-              : isProjectTree(part.t)
-                ? "Структура проекта"
-                : part.t.type === "table_open"
-                  ? "Таблица"
-                  : part.t.type === "math_block"
-                    ? "Формула"
-                    : part.t.type === "fence"
-                      ? isMermaid(part.t)
-                        ? "Mermaid"
-                        : part.t.info.trim() === "studio-diagram"
-                          ? "Блок-схема"
-                          : "Код"
-                      : readable?.startsWith("![")
-                        ? "Изображение"
-                        : (readable || part.text)
-                            .replace(/\s+/g, " ")
-                            .trim()
-                            .slice(0, 75);
+        part.t.type === "spec_toc"
+          ? "Оглавление"
+          : part.t.type === "spec_bibliography"
+            ? "Список литературы"
+            : isProjectTree(part.t)
+              ? "Структура проекта"
+              : part.t.type === "table_open"
+                ? "Таблица"
+                : part.t.type === "math_block"
+                  ? "Формула"
+                  : part.t.type === "fence"
+                    ? isMermaid(part.t)
+                      ? "Mermaid"
+                      : part.t.info.trim() === "studio-diagram"
+                        ? "Блок-схема"
+                        : "Код"
+                    : readable?.startsWith("![")
+                      ? "Изображение"
+                      : (readable || part.text)
+                          .replace(/\s+/g, " ")
+                          .trim()
+                          .slice(0, 75);
       return {
         index,
         label: label || "Блок " + (index + 1),
@@ -2218,7 +2067,7 @@ function setPdfNumbering(enabled) {
 }
 const pdfViewer = pdfPreview($("#pdf-preview"), {
   profile(value, force) {
-    if (value !== "espd") pdfProfile = value;
+    pdfProfile = value;
     showPdfPreview(force);
   },
   download: savePdf,
@@ -2236,7 +2085,7 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
   },
   rules(index, rules) {
     const part = parts[index];
-    if (!part || part.t.type === "espd_title") return;
+    if (!part) return;
     const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
     selected = index;
     patch(part.fullStart, part.start, formatPdfRules(rules, newline));
@@ -2248,19 +2097,12 @@ function showPdfPreview(force = false) {
     void pdfViewer.show(
       requestPdf(force),
       {
-        profile: readProfile(doc.body) ? "espd" : pdfProfile,
-        numbering: Boolean(readProfile(doc.body) || doc.style?.pdfPageNumbers),
+        profile: pdfProfile,
+        numbering: Boolean(doc.style?.pdfPageNumbers),
       },
       selected,
       force,
     );
-}
-function downloadProject() {
-  download(
-    doc.name.replace(/\.md$/i, "") + ".speccraft",
-    encodeProject(doc),
-    "application/json",
-  );
 }
 function exportDialog() {
   const b = dialog(
@@ -2269,35 +2111,27 @@ function exportDialog() {
       option("pdf", "Скачать PDF", "file-down") +
       '<label>Профиль PDF <select name="pdfProfile"><option value="screen">PDF для экрана</option><option value="a4">Строго A4</option></select></label>' +
       '<label class="style-check"><input type="checkbox" name="pdfNumbers">Номера страниц</label>' +
-      option("project", "Скачать проект (.speccraft)", "archive") +
       option("md", "Скачать Markdown (.md)", "file-text") +
       option("print", "Печать", "printer") +
       '<p role="status" hidden></p>',
   );
   const profile = b.querySelector("[name=pdfProfile]");
-  const gost = readProfile(doc.body);
-  if (gost) {
-    profile.add(new Option(standard, "espd"));
-    profile.disabled = true;
-  }
-  profile.value = gost ? "espd" : pdfProfile;
+  profile.value = pdfProfile;
   profile.onchange = () => {
     pdfProfile = profile.value;
     showPdfPreview();
   };
   const numbers = b.querySelector("[name=pdfNumbers]");
-  numbers.disabled = Boolean(gost);
-  numbers.checked = Boolean(gost || doc.style?.pdfPageNumbers);
+  numbers.checked = Boolean(doc.style?.pdfPageNumbers);
   numbers.onchange = () => setPdfNumbering(numbers.checked);
   b.onclick = async (e) => {
     const target = e.target.closest("[data-id]");
     if (!target) return;
     const action = target.dataset.id;
-    if (["preview", "md", "project"].includes(action)) {
+    if (action === "preview" || action === "md") {
       modal.close();
       if (action === "preview") setMode("pdf");
-      else if (action === "project") downloadProject();
-      else download(doc.name, markdownCopy(materializeToc(doc.body, md)));
+      else download(doc.name, materializeToc(doc.body, md));
       return;
     }
     const status = b.querySelector("[role=status]");
@@ -3091,7 +2925,7 @@ $("#file-input").onchange = async (e) => {
         await f.arrayBuffer(),
       );
       if (/\.speccraft$/i.test(f.name)) {
-        const project = decodeProject(text);
+        const project = readProject(text);
         create(nameOf(project.name), project.body, project.kind, project.style);
         continue;
       }
@@ -3134,8 +2968,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     flush();
     save();
-    if (readProfile(doc.body)) downloadProject();
-    else download(doc.name, materializeToc(doc.body, md));
+    download(doc.name, materializeToc(doc.body, md));
   }
   if (
     cmd &&

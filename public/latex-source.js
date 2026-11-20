@@ -1,4 +1,3 @@
-import { declaration, fields as espdFields, profileData } from "./espd.js";
 // Only edited spans pass through the converter. Everything outside them keeps its
 // original Markdown spelling, including reference definitions and line endings.
 const sections = [
@@ -31,9 +30,6 @@ function inlineTex(tokens) {
   for (const t of tokens) {
     if (t.type === "text") value += escapeTex(t.content);
     else if (t.type === "softbreak") value += "\n";
-    else if (t.type === "espd_note")
-      value += "\\footnote{" + encodeField(t.content) + "}";
-    else if (t.type === "espd_ref") value += "\\eqref{" + t.meta.key + "}";
     else if (t.type === "link_open")
       value += "\\href{" + escapeTex(t.attrGet("href")) + "}{";
     else if (t.type === "link_close") value += "}";
@@ -83,22 +79,6 @@ function inlineMarkdown(tex) {
           }[s] ?? s;
         continue;
       }
-      const footnote =
-        /^footnote\{((?:\\(?:textbackslash|textasciicircum|textasciitilde)\{\}|\\.|[^{}])*)\}/.exec(
-          tex.slice(pos),
-        );
-      if (footnote) {
-        result +=
-          "^[" + decodeField(footnote[1]).replace(/[\\\]]/g, "\\$&") + "]";
-        pos += footnote[0].length;
-        continue;
-      }
-      const ref = /^eqref\{([\w:.-]+)\}/.exec(tex.slice(pos));
-      if (ref) {
-        result += "[@" + ref[1] + "]";
-        pos += ref[0].length;
-        continue;
-      }
       const field =
         /^(href|texttt)\{((?:\\(?:textbackslash|textasciicircum|textasciitilde)\{\}|\\.|[^{}])*)\}/.exec(
           tex.slice(pos),
@@ -141,22 +121,6 @@ function inlineMarkdown(tex) {
 function convert(tex, library, assets) {
   if (library.has(tex)) return library.get(tex);
   try {
-    const title = /^\\begin\{SpecTitle\}\n([\s\S]*)\n\\end\{SpecTitle\}$/.exec(
-      tex,
-    );
-    if (title) {
-      const data = {};
-      for (const line of title[1].split("\n")) {
-        const field = /^\\SpecField\{(\w+)\}\{(.*)\}$/.exec(line);
-        if (
-          !field ||
-          (field[1] !== "type" && !Object.hasOwn(espdFields, field[1]))
-        )
-          return literal(tex);
-        data[field[1]] = decodeField(field[2]);
-      }
-      return declaration(profileData(data));
-    }
     const figure =
       /^\\begin\{figure\}\n\\includegraphics\{([^{}\n]+)\}(?:\n\\caption\{(.*)\})?\n\\end\{figure\}$/.exec(
         tex,
@@ -282,16 +246,6 @@ function decodeField(s) {
 function partTex(p, index, assets) {
   const t = p.t,
     inline = p.tokens.find((item) => item.type === "inline");
-  if (t.type === "espd_title")
-    return [
-      "\\begin{SpecTitle}",
-      ...["type", ...Object.keys(espdFields)]
-        .filter((k) => t.meta[k] || ["program", "designation"].includes(k))
-        .map(
-          (k) => "\\SpecField{" + k + "}{" + encodeField(t.meta[k] || "") + "}",
-        ),
-      "\\end{SpecTitle}",
-    ].join("\n");
   const children = inline?.children?.filter(
     (c) => c.type !== "text" || c.content.trim(),
   );
@@ -381,14 +335,11 @@ function partTex(p, index, assets) {
       }
     }
   }
-  const kind =
-    t.type === "espd_title"
-      ? "Title"
-      : inline?.children?.some((t) => t.type === "image")
-        ? "Image"
-        : t.type === "fence"
-          ? "Listing"
-          : "Block";
+  const kind = inline?.children?.some((t) => t.type === "image")
+    ? "Image"
+    : t.type === "fence"
+      ? "Listing"
+      : "Block";
   return "\\Spec" + kind + "{" + (index + 1) + "}";
 }
 export function latexProjection(body, parts) {

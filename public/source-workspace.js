@@ -78,31 +78,14 @@ export function sourceWorkspace({
         nodes = [];
       const existing = [...preview.children];
       parts.forEach((p, i) => {
-        const contents = p.t.meta?.espd?.contents
-          ? parts
-              .filter((h) => h.t.meta?.espd)
-              .map((h) => h.text)
-              .join("\n")
-          : "";
         const signature = [
-          contents,
           p.text,
           JSON.stringify(p.t.meta),
           p.tokens
             .flatMap((t) =>
               (t.children || [])
-                .filter(
-                  (c) =>
-                    c.type === "espd_ref" ||
-                    c.type === "espd_note" ||
-                    c.type === "link_open" ||
-                    c.type === "image",
-                )
-                .map((c) =>
-                  [c.content, c.meta?.number, JSON.stringify(c.attrs)].join(
-                    "/",
-                  ),
-                ),
+                .filter((c) => c.type === "link_open" || c.type === "image")
+                .map((c) => [c.content, JSON.stringify(c.attrs)].join("/")),
             )
             .join(","),
         ].join("\u0000");

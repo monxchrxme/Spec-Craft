@@ -2728,58 +2728,6 @@ g.workflow-anchored {
 #source-workspace[data-preview="off"] :is(#source-divider, #source-preview) {
   display: none;
 }
-.espd-cover {
-  font-family: Georgia, serif;
-  border-block: 1px solid var(--line);
-  text-align: center;
-  padding: 24px 10px;
-  margin-bottom: 10px;
-}
-.paper .espd-cover p,
-.paper .espd-cover h2 {
-  text-align: center;
-}
-.espd-cover h2 {
-  text-transform: uppercase;
-}
-.espd-cover small,
-.espd-edit {
-  font:
-    13px system-ui,
-    sans-serif;
-  color: var(--muted);
-}
-.espd-edit {
-  margin-bottom: 22px;
-}
-.espd-edit summary {
-  cursor: pointer;
-}
-.espd-edit form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  padding: 12px 0;
-}
-.espd-edit label {
-  display: grid;
-  gap: 4px;
-}
-.espd-edit :is(input, textarea, select) {
-  width: 100%;
-  min-width: 0;
-}
-.paper.espd-document {
-  --doc-font: Georgia, serif !important;
-  --doc-accent: #262431 !important;
-}
-.paper [data-espd-number]::before {
-  content: attr(data-espd-number);
-}
-.paper h1[data-espd-number] {
-  text-align: center;
-  text-transform: uppercase;
-}
 @media (max-width: 760px) {
   .paper:has(#source-workspace:not([hidden])) {
     grid-template-columns: minmax(0, 1fr);
@@ -2806,36 +2754,4 @@ g.workflow-anchored {
   .controls {
     overflow-x: auto;
   }
-}
-.espd-caption {
-  color: inherit;
-  text-align: center;
-  font: inherit;
-}
-.espd-caption.table,
-.espd-caption.equation {
-  text-align: right;
-}
-.block:has(> .espd-caption.equation) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: center;
-  gap: 8px;
-}
-
-.espd-appendix {
-  text-align: right;
-  margin-bottom: 0.6em;
-}
-
-.espd-notes {
-  margin-top: 0.7em;
-  font-size: 0.85em;
-}
-.espd-notes::before {
-  content: "";
-  display: block;
-  width: 3cm;
-  border-top: 1px solid;
-  margin-bottom: 0.4em;
 }
