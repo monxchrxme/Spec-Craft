@@ -33,7 +33,7 @@ export function imageInspector(paragraph, image, markdown, actions) {
   grip.className = "image-grip";
   grip.textContent = "◢";
   grip.setAttribute("aria-label", "Изменить размер изображения");
-  grip.title = "Потяните, чтобы изменить размер. Стрелки меняют ширину.";
+  grip.title = "Потяните или нажмите, чтобы изменить ширину";
   const measure = document.createElement("output");
   measure.className = "image-resize-measure";
   measure.setAttribute("aria-hidden", "true");
@@ -58,8 +58,10 @@ export function imageInspector(paragraph, image, markdown, actions) {
   const width = options.querySelector("input"),
     source = options.querySelector("textarea");
   source.value = markdown;
+  let currentMarkdown = markdown;
   let value = Number(image.dataset.imageWidth) || null;
   let drag = null;
+  let skipGripClick = false;
 
   function display(size) {
     stage.style.width = size ? size + "%" : "";
@@ -67,38 +69,70 @@ export function imageInspector(paragraph, image, markdown, actions) {
     width.value = size || "";
     measure.textContent = size ? size + "%" : "";
   }
-  function show(open) {
+  function show(open, { reveal = false, focusWidth = false } = {}) {
     options.hidden = !open;
     settings.setAttribute("aria-expanded", String(open));
     if (!open) options.querySelector("details").open = false;
+    if (open && reveal)
+      options.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (open && focusWidth) width.focus({ preventScroll: true });
   }
-  const toggle = () => show(options.hidden);
+  function openSettings(focusWidth = false) {
+    const behavior = { reveal: true, focusWidth };
+    if (!actions.reopen(behavior)) show(true, behavior);
+  }
+  function toggle() {
+    if (options.hidden) openSettings();
+    else {
+      commitWidth();
+      show(false);
+    }
+  }
   const changeWidth = (size) => {
-    if (size === value) return;
-    if (
-      actions.width(size, !options.hidden, document.activeElement === grip) ===
-      false
-    ) {
+    if (size === value) {
+      width.value = value || "";
+      return;
+    }
+    const updated = actions.width(
+      size,
+      !options.hidden,
+      document.activeElement === grip,
+    );
+    if (updated === false) {
       display(value);
       return;
     }
+    if (source.value === currentMarkdown) source.value = updated;
+    currentMarkdown = updated;
+    if (size === null) delete image.dataset.imageWidth;
+    else image.dataset.imageWidth = String(size);
     value = size;
     display(size);
   };
-  image.onpointerdown = (event) => event.preventDefault();
+  // Keep the active field in place until the click can commit its changes.
+  const keepFocus = (event) => event.preventDefault();
+  image.onmousedown = settings.onmousedown = grip.onmousedown = keepFocus;
   image.onclick = settings.onclick = toggle;
-  width.onchange = () =>
+  function commitWidth() {
     changeWidth(
       width.value === "" ? null : clampImageWidth(Number(width.value)),
     );
+  }
+  width.onchange = commitWidth;
   width.onkeydown = (event) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
     width.blur();
   };
+  for (const button of options.querySelectorAll("button"))
+    button.onmousedown = keepFocus;
   options.querySelector("[data-image-auto]").onclick = () => changeWidth(null);
-  options.querySelector("[data-image-replace]").onclick = actions.replace;
+  options.querySelector("[data-image-replace]").onclick = () => {
+    commitWidth();
+    actions.replace();
+  };
   options.querySelector("[data-image-done]").onclick = () => {
+    commitWidth();
     show(false);
     settings.focus({ preventScroll: true });
   };
@@ -107,10 +141,10 @@ export function imageInspector(paragraph, image, markdown, actions) {
 
   grip.onpointerdown = (event) => {
     if (event.button !== 0 || drag) return;
-    event.preventDefault();
     const available = paragraph.clientWidth;
     const bounds = stage.getBoundingClientRect();
     if (!available || !bounds.width || !bounds.height) return;
+    skipGripClick = false;
     drag = {
       id: event.pointerId,
       x: event.clientX,
@@ -127,22 +161,34 @@ export function imageInspector(paragraph, image, markdown, actions) {
     if (!drag || drag.id !== event.pointerId) return;
     const dx = event.clientX - drag.x,
       dy = (event.clientY - drag.y) * drag.ratio;
-    if (drag.size === value && Math.max(Math.abs(dx), Math.abs(dy)) < 3) return;
+    if (
+      !drag.moved &&
+      Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 3
+    )
+      return;
+    drag.moved = true;
     const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
     drag.size = clampImageWidth(((drag.width + delta) / drag.available) * 100);
     display(drag.size);
   };
   function finish(event, commit) {
     if (!drag || drag.id !== event.pointerId) return;
-    const size = drag.size;
+    const { size, moved } = drag;
+    skipGripClick = !!moved;
     drag = null;
     delete stage.dataset.resizing;
-    if (commit) changeWidth(size);
-    else display(value);
+    if (moved) {
+      if (commit) changeWidth(size);
+      else display(value);
+    }
   }
   grip.onpointerup = (event) => finish(event, true);
   grip.onpointercancel = grip.onlostpointercapture = (event) =>
     finish(event, false);
+  grip.onclick = (event) => {
+    if (!skipGripClick || event.detail === 0) openSettings(true);
+    skipGripClick = false;
+  };
   grip.onkeydown = (event) => {
     const direction = {
       ArrowLeft: -1,

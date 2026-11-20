@@ -1956,13 +1956,16 @@ g.workflow-anchored {
 }
 .image-settings-toggle {
   top: 3px;
+  inset-inline-end: auto;
+  inset-inline-start: 3px;
 }
 .image-settings-toggle svg {
   width: 15px;
   height: 15px;
 }
 .image-stage:is(:hover, :focus-within, [data-resizing])
-  :is(.image-settings-toggle, .image-grip) {
+  :is(.image-settings-toggle, .image-grip),
+.image-settings-toggle[aria-expanded="true"] {
   opacity: 1;
 }
 .image-resize-measure {

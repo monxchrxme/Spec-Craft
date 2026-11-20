@@ -700,20 +700,42 @@ function buildBlock(p, i, expanded) {
         alt: image.alt,
         title: image.title,
         width: Number(image.dataset.imageWidth) || null,
+        source: p.text,
       };
       box.showImageSettings = imageInspector(paragraph, image, p.text, {
-        width: (value, open, focus) =>
-          reviseImage(
-            i,
-            p.text,
-            imageWidthMarkdown(p.text, value),
-            open,
-            focus,
-          ),
-        source: (value) => reviseImage(i, p.text, value, true),
+        reopen: (options) => {
+          if (!editor && !tableEdit && !inlineGraph) return false;
+          const state = imagePosition(i, initial.source);
+          if (state)
+            host.children[state.origin]?.showImageSettings?.(true, options);
+          return true;
+        },
+        width: (value, open, focus) => {
+          const state = imagePosition(i, initial.source);
+          if (!state) return false;
+          const markup = imageWidthMarkdown(initial.source, value);
+          if (host.children[state.origin] !== box) {
+            replaceImage(state.origin, markup, open);
+            if (focus)
+              host.children[state.origin]
+                ?.querySelector(".image-grip")
+                ?.focus({ preventScroll: true });
+          } else {
+            const { start, end } = parts[state.origin];
+            patch(start, end, markup);
+            parts = parse();
+          }
+          initial.width = value;
+          initial.source = markup;
+          return markup;
+        },
+        source: (value) => {
+          const state = imagePosition(i, initial.source);
+          if (state) replaceImage(state.origin, value, true);
+        },
         replace: () => {
-          const state = imagePosition(i, p.text);
-          if (state) imageDialog(state.origin, { ...initial, source: p.text });
+          const state = imagePosition(i, initial.source);
+          if (state) imageDialog(state.origin, initial);
         },
       });
       box.append(deleteBlockButton(i, "Удалить изображение", "block-remove"));
@@ -742,16 +764,6 @@ function imagePosition(index, expected) {
   if (state && parts[state.origin]?.text === expected) return state;
   notice("Изображение изменилось. Откройте его настройки снова.");
   return null;
-}
-function reviseImage(index, expected, markdown, open, focus) {
-  const state = imagePosition(index, expected);
-  if (!state) return false;
-  replaceImage(state.origin, markdown, open);
-  if (focus)
-    host.children[state.origin]
-      ?.querySelector(".image-grip")
-      ?.focus({ preventScroll: true });
-  return true;
 }
 function replaceImage(index, markdown, open) {
   const { start, end } = parts[index];
