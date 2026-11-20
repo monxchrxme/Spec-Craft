@@ -6,6 +6,7 @@ import {
   BlobNotFoundError,
 } from "@vercel/blob";
 import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
+import { addReply } from "../lib/discussion.js";
 
 const secretPattern = /^[a-f0-9]{48}$/;
 const commentPattern = /^[a-f0-9-]{36}$/;
@@ -178,6 +179,10 @@ export default async function handler(req, res) {
           date: Date.now(),
           resolved: false,
         });
+      } else if (input.action === "reply" && owner) {
+        const result = addReply(data.comments, input, true);
+        if (result.error) return error(result.status, result.error);
+        if (result.unchanged) return reply(200, view(data));
       } else if (input.action === "resolve" && owner) {
         const comment = data.comments.find((item) => item.id === input.comment);
         if (!comment || typeof input.resolved !== "boolean")

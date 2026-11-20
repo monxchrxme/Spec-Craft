@@ -8,7 +8,14 @@ import {
   wrapTypedSelection,
 } from "./formatting.js";
 import { latex, paintMath } from "./math.js";
-import { showReview } from "./review.js";
+import { makeShare, showReview } from "./review.js";
+import {
+  collaborationRequest,
+  liveSession,
+  roleLabels,
+} from "./collaboration.js";
+import { snapshotOf } from "./merge-document.js";
+import { sharePanel } from "./share-panel.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
@@ -49,7 +56,8 @@ let doc,
   timer,
   feedbackTimer,
   loaded = true,
-  expandAll = false;
+  expandAll = false,
+  liveEdit = null;
 function notice(s) {
   clearTimeout(feedbackTimer);
   $("#notice").textContent = s;
@@ -110,6 +118,10 @@ function writeRecord(d) {
 }
 function save() {
   clearTimeout(timer);
+  if (liveEdit) {
+    liveEdit.client?.queue();
+    return true;
+  }
   try {
     if (doc && JSON.stringify(doc) !== savedRecords.get(doc.id)) {
       const base = savedRecords.get(doc.id);
@@ -124,6 +136,7 @@ function save() {
           savedRecords.delete(doc.id);
         }
         doc = { ...doc, id: crypto.randomUUID(), name: copyName(doc.name) };
+        delete doc.collaboration;
         notice("Файл изменён в другой вкладке. Ваши правки сохранены в копии.");
         docs.set(doc.id, doc);
         nav();
@@ -238,7 +251,7 @@ function nav() {
   $("#trash-count").textContent =
     [...docs.values()].filter((d) => d.trashed).length || "";
   for (const b of document.querySelectorAll(
-    '[data-action="ai"],[data-action="style"],[data-action="export"],[data-action="trace"],[data-action="links"],[data-action="versions"],#filename',
+    '[data-action="ai"],[data-action="style"],[data-action="export"],[data-action="trace"],[data-action="links"],[data-action="versions"],[data-action="share"],#filename',
   ))
     b.disabled = !doc;
   icons();
@@ -1015,6 +1028,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
   const item = content === undefined ? blocksToInsert[type] : ["", content];
   if (!item) return;
   let body = item[1];
+  if (type === "diagram" && liveEdit) body = identifyDiagrams(body);
   if (type === "requirement") {
     const max = Math.max(
       0,
@@ -1187,6 +1201,13 @@ function copyName(name) {
 // before changing metadata so edits made in another tab are preserved.
 function updateFile(id, mutate) {
   flush();
+  if (liveEdit && id === doc.id) {
+    const next = mutate(doc);
+    if (!next) return false;
+    doc = next;
+    save();
+    return true;
+  }
   if (doc?.id === id && !save()) return false;
   try {
     const raw = localStorage.getItem(prefix + id);
@@ -1238,6 +1259,7 @@ function fileActions(id) {
         id: crypto.randomUUID(),
         name: copyName(docs.get(id).name),
       };
+      delete next.collaboration;
       modal.close();
       docs.set(next.id, next);
       switchDoc(next);
@@ -1622,6 +1644,10 @@ function jumpTo(target) {
 }
 enableWikiSuggestions(() => specIndex(parse()).targets);
 let stopReview;
+function clearShareHash(kind) {
+  if (location.hash.startsWith("#" + kind + "="))
+    window.history.replaceState(null, "", location.pathname + location.search);
+}
 function openSharedReview(share, onClose) {
   if (!share?.id) return;
   flush();
@@ -1633,17 +1659,227 @@ function openSharedReview(share, onClose) {
     renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
     onClose: () => {
       stopReview = null;
-      if (location.hash.startsWith("#review="))
-        window.history.replaceState(
-          null,
-          "",
-          location.pathname + location.search,
-        );
+      clearShareHash("review");
       onClose?.();
     },
   });
 }
+function identifyDiagrams(markdown) {
+  const replacements = [],
+    ids = new Set();
+  for (const entry of parse(markdown)) {
+    if (entry.t.type !== "fence" || entry.t.info.trim() !== "studio-diagram")
+      continue;
+    try {
+      const graph = JSON.parse(entry.t.content);
+      if (graph.version !== 1 || !Array.isArray(graph.nodes)) continue;
+      if (typeof graph.id !== "string" || !graph.id || ids.has(graph.id)) {
+        graph.id = crypto.randomUUID();
+        replacements.push({ ...entry, replacement: fence(graph) });
+      }
+      ids.add(graph.id);
+    } catch {
+      // Invalid diagrams remain available as Markdown.
+    }
+  }
+  const newline = markdown.includes("\r\n") ? "\r\n" : "\n";
+  for (const { start, end, replacement } of replacements.reverse())
+    markdown =
+      markdown.slice(0, start) +
+      replacement.replace(/\n/g, newline) +
+      markdown.slice(end);
+  return markdown;
+}
+
+function sharingDialog() {
+  const panel = dialog("Поделиться документом", "");
+  const id = doc.id;
+  sharePanel({
+    panel,
+    share: doc.collaboration,
+    async publish() {
+      let record = docs.get(id);
+      let share = record?.collaboration;
+      if (!record) throw Error("Файл недоступен.");
+      if (!share) {
+        share = makeShare();
+        if (
+          !updateFile(id, (latest) => ({
+            ...latest,
+            collaboration: (share = latest.collaboration || share),
+          }))
+        )
+          throw Error("Не удалось сохранить доступ автора на этом устройстве.");
+        record = docs.get(id);
+      }
+      if (!share.published) {
+        const snapshot = snapshotOf(record);
+        snapshot.body = identifyDiagrams(snapshot.body);
+        await collaborationRequest(share, { action: "publish", snapshot });
+        share = { ...share, published: true };
+        if (!updateFile(id, (latest) => ({ ...latest, collaboration: share })))
+          throw Error(
+            "Документ опубликован. Повторите действие, чтобы открыть его.",
+          );
+      }
+      return share;
+    },
+    open: (share) => {
+      if (!panel.isConnected || !modal.open) return;
+      openLiveReview(share);
+    },
+  });
+}
+
+function openLiveReview(share) {
+  flush();
+  modal.close();
+  stopReview?.();
+  stopReview = showReview({
+    share,
+    parse,
+    renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
+    request: collaborationRequest,
+    labels: roleLabels,
+    onEdit: (state) => startLiveEditing(share, state),
+    onClose: () => {
+      stopReview = null;
+      clearShareHash("document");
+    },
+  });
+}
+
+function updateLiveControls() {
+  for (const action of ["collaboration-discussion", "collaboration-exit"])
+    $("[data-action=" + action + "]").hidden = !liveEdit;
+  $("[data-action=share]").hidden = !!liveEdit;
+  $("[data-action=collaboration-conflict]").hidden = true;
+  document.body.classList.toggle("live-editing", !!liveEdit);
+}
+
+function startLiveEditing(share, initial) {
+  if (!["owner", "editor"].includes(initial.role)) return;
+  stopReview?.();
+  stopReview = null;
+  const session = {
+    share,
+    previous: doc?.id,
+    mode,
+    scroll: viewport.scrollTop,
+  };
+  liveEdit = session;
+  doc = { ...initial.snapshot, id: "shared:" + share.id };
+  mode = "edit";
+  selected = 0;
+  expandAll = false;
+  updateLiveControls();
+  render();
+  nav();
+  viewport.scrollTop = source.scrollTop = 0;
+  session.client = liveSession({
+    share,
+    initial,
+    get: () => snapshotOf(doc),
+    apply(snapshot) {
+      doc = { ...snapshot, id: doc.id };
+      history.delete(doc.id);
+      render();
+      nav();
+    },
+    canApply: () =>
+      !editor &&
+      !tableEdit &&
+      !inlineGraph &&
+      !modal.open &&
+      document.activeElement !== source,
+    status(message, conflict = false) {
+      $("#save").textContent = message;
+      $("[data-action=collaboration-conflict]").hidden = !conflict;
+    },
+  });
+  $("#save").textContent = "Общий документ";
+  session.client.queue();
+}
+
+async function leaveLiveEditing(next) {
+  const session = liveEdit;
+  if (!session || session.leaving) return;
+  session.leaving = true;
+  source.blur();
+  flush();
+  if (
+    !(await session.client.flush()) &&
+    !confirm(
+      "Часть правок ещё не отправлена. Оставить их в черновике этой вкладки и выйти?",
+    )
+  ) {
+    session.leaving = false;
+    return;
+  }
+  session.client.stop();
+  history.delete(doc.id);
+  liveEdit = null;
+  updateLiveControls();
+  mode = session.mode;
+  activate(docs.get(session.previous) || availableDocs()[0]);
+  viewport.scrollTop = session.scroll;
+  next?.(session.share);
+}
+
+function compareLiveEdits() {
+  const session = liveEdit;
+  const other = session?.client.conflict();
+  if (!other) return;
+  const panel = dialog(
+    "Пересекающиеся правки",
+    "<p>Коллега изменил тот же участок. Сравните версии. Можно вручную объединить текст в поле «Мой вариант» перед отправкой.</p>" +
+      '<label>Текущий текст у коллег<textarea class="prompt" rows="9" readonly></textarea></label>' +
+      '<label>Мой вариант<textarea class="prompt" rows="9"></textarea></label>' +
+      '<div class="dialog-actions"><button data-keep>Принять вариант коллеги</button><button data-send class="primary">Сохранить мой вариант</button></div>',
+  );
+  const [theirs, mine] = panel.querySelectorAll("textarea");
+  theirs.value = other.body;
+  mine.value = doc.body;
+  const metadata = ({ name, kind, style }) =>
+    JSON.stringify(
+      { "Имя файла": name, Надпись: kind, Оформление: style },
+      null,
+      2,
+    );
+  const otherMeta = metadata(snapshotOf(other)),
+    mineMeta = metadata(snapshotOf(doc));
+  if (otherMeta !== mineMeta) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    const values = document.createElement("pre");
+    summary.textContent = "Имя и оформление";
+    values.textContent =
+      "Вариант коллеги\n" + otherMeta + "\n\nМой вариант\n" + mineMeta;
+    details.append(summary, values);
+    panel.querySelector(".dialog-actions").before(details);
+  }
+  panel.querySelector("[data-keep]").onclick = () => {
+    modal.close();
+    session.client.resolve(false);
+  };
+  panel.querySelector("[data-send]").onclick = () => {
+    modal.close();
+    setText(mine.value);
+    render();
+    session.client.resolve(true);
+  };
+}
+
 function syncReviewLink() {
+  if (liveEdit) {
+    void leaveLiveEditing(syncReviewLink);
+    return;
+  }
+  const live = /^#document=([a-f0-9]{48})\.([a-f0-9]{48})$/.exec(location.hash);
+  if (live) {
+    openLiveReview({ id: live[1], key: live[2] });
+    return;
+  }
   const match = /^#review=([a-f0-9]{48})$/.exec(location.hash);
   if (match) openSharedReview({ id: match[1] });
   else if (stopReview) {
@@ -1786,6 +2022,11 @@ function transferDialog() {
   };
 }
 const actions = {
+  share: sharingDialog,
+  "collaboration-conflict": compareLiveEdits,
+  "collaboration-discussion": () => leaveLiveEditing(openLiveReview),
+  "collaboration-exit": () =>
+    leaveLiveEditing(() => clearShareHash("document")),
   "expand-diagrams": toggleAllDiagrams,
   "edit-doc-label": editDocumentLabel,
   transfer: transferDialog,
@@ -1924,7 +2165,7 @@ document.addEventListener("visibilitychange", () => {
     inlineGraph?.publish?.();
     if (tableEdit) finishCell(true);
     save();
-  }
+  } else liveEdit?.client?.queue();
 });
 nav();
 render();

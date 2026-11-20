@@ -138,6 +138,7 @@ export function specIndex(parts) {
               node: n.id,
               label: n.label,
               diagram: g.title || "Блок-схема",
+              diagramId: typeof g.id === "string" ? g.id : undefined,
               reqs: Array.isArray(n.requirements)
                 ? n.requirements
                     .filter((s) => typeof s === "string")

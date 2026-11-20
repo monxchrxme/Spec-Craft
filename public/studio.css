@@ -1587,3 +1587,73 @@ body:has(.inline-graph) .paper {
   text-align: left;
   color: var(--accent);
 }
+
+.live-editing .sidebar > section:first-of-type,
+.live-editing .sidebar .local,
+.live-editing
+  .side-utilities
+  button:not(
+    [data-action="trace"],
+    [data-action="links"],
+    [data-action="style"]
+  ) {
+  display: none;
+}
+#workspace [data-action="collaboration-conflict"] {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.share-invitation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.share-invitation small {
+  color: var(--muted);
+  margin-inline-end: auto;
+}
+.share-invitation button,
+.review-role {
+  color: var(--accent);
+}
+.review-role {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.review-reply {
+  margin: 8px 0 0 10px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--line);
+}
+.review-owner {
+  margin-inline-start: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.review-comment .review-reply-button {
+  margin-inline-start: 8px;
+}
+.review-reply-form {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 760px) {
+  .topbar
+    :is([data-action="share"], [data-action="collaboration-discussion"])
+    span {
+    display: none;
+  }
+  #review-workspace .topbar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #review-workspace h1 {
+    min-width: 0;
+    flex: 1 1 128px;
+    text-overflow: ellipsis;
+  }
+}
