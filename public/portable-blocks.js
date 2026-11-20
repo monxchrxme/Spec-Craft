@@ -43,21 +43,44 @@ function linkLabel(title) {
   );
 }
 
-export function tocMarkdown(headings, numbered = false) {
-  if (!headings.length) return "Заголовки появятся здесь автоматически.";
+function tocHierarchy(headings) {
   const ancestors = [];
   const counters = [];
+  return headings.map((heading) => {
+    while (ancestors.length && ancestors.at(-1) >= heading.level)
+      ancestors.pop();
+    const depth = ancestors.length;
+    counters.length = depth + 1;
+    counters[depth] = (counters[depth] || 0) + 1;
+    ancestors.push(heading.level);
+    return { ...heading, depth, number: counters.join(".") + "." };
+  });
+}
+
+export function tocEntries(headings, numbered) {
+  const widths = [];
   return headings
-    .map(({ level, label, slug }) => {
-      while (ancestors.length && ancestors.at(-1) >= level) ancestors.pop();
-      const depth = ancestors.length;
-      counters.length = depth + 1;
-      counters[depth] = (counters[depth] || 0) + 1;
-      ancestors.push(level);
-      const prefix = numbered ? "\u00a0\u00a0".repeat(depth) : "  ".repeat(depth) + "- ";
-      const number = numbered ? counters.join(".") + " " : "";
+    .map(({ label, slug, depth, number }) => {
+      const marker = numbered ? number : ["•", "◦", "▪"][depth % 3];
+      widths[depth] = Math.max(widths[depth] || 0, marker.length);
+      // Authors sometimes include the same section number in the heading itself.
+      const prefix =
+        numbered && label.startsWith(number + " ") ? number.length + 1 : 0;
+      return { label: label.slice(prefix) || "Раздел", slug, depth, marker };
+    })
+    .map((entry) => ({ ...entry, markerChars: widths[entry.depth] }));
+}
+
+export function tocMarkdown(headings, numbered = false) {
+  if (!headings.length) return "Заголовки появятся здесь автоматически.";
+  return tocEntries(headings, numbered)
+    .map(({ depth, marker, label, slug }) => {
+      const indent = numbered
+        ? "\u00a0\u00a0".repeat(depth)
+        : "  ".repeat(depth) + "- ";
+      const number = numbered ? marker + " " : "";
       return (
-        prefix +
+        indent +
         "[" +
         number +
         linkLabel(label) +
@@ -137,8 +160,8 @@ export function portableBlocks(md) {
         });
     }
     const titleTokens = new Set(titleIndexes.values());
-    const sections = headings.filter(
-      (heading) => !titleTokens.has(heading.index),
+    const sections = tocHierarchy(
+      headings.filter((heading) => !titleTokens.has(heading.index)),
     );
     for (const token of tokens) {
       if (token.type === "spec_toc")
@@ -150,10 +173,31 @@ export function portableBlocks(md) {
     }
   });
 
-  md.renderer.rules.spec_toc = (tokens, index) =>
-    '<nav class="document-toc" aria-label="Оглавление">' +
-    md.render(tokens[index].meta.markdown, { portableFragment: true }) +
-    "</nav>";
+  md.renderer.rules.spec_toc = (tokens, index) => {
+    const { headings, numbered, markdown } = tokens[index].meta;
+    const escape = md.utils.escapeHtml;
+    const rows = tocEntries(headings, numbered).map(
+      ({ slug, label, depth, marker, markerChars }) =>
+        '<li style="--toc-depth:' +
+        depth +
+        ";--toc-marker:" +
+        markerChars +
+        'ch"><a href="#' +
+        escape(encodeURIComponent(slug)) +
+        '"><span class="toc-marker">' +
+        marker +
+        "</span> <span>" +
+        escape(label) +
+        "</span></a></li>",
+    );
+    return (
+      '<nav class="document-toc" aria-label="Оглавление">' +
+      (rows.length
+        ? '<ol role="list">' + rows.join("") + "</ol>"
+        : "<p>" + escape(markdown) + "</p>") +
+      "</nav>"
+    );
+  };
   md.renderer.rules.spec_bibliography = (tokens, index) =>
     '<div class="document-bibliography" data-style="' +
     (bibliographyEntries(tokens[index].content)?.style || "numbered") +

@@ -5,6 +5,7 @@ import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
+import { tocEntries } from "./portable-blocks.js";
 import { codeLines } from "./code-highlight.js";
 
 const a4 = { width: 595.28, height: 841.89 };
@@ -687,6 +688,70 @@ async function mermaidBlock(source, options) {
   }
 }
 
+function contentsRows(meta, settings, pageNumbers) {
+  const { size, accent, headingDestinations } = settings;
+  return tocEntries(meta.headings, meta.numbered).map((entry) => {
+    const { marker, markerChars, label, slug, depth } = entry;
+    const linkToDestination = headingDestinations.get(slug);
+    return {
+      columns: [
+        { width: markerChars * size * 0.65, text: marker, linkToDestination },
+        {
+          width: "*",
+          text: [{ text: label, linkToDestination, specTocSlug: slug }],
+        },
+      ],
+      columnGap: size * 0.55,
+      color: accent,
+      margin: [depth * size * 1.45, 0, pageNumbers ? size * 3 : 0, size * 0.16],
+    };
+  });
+}
+
+// Only the final layout knows where headings landed and where a wrapped title
+// ends. Fill the reserved gutter on that last line without changing pagination.
+function finishContentsPages(pages, headingPages) {
+  for (const page of pages) {
+    for (const { type, item: line } of page.items) {
+      if (type !== "line" || !line.lastLineInParagraph) continue;
+      const last = line.inlines.at(-1);
+      const pageNumber =
+        last?.specTocSlug && headingPages.get(last.specTocSlug);
+      if (!pageNumber) continue;
+      const text = String(pageNumber);
+      const size = last.fontSize;
+      const width = last.font.widthOfString(text, size, last.fontFeatures);
+      const x = page.pageSize.width - page.pageMargins.right - width;
+      const x1 = line.x + line.getWidth() + size * 0.5;
+      const x2 = x - size * 0.5;
+      if (x2 - x1 >= size * 0.4) {
+        const y = line.y + line.getAscenderHeight() - size * 0.1;
+        page.items.push({
+          type: "vector",
+          item: {
+            type: "line",
+            x1,
+            x2,
+            y1: y,
+            y2: y,
+            lineWidth: size * 0.09,
+            lineColor: "#585363",
+            lineCap: "round",
+            dash: { length: 0.1, space: size * 0.42 },
+          },
+        });
+      }
+      line.inlines.push({
+        ...last,
+        x: x - line.x,
+        text,
+        width,
+        color: "#262431",
+      });
+    }
+  }
+}
+
 export async function exportPdf(parts, md, doc, profile = "screen") {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
@@ -783,6 +848,8 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         : diagramBlock(part.t.content, options);
       pageSize = rendered.pageSize || pageSize;
       blocks = [rendered.node];
+    } else if (part.t.type === "spec_toc" && part.t.meta.headings.length) {
+      blocks = contentsRows(part.t.meta, settings, style.pdfPageNumbers);
     } else {
       if (columns > 6 && profile === "a4")
         note("В таблице много столбцов для A4. Проверьте ширину и читаемость.");
@@ -803,7 +870,15 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       if (blocks[0]?.headlineLevel) {
         const target = selectedTargets.find((t) => t.row < 0);
         const first = blocks[0].stack.find((node) => node.text);
-        if (first && target) first.id = "spec-" + target.key;
+        if (target) {
+          if (first) first.id = "spec-" + target.key;
+          else
+            blocks[0].stack.unshift({
+              text: "\u200b",
+              fontSize: 0.1,
+              id: "spec-" + target.key,
+            });
+        }
       }
     }
     if (!blocks.length) continue;
@@ -889,6 +964,15 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         if (!locations.has(pageNumber)) locations.set(pageNumber, []);
         locations.get(pageNumber).push({ index, top });
       }
+    }
+    if (style.pdfPageNumbers) {
+      const headingPages = new Map(
+        settings.index.headings.map(({ index }) => [
+          parts[index].t.meta.anchor,
+          blocksOnPages.get(index)?.[0],
+        ]),
+      );
+      finishContentsPages(pages, headingPages);
     }
     for (const blocks of locations.values())
       blocks.sort((a, b) => a.top - b.top || a.index - b.index);

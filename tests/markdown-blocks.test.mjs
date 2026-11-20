@@ -207,10 +207,10 @@ test("the generated Markdown table of contents uses stable duplicate heading anc
     md,
   );
   assert.equal(materializeToc(numbered, md), numbered);
-  assert(numbered.includes("[1 Проверка](#"));
-  assert(numbered.includes("[1.1 Дочерний](#"));
-  assert(numbered.includes("[2 Проверка](#"));
-  assert(numbered.includes("[2.1 Ещё один подраздел](#"));
+  assert(numbered.includes("[1. Проверка](#"));
+  assert(numbered.includes("[1.1. Дочерний](#"));
+  assert(numbered.includes("[2. Проверка](#"));
+  assert(numbered.includes("[2.1. Ещё один подраздел](#"));
   assert(!numbered.includes("[Оглавление]"));
 });
 

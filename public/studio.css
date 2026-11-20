@@ -2527,11 +2527,27 @@ g.workflow-anchored {
   font-size: 12px;
   color: var(--muted);
 }
-.document-toc ul {
-  padding-inline-start: 1.45em;
+.document-toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .document-toc li {
-  margin-block: 3px;
+  padding-inline-start: calc(var(--toc-depth) * 1.45em);
+  margin-block: 0.15em;
+}
+.document-toc li a {
+  display: grid;
+  grid-template-columns: var(--toc-marker) minmax(0, 1fr);
+  column-gap: 0.55em;
+  align-items: baseline;
+  text-decoration: none;
+}
+.document-toc .toc-marker {
+  white-space: nowrap;
+}
+.document-toc li a:hover span:last-child {
+  text-decoration: underline;
 }
 .document-bibliography > :is(ol, ul) {
   padding-inline-start: 1.55em;
