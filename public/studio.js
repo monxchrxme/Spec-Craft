@@ -1182,14 +1182,23 @@ function addCoverFields(box, index, data) {
   })) {
     const wrapper = document.createElement("label");
     wrapper.textContent = label;
-    const multi = ["agreed", "approved", "authors"].includes(key);
+    const multi = ["program", "agreed", "approved", "authors"].includes(key);
     const input = document.createElement(
-      key === "type" ? "select" : multi ? "textarea" : "input",
+      ["type", "printSet"].includes(key)
+        ? "select"
+        : multi
+          ? "textarea"
+          : "input",
     );
     if (key === "type")
       for (const [id, [name]] of Object.entries(documentTypes))
         input.add(new Option(name, id));
-    input.value = data[key] || "";
+    input.setAttribute("aria-label", label);
+    if (key === "printSet") {
+      input.add(new Option("Документ с титула", "document"));
+      input.add(new Option("Лист утверждения и документ", "complete"));
+    }
+    input.value = data[key] || (key === "printSet" ? "complete" : "");
     input.onfocus = () => {
       flush();
       input.dataset.group = "";

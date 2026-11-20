@@ -82,6 +82,8 @@ export const documentTypes = {
   ],
 };
 export const fields = {
+  printSet: "Комплект печати",
+  approvalId: "Обозначение листа утверждения",
   program: "Наименование программы",
   documentName: "Наименование документа",
   marking: "Особая отметка",
@@ -92,7 +94,11 @@ export const fields = {
   agreed: "Согласовали",
   approved: "Утвердили",
   authors: "Разработчики и нормоконтроль",
-  inventory: "Отметка об учёте и хранении",
+  inventory: "Инвентарный номер подлинника",
+  originalSignature: "Подпись и дата подлинника",
+  replacedInventory: "Взамен инвентарного номера",
+  duplicateInventory: "Инвентарный номер дубликата",
+  duplicateSignature: "Подпись и дата дубликата",
   change: "Строка изменений",
   changePages: "Изменённые листы (например, ЛУ, 2, 4–6)",
   letter: "Литера",
@@ -181,12 +187,16 @@ const subsections = {
 };
 export function templateBody(type) {
   const [, ...sections] = documentTypes[type];
-  const info = ["19.404-79", "19.201-78", "19.301-79"].includes(type)
+  const info = ["19.201-78", "19.301-79"].includes(type)
     ? []
     : ["# Аннотация", "# Содержание"];
   return (
     [
-      declaration({ type, year: String(new Date().getFullYear()) }),
+      declaration({
+        type,
+        ...(type === "19.404-79" ? { printSet: "document" } : {}),
+        year: String(new Date().getFullYear()),
+      }),
       ...info,
       ...sections.flatMap((s) => [
         "# " + s,

@@ -17,6 +17,12 @@ import { latexProjection } from "../public/latex-source.js";
 import { portableBlocks } from "../public/portable-blocks.js";
 import { latex } from "../public/math.js";
 
+import {
+  frontMatter,
+  pageFurniture,
+  registrationTable,
+} from "../public/espd-print.js";
+
 const scope = {};
 runInNewContext(
   readFileSync(
@@ -155,4 +161,36 @@ test("editing text beside inline code, links and escaped asterisks keeps their c
   const view = tex(body),
     next = view.apply(view.text.replace("Before", "After"));
   assert.equal(md.render(next), md.render(body.replace("Before", "After")));
+});
+
+test("the explanatory note starts with its title, while legacy projects retain the approval sheet", () => {
+  const template = readProfile(templateBody("19.404-79")).data;
+  const sample = {
+    ...template,
+    program: "Комплекс\nКомпонент",
+    approvalId: "ЛУ-123",
+    inventory: "А&Б",
+  };
+  const numbers = { total: 7, approval: 0 };
+  const front = frontMatter(sample, numbers);
+  assert.deepEqual(
+    front.map((page) => page.section[0].id),
+    ["espd-title"],
+  );
+  assert.match(JSON.stringify(front), /ЛУ-123/);
+  assert.match(JSON.stringify(front), /Листов 7/);
+  const legacy = frontMatter(
+    { type: template.type },
+    { total: 8, approval: 1 },
+  );
+  assert.deepEqual(
+    legacy.map((page) => page.section[0].id),
+    ["espd-approval", "espd-title"],
+  );
+  assert.match(
+    pageFurniture(sample, numbers).background(1).stack[0].svg,
+    /А&amp;Б/,
+  );
+  assert.equal(pageFurniture(sample, numbers).background(2), null);
+  assert.equal(registrationTable([]).table.body[0][0].colSpan, 10);
 });

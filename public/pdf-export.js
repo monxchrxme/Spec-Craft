@@ -465,6 +465,9 @@ async function markdownBlocks(html, settings) {
     return {
       stack: await flow(el, {
         alignment: align,
+        ...(settings.gost && tag === "p" && el.parentNode === template.content
+          ? { leadingIndent: (12 * 72) / 25.4 }
+          : {}),
         specParagraph: true,
         specKeepLines:
           settings.keepParagraph ||
@@ -818,7 +821,18 @@ export async function exportPdf(
         }
         heading.alignment = level === 1 ? "center" : "left";
         heading.fontSize = size;
-        heading.margin = [0, level === 1 ? 0 : size * 4, 0, size * 3];
+        heading.font = "Sans";
+        heading.margin = [
+          level === 1 ? 0 : (12 * 72) / 25.4,
+          level === 1 || parts[i - 1]?.t.meta?.espd ? 0 : size * 4,
+          0,
+          size * 3,
+        ];
+        if (parts[i + 1]?.t.meta?.changeRegister) {
+          // The printed form includes its own title. Keep a destination for contents links.
+          heading.stack = [{ text: "\u200b", fontSize: 0.1 }];
+          heading.margin = [0, 0, 0, 0];
+        }
         if (contents) {
           blocks.push(
             ...settings.index.headings
@@ -1017,7 +1031,8 @@ export async function exportPdf(
           0,
           Array.from({ length: page }, (_, i) => i + 1),
         );
-        locations.set(page, [{ index: 0, top: espdMargins[1] }]);
+        for (let n = 1; n <= page; n++)
+          locations.set(n, [{ index: 0, top: espdMargins[1] }]);
       }
       if (!node.id?.startsWith("spec-pdf-block-") || !node.positions.length)
         continue;
@@ -1068,7 +1083,7 @@ export async function exportPdf(
       defaultStyle: {
         font,
         fontSize: size,
-        color: "#262431",
+        color: gost ? "#000000" : "#262431",
         lineHeight: leading,
       },
       content: sections.length ? sections : [{ text: "" }],

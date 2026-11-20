@@ -1,3 +1,4 @@
+import { previewCanvas, openPdfTask } from "./pdf-pages.js";
 export function printPdf(blob, filename, onFallback) {
   const url = URL.createObjectURL(blob);
   const frame = document.createElement("iframe");
@@ -41,13 +42,6 @@ function formatSheet({ width, height }) {
   if (Math.abs(width - 841.89) < 1 && Math.abs(height - 595.28) < 1)
     return "A4 · альбомный";
   return "Увеличенный лист";
-}
-
-function previewCanvas(view, density) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.ceil(view.width * density));
-  canvas.height = Math.max(1, Math.ceil(view.height * density));
-  return canvas;
 }
 
 export function pdfPreview(
@@ -535,20 +529,12 @@ export function pdfPreview(
         layout = data;
         byIndex = new Map(data.blocks.map((entry) => [entry.index, entry]));
         by("download").disabled = by("print").disabled = false;
-        const lib = await import("./vendor/pdfjs/pdf.min.mjs");
-        if (request !== pending) return;
-        lib.GlobalWorkerOptions.workerSrc = new URL(
-          "./vendor/pdfjs/pdf.worker.min.mjs",
-          import.meta.url,
-        ).href;
-        const bytes = new Uint8Array(await data.blob.arrayBuffer());
-        if (request !== pending) return;
-        task = lib.getDocument({
-          data: bytes,
-          useWasm: false,
-          isEvalSupported: false,
-          enableXfa: false,
-        });
+        const nextTask = await openPdfTask(data.blob);
+        if (request !== pending) {
+          void nextTask.destroy().catch(() => {});
+          return;
+        }
+        task = nextTask;
         const loaded = await task.promise;
         if (request !== pending) return;
         pdf = loaded;

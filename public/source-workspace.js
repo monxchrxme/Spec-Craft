@@ -1,3 +1,4 @@
+import { sourcePages } from "./pdf-pages.js";
 import { latexProjection } from "./latex-source.js";
 
 export function sourceWorkspace({
@@ -16,7 +17,6 @@ export function sourceWorkspace({
   let tex,
     timer,
     generation = 0,
-    pdfUrl,
     visible = false,
     lastDoc,
     lastMode,
@@ -49,34 +49,28 @@ export function sourceWorkspace({
     measured = null;
   }
   const span = (i) => spans[i] || [0, 0];
-  function releasePdf() {
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    pdfUrl = null;
-  }
+  let selectedScrollTop;
+  const pages = sourcePages(preview, (i) => select(i, false));
   function schedule(delay = 120) {
     clearTimeout(timer);
     const stamp = ++generation;
     if (!visible) return;
     root.dataset.preview = view.value;
-    sync.disabled = view.value !== "document";
-    if (view.value !== "pdf") releasePdf();
+    sync.disabled = view.value === "off";
+    if (view.value !== "pdf") pages.hide();
     timer = setTimeout(async () => {
       if (stamp !== generation) return;
       if (view.value === "off") return;
       if (view.value === "pdf") {
-        if (!pdfUrl) preview.textContent = "Подготовка PDF…";
-        try {
-          const result = await requestPdf();
-          if (stamp !== generation) return;
-          releasePdf();
-          pdfUrl = URL.createObjectURL(result.blob);
-          const frame = document.createElement("iframe");
-          frame.title = "Листы PDF";
-          frame.src = pdfUrl;
-          preview.replaceChildren(frame);
-        } catch (e) {
-          if (stamp === generation) preview.textContent = e.message;
-        }
+        const { body, id } = current();
+        await pages.show(
+          requestPdf(),
+          () =>
+            visible &&
+            view.value === "pdf" &&
+            current().body === body &&
+            current().id === id,
+        );
         return;
       }
       const oldTop = preview.scrollTop,
@@ -136,6 +130,10 @@ export function sourceWorkspace({
     );
   }
   function reveal(i) {
+    if (sync.checked && view.value === "pdf") {
+      pages.scrollToBlock(i);
+      return;
+    }
     const box = preview.children[i];
     if (sync.checked && view.value === "document" && box) {
       const delta =
@@ -184,16 +182,24 @@ export function sourceWorkspace({
     return tops;
   }
   source.addEventListener("scroll", () => {
-    if (!visible || !sync.checked || view.value !== "document" || scrollFrame)
+    if (selectedScrollTop === source.scrollTop) {
+      selectedScrollTop = undefined;
+      return;
+    }
+    if (!visible || !sync.checked || view.value === "off" || scrollFrame)
       return;
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = 0;
-      if (!visible || !sync.checked || view.value !== "document") return;
+      if (!visible || !sync.checked || view.value === "off") return;
       const tops = blockTops(),
         index = Math.max(
           0,
           tops.findLastIndex((y) => y <= source.scrollTop + 8),
         );
+      if (view.value === "pdf") {
+        pages.scrollToBlock(index);
+        return;
+      }
       const box = preview.children[index];
       if (!box) return;
       const fraction = Math.max(
@@ -211,7 +217,7 @@ export function sourceWorkspace({
         8;
     });
   });
-  function select(i) {
+  function select(i, follow = true) {
     const [from, to] = span(i);
     source.focus({ preventScroll: true });
     source.setSelectionRange(from, to);
@@ -219,8 +225,9 @@ export function sourceWorkspace({
       0,
       (blockTops()[i] || 0) - source.clientHeight * 0.25,
     );
+    if (!follow) selectedScrollTop = source.scrollTop;
     choose(i);
-    reveal(i);
+    if (follow) reveal(i);
   }
   preview.onclick = (e) => {
     if (e.target.closest("a,button,input,summary,iframe")) return;
@@ -243,7 +250,7 @@ export function sourceWorkspace({
   };
   divider.onpointermove = (e) => {
     if (dragging) {
-      const r = root.getBoundingClientRect();
+      const r = divider.parentElement.getBoundingClientRect();
       width(((e.clientX - r.left) * 100) / r.width);
     }
   };
@@ -268,13 +275,17 @@ export function sourceWorkspace({
       clearTimeout(timer);
       const { body, mode, id, parts } = current();
       if (lastDoc !== id || mode !== lastMode) source.dataset.group = "";
+      if (lastDoc !== id) {
+        pages.hide();
+        preview.scrollTop = 0;
+      }
       lastDoc = id;
       lastMode = mode;
       if (!on) {
         tex = null;
         measured = null;
         mirror?.replaceChildren();
-        releasePdf();
+        pages.hide();
         preview.replaceChildren();
         return;
       }

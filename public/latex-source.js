@@ -285,9 +285,11 @@ function partTex(p, index, assets) {
   if (t.type === "espd_title")
     return [
       "\\begin{SpecTitle}",
-      ...["type", ...Object.keys(espdFields)].map(
-        (k) => "\\SpecField{" + k + "}{" + encodeField(t.meta[k] || "") + "}",
-      ),
+      ...["type", ...Object.keys(espdFields)]
+        .filter((k) => t.meta[k] || ["program", "designation"].includes(k))
+        .map(
+          (k) => "\\SpecField{" + k + "}{" + encodeField(t.meta[k] || "") + "}",
+        ),
       "\\end{SpecTitle}",
     ].join("\n");
   const children = inline?.children?.filter(
