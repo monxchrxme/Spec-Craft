@@ -83,6 +83,14 @@ button.primary:hover:enabled {
   display: none !important;
 }
 #workspace {
+  --sidebar-default-width: 228px;
+  --sidebar-min-width: 155px;
+  --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 550px, 480px);
+  --sidebar-width: clamp(
+    var(--sidebar-min-width),
+    var(--sidebar-user-width, var(--sidebar-default-width)),
+    var(--sidebar-max-width)
+  );
   height: 100dvh;
   display: flex;
   overflow: hidden;
@@ -135,13 +143,53 @@ button.primary:hover:enabled {
   margin-top: auto;
 }
 .sidebar {
-  width: 228px;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-min-width);
+  max-width: var(--sidebar-max-width);
   background: #f8f9fb;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   flex: none;
   overflow: hidden;
+}
+.sidebar-resizer {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 12px;
+  margin-inline: -6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 calc(50% - 1px);
+  background: var(--accent);
+  opacity: 0;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 11px);
+  left: calc(50% - 1.5px);
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: #a9a5bb;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+.sidebar-resizer[data-resizing]::before {
+  opacity: 1;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.sidebar-resizer[data-resizing]::after {
+  background: var(--accent);
+}
+.sidebar-resizer:focus-visible {
+  outline-offset: -2px;
 }
 .sidebar-navigation {
   flex: 1;
@@ -901,7 +949,8 @@ footer {
   border-radius: 50%;
   margin-right: 7px;
 }
-.hide-side .sidebar {
+.hide-side .sidebar,
+.hide-side .sidebar-resizer {
   display: none;
 }
 dialog {
@@ -1050,8 +1099,8 @@ select {
   display: none;
 }
 @media (max-width: 980px) {
-  .sidebar {
-    width: 190px;
+  #workspace {
+    --sidebar-default-width: 190px;
   }
   .topbar,
   .controls {
@@ -1069,6 +1118,11 @@ select {
   }
 }
 @media (max-width: 760px) {
+  #workspace {
+    --sidebar-default-width: 230px;
+    --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 48px, 480px);
+    --sidebar-top: 60px;
+  }
   .rail {
     display: none;
   }
@@ -1076,14 +1130,26 @@ select {
     display: none;
     position: absolute;
     z-index: 4;
-    top: 60px;
+    top: var(--sidebar-top);
     bottom: 25px;
     left: 0;
-    width: 230px;
     box-shadow: 4px 8px 15px #0002;
   }
   .show-side .sidebar {
     display: flex;
+  }
+  .sidebar-resizer {
+    display: none;
+    position: absolute;
+    z-index: 5;
+    top: var(--sidebar-top);
+    bottom: 25px;
+    left: var(--sidebar-width);
+    width: 16px;
+    margin-inline: -8px;
+  }
+  .show-side .sidebar-resizer {
+    display: block;
   }
   .sidebar-navigation > .topbar-toggle {
     display: inline-flex;
@@ -1097,9 +1163,7 @@ select {
   }
   #workspace:has(#workspace-toolbar[hidden]) {
     --compact-header-height: 36px;
-  }
-  #workspace:has(#workspace-toolbar[hidden]) .sidebar {
-    top: var(--compact-header-height);
+    --sidebar-top: var(--compact-header-height);
   }
   #workspace-toolbar[hidden] + .compact-mobile-header {
     display: flex;
@@ -1317,9 +1381,9 @@ body:has(.inline-graph) .paper {
   --paper-inline-padding: clamp(12px, 2vw, 32px);
 }
 @media (min-width: 761px) and (max-width: 1130px) {
-  #workspace:has(.graph-dock:not([hidden])) .sidebar,
-  #workspace:has(#modal[open]) .sidebar {
-    width: 155px;
+  #workspace:has(.graph-dock:not([hidden]), #modal[open]) {
+    --sidebar-default-width: 155px;
+    --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 610px, 480px);
   }
 }
 @media (max-width: 760px) {

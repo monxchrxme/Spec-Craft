@@ -52,6 +52,7 @@ import {
 } from "./document-block-editors.js";
 import { setMermaidPresentation } from "./mermaid-presentation.js";
 import { highlightCode } from "./code-highlight.js";
+import { enableSidebarResize } from "./sidebar-width.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -2873,6 +2874,11 @@ document.addEventListener("visibilitychange", () => {
 });
 nav();
 render();
+enableSidebarResize(
+  $("#workspace"),
+  $("#workspace-sidebar"),
+  $(".sidebar-resizer"),
+);
 try {
   if (localStorage.getItem(toolbarKey) === "true") setToolbarCollapsed(true);
 } catch {

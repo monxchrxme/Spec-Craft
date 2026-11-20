@@ -49,7 +49,7 @@
           <i data-lucide="settings-2"></i>
         </button>
       </nav>
-      <aside class="sidebar">
+      <aside class="sidebar" id="workspace-sidebar">
         <div class="sidebar-navigation">
           <div class="brand">SpecCraft<span>Студия Markdown</span></div>
           <button
@@ -129,6 +129,15 @@
           <i data-lucide="hard-drive"></i> Локальное пространство
         </div>
       </aside>
+      <div
+        class="sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-controls="workspace-sidebar"
+        aria-label="Ширина левой панели"
+        title="Перетащите для изменения ширины. Двойной щелчок возвращает исходную ширину."
+        tabindex="0"
+      ></div>
       <main>
         <div id="workspace-toolbar">
           <header class="topbar">
