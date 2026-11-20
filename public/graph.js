@@ -173,28 +173,26 @@ export function normalize(raw) {
   }
   return g;
 }
-function bounds(g) {
+function bounds(nodes, paths = []) {
   let x = Infinity,
     y = Infinity,
     r = 0,
     b = 0;
-  for (const n of g.nodes) {
+  for (const n of nodes) {
     x = Math.min(x, n.x);
     y = Math.min(y, n.y);
     r = Math.max(r, n.x + n.width);
     b = Math.max(b, n.y + n.height);
   }
-  for (const e of g.edges) {
-    for (const p of e.points || []) {
-      if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
-        x = Math.min(x, p.x);
-        y = Math.min(y, p.y);
-        r = Math.max(r, p.x);
-        b = Math.max(b, p.y);
-      }
+  for (const path of paths) {
+    for (const [px, py] of path) {
+      x = Math.min(x, px);
+      y = Math.min(y, py);
+      r = Math.max(r, px);
+      b = Math.max(b, py);
     }
   }
-  return g.nodes.length ? { x, y, r, b } : { x: 0, y: 0, r: 500, b: 170 };
+  return nodes.length ? { x, y, r, b } : { x: 0, y: 0, r: 500, b: 170 };
 }
 function port(n, side) {
   return {
@@ -265,7 +263,29 @@ export function styleFrame(card, g) {
     );
   else card.style.removeProperty("--view-height");
 }
-// Each control point is on the curve, so existing hand-routed paths stay editable.
+function removeBacktracks(points) {
+  const path = [];
+  for (const point of points) {
+    while (path.length > 1) {
+      const [x, y] = path.at(-2),
+        [u, v] = path.at(-1);
+      const dx = u - x,
+        dy = v - y;
+      const nextX = point[0] - u,
+        nextY = point[1] - v;
+      if (
+        Math.abs(dx * nextY - dy * nextX) > 0.0001 ||
+        dx * nextX + dy * nextY >= 0
+      )
+        break;
+      path.pop();
+    }
+    const last = path.at(-1);
+    if (!last || last[0] !== point[0] || last[1] !== point[1]) path.push(point);
+  }
+  return path;
+}
+// Curve control points also serve as editing handles.
 export function routePoints(a, b, edge) {
   const [start, end] = anchors(a, b, edge);
   let mid = (edge.points || [])
@@ -293,7 +313,8 @@ export function routePoints(a, b, edge) {
           [end[0], my],
         ];
   }
-  return [start, ...mid, end];
+  const points = [start, ...mid, end];
+  return edge.route === "curve" ? points : removeBacktracks(points);
 }
 export function samePoint(a, b) {
   return (
@@ -350,7 +371,14 @@ function curvePath(points) {
   return d;
 }
 export function draw(g, options = {}) {
-  const box = bounds(g),
+  const nodes = new Map(g.nodes.map((n) => [n.id, n]));
+  const paths = new Map(
+    g.edges.map((edge) => [
+      edge.id,
+      routePoints(nodes.get(edge.from), nodes.get(edge.to), edge),
+    ]),
+  );
+  const box = bounds(g.nodes, paths.values()),
     editor = !!options.editor,
     pad = 24,
     w = Math.max(840, box.r + 130),
@@ -374,11 +402,10 @@ export function draw(g, options = {}) {
   }
   const defs = el("defs");
   svg.append(defs);
-  const nodes = new Map(g.nodes.map((n) => [n.id, n]));
   for (const module of g.modules || []) {
     const members = g.nodes.filter((n) => n.moduleId === module.id);
     if (!members.length) continue;
-    const b = bounds({ nodes: members, edges: [] }),
+    const b = bounds(members),
       color = safeColor(module.color, "#7b72bc");
     const x = b.x - 16,
       y = b.y - 32;
@@ -416,7 +443,9 @@ export function draw(g, options = {}) {
   for (const e of g.edges) {
     const a = nodes.get(e.from),
       b = nodes.get(e.to),
-      [start, end] = anchors(a, b, e);
+      pts = paths.get(e.id),
+      start = pts[0],
+      end = pts.at(-1);
     const col = safeColor(e.color, colors.edge),
       marker = uid("arrow");
     const weight = num(e.weight, 1.6, 1, 8);
@@ -442,10 +471,11 @@ export function draw(g, options = {}) {
       }),
     );
     defs.append(arrow);
-    const pts = routePoints(a, b, e),
-      mid = pts.slice(1, -1),
+    const mid = pts.slice(1, -1),
+      selected = options.edges?.has(e.id) || options.edge === e.id,
       group = el("g", {
         "data-edge": e.id,
+        ...(selected ? { "data-selected": "" } : {}),
         style: editor ? "cursor:pointer" : "",
       });
     let path = "M " + pts.map((p) => p.join(" ")).join(" L ");
@@ -478,11 +508,23 @@ export function draw(g, options = {}) {
         "stroke-width": 16,
       }),
     );
+    if (selected)
+      group.append(
+        el("path", {
+          d: path,
+          fill: "none",
+          stroke: "#bca9ec",
+          "stroke-width": Math.max(3.5, weight) + 5,
+          "stroke-opacity": 0.65,
+          "stroke-linejoin": "round",
+          "pointer-events": "none",
+        }),
+      );
     const line = el("path", {
       d: path,
       fill: "none",
       stroke: col,
-      "stroke-width": options.edge === e.id ? Math.max(3.5, weight) : weight,
+      "stroke-width": selected ? Math.max(3.5, weight) : weight,
       "stroke-linejoin": "round",
       "data-edge-line": "",
     });
@@ -512,8 +554,10 @@ export function draw(g, options = {}) {
       );
     }
     if (editor && options.edge === e.id) {
+      const visiblePoints = new Set(mid.map((p) => p.join(",")));
       (e.points || []).forEach((p, i) => {
         if (
+          !visiblePoints.delete([p.x, p.y].join(",")) ||
           e.lockedSegments?.some(
             (segment) => samePoint(segment.from, p) || samePoint(segment.to, p),
           )

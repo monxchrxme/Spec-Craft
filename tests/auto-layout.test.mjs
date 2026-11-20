@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { arrangeNodes, routeEdges } from "../public/auto-layout.js";
-import { anchors } from "../public/graph.js";
+import { anchors, routePoints } from "../public/graph.js";
 
 const node = (id, x, y, extra = {}) => ({
   id,
@@ -19,7 +19,7 @@ test("a selected route goes around a central obstacle and preserves other links"
   const e = { id: "direct", from: "a", to: "b", dashed: true, label: "Запрос" },
     other = { id: "manual", from: "a", to: "wall", route: "curve" };
   const graph = { nodes: [a, wall, b], edges: [e, other] };
-  assert.equal(routeEdges(graph, new Set(), "direct"), 0);
+  assert.equal(routeEdges(graph, new Set(), new Set(["direct"])), 0);
   assert.equal(e.route, "orthogonal");
   assert(e.dashed);
   assert.equal(other.route, "curve");
@@ -153,4 +153,85 @@ test("a locked route segment keeps its coordinates when a node moves", () => {
   graph.nodes.push(node("obstacle", 320, 150));
   assert.equal(routeEdges(graph, scope), 1);
   assert.deepEqual(edge.points, lastValid);
+});
+
+test("the router takes a detour instead of doubling back near a locked segment", () => {
+  const a = node("a", 60, 60);
+  const b = node("b", 550, 210);
+  const lock = { from: { x: 180, y: 70 }, to: { x: 250, y: 70 } };
+  const edge = {
+    id: "e",
+    from: a.id,
+    to: b.id,
+    fromSide: "right",
+    toSide: "left",
+    lockedSegments: [lock],
+  };
+  assert.equal(
+    routeEdges({ nodes: [a, b], edges: [edge] }, new Set([a.id])),
+    0,
+  );
+  const [start, end] = anchors(a, b, edge);
+  const rawPath = [start, ...edge.points.map(({ x, y }) => [x, y]), end];
+  assert.equal(new Set(rawPath.map((p) => p.join(","))).size, rawPath.length);
+  assert.deepEqual(routePoints(a, b, edge), rawPath);
+  const i = edge.points.findIndex(
+    (p) => p.x === lock.from.x && p.y === lock.from.y,
+  );
+  assert(i >= 0);
+  assert.deepEqual(edge.points.slice(i, i + 2), [lock.from, lock.to]);
+});
+
+test("older routes hide a retraced diagonal and keep the visible segments", () => {
+  const a = node("a", 0, 0);
+  const b = node("b", 400, 100);
+  const edge = {
+    fromSide: "right",
+    toSide: "left",
+    route: "orthogonal",
+    points: [
+      { x: 170, y: 30 },
+      { x: 245, y: 105 },
+      { x: 170, y: 30 },
+      { x: 170, y: 130 },
+    ],
+  };
+  const original = structuredClone(edge.points);
+  assert.deepEqual(routePoints(a, b, edge), [
+    [100, 30],
+    [170, 30],
+    [170, 130],
+    [400, 130],
+  ]);
+  assert.deepEqual(edge.points, original);
+});
+
+test("routing multiple selected arrows leaves even adjacent unselected arrows intact", () => {
+  const a = node("a", 30, 100);
+  const b = node("b", 390, 210);
+  const c = node("c", 390, 390);
+  const d = node("d", 30, 390);
+  const edges = [
+    { id: "one", from: a.id, to: b.id, route: "curve" },
+    { id: "two", from: b.id, to: c.id, route: "straight" },
+    {
+      id: "keep",
+      from: d.id,
+      to: c.id,
+      route: "curve",
+      points: [{ x: 280, y: 310 }],
+    },
+  ];
+  const unchanged = structuredClone(edges[2]);
+  assert.equal(
+    routeEdges(
+      { nodes: [a, b, c, d], edges },
+      new Set([c.id]),
+      new Set(["one", "two"]),
+    ),
+    0,
+  );
+  assert.equal(edges[0].route, "orthogonal");
+  assert.equal(edges[1].route, "orthogonal");
+  assert.deepEqual(edges[2], unchanged);
 });

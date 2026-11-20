@@ -45,7 +45,23 @@ function simple(points) {
   return out;
 }
 
-function pathBetween(start, end, boxes, fromSide, toSide) {
+function overlapsRun([a, b], [c, d]) {
+  return [0, 1].some((axis) => {
+    const fixed = 1 - axis;
+    return (
+      a[fixed] === b[fixed] &&
+      a[fixed] === c[fixed] &&
+      a[fixed] === d[fixed] &&
+      Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])) <
+        Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis]))
+    );
+  });
+}
+const steps = Object.values(sides);
+
+function pathBetween(start, end, boxes, fromSide, toSide, occupied) {
+  const open = (a, b) =>
+    !blocked(a, b, boxes) && !occupied.some((run) => overlapsRun(run, [a, b]));
   const alongPort = (from, to, side) =>
     side
       ? sides[side][0] * (to[0] - from[0]) + sides[side][1] * (to[1] - from[1])
@@ -80,13 +96,18 @@ function pathBetween(start, end, boxes, fromSide, toSide) {
     if (
       alongPort(start, path[1], fromSide) >= 0 &&
       alongPort(end, path.at(-2), toSide) >= 0 &&
-      path.slice(1).every((point, i) => !blocked(path[i], point, boxes))
+      path.slice(1).every((point, i) => open(path[i], point))
     )
       return path;
   }
   const axis = (i, lo, hi) =>
     [
-      ...new Set([start[i], end[i], ...boxes.flatMap((r) => [r[lo], r[hi]])]),
+      ...new Set([
+        start[i],
+        end[i],
+        ...boxes.flatMap((r) => [r[lo], r[hi]]),
+        ...occupied.flatMap(([a, b]) => [a[i], b[i]]),
+      ]),
     ].sort((a, b) => a - b);
   const xs = axis(0, "left", "right"),
     ys = axis(1, "top", "bottom");
@@ -119,7 +140,7 @@ function pathBetween(start, end, boxes, fromSide, toSide) {
     return first;
   }
   function visit(x, y, dir, cost, parent) {
-    const key = (y * xs.length + x) * 3 + dir;
+    const key = (y * xs.length + x) * (steps.length + 1) + dir;
     if ((best.get(key) ?? Infinity) <= cost) return;
     best.set(key, cost);
     push({
@@ -140,13 +161,14 @@ function pathBetween(start, end, boxes, fromSide, toSide) {
     if (here[0] === end[0] && here[1] === end[1]) {
       const path = [];
       for (let q = p; q; q = q.parent) path.push([xs[q.x], ys[q.y]]);
-      return path.reverse();
+      return simple(path.reverse());
     }
-    for (const [dx, dy] of Object.values(sides)) {
+    for (const [index, [dx, dy]] of steps.entries()) {
       const x = p.x + dx,
         y = p.y + dy,
-        dir = dx ? 1 : 2;
+        dir = index + 1;
       if (x < 0 || x >= xs.length || y < 0 || y >= ys.length) continue;
+      if (x === p.parent?.x && y === p.parent?.y) continue;
       const next = [xs[x], ys[y]];
       if (
         (!p.parent && alongPort(here, next, fromSide) < 0) ||
@@ -155,7 +177,7 @@ function pathBetween(start, end, boxes, fromSide, toSide) {
           alongPort(end, here, toSide) < 0)
       )
         continue;
-      if (!blocked(here, next, boxes))
+      if (open(here, next))
         visit(
           x,
           y,
@@ -184,14 +206,38 @@ function portChoices(preferred, fixed) {
 function offset(point, side) {
   return point.map((v, i) => v + sides[side][i] * portClearance);
 }
-function routeThroughLocks(start, end, boxes, fromSide, toSide, locks) {
+function routeThroughLocks(start, end, boxes, fromSide, toSide, locks, leads) {
   const points = [start];
+  const occupied = [...leads];
+  const fixed = locks.map(({ from, to }) => [
+    [from.x, from.y],
+    [to.x, to.y],
+  ]);
+  for (const run of fixed) {
+    if (
+      blocked(...run, boxes) ||
+      occupied.some((other) => overlapsRun(run, other))
+    )
+      return null;
+    occupied.push(run);
+  }
   let cursor = start,
     departure = fromSide;
-  for (const { from, to } of locks) {
-    const a = [from.x, from.y],
-      b = [to.x, to.y];
-    if (blocked(a, b, boxes)) return null;
+  function connect(target, approach) {
+    const path = pathBetween(
+      cursor,
+      target,
+      boxes,
+      departure,
+      approach,
+      occupied,
+    );
+    if (!path) return false;
+    for (let i = 1; i < path.length; i++) occupied.push([path[i - 1], path[i]]);
+    points.push(...path.slice(1));
+    return true;
+  }
+  for (const [a, b] of fixed) {
     const horizontal = a[1] === b[1];
     const direction = horizontal
       ? b[0] > a[0]
@@ -206,14 +252,12 @@ function routeThroughLocks(start, end, boxes, fromSide, toSide, locks) {
       top: "bottom",
       bottom: "top",
     }[direction];
-    const join = pathBetween(cursor, a, boxes, departure, approach);
-    if (!join) return null;
-    points.push(...join.slice(1), b);
+    if (!connect(a, approach)) return null;
+    points.push(b);
     cursor = b;
     departure = direction;
   }
-  const tail = pathBetween(cursor, end, boxes, departure, toSide);
-  return tail ? points.concat(tail.slice(1)) : null;
+  return connect(end, toSide) ? points : null;
 }
 
 function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
@@ -243,14 +287,20 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
         );
       if (
         !direct &&
-        (blocked(from, s, fromObstacles) || blocked(to, t, toObstacles))
+        (blocked(from, s, fromObstacles) ||
+          blocked(to, t, toObstacles) ||
+          overlapsRun([from, s], [to, t]))
       )
         continue;
+      const leads = [
+        [from, s],
+        [to, t],
+      ];
       const route = direct
         ? []
         : locks.length
-          ? routeThroughLocks(s, t, boxes, fromSide, toSide, locks)
-          : pathBetween(s, t, boxes, fromSide, toSide);
+          ? routeThroughLocks(s, t, boxes, fromSide, toSide, locks, leads)
+          : pathBetween(s, t, boxes, fromSide, toSide, leads);
       if (!route) continue;
       const bends = locks.length
         ? route
@@ -268,14 +318,14 @@ function routeEdge(edge, fromNode, toNode, boxes, fromObstacles, toObstacles) {
     }
   return false;
 }
-export function routeEdges(graph, scope, selectedEdge = null) {
+export function routeEdges(graph, scope, edgeIds = null) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n])),
     boxes = graph.nodes.map(clearance);
   let missed = 0;
   for (const edge of graph.edges) {
     if (
-      selectedEdge
-        ? edge.id !== selectedEdge
+      edgeIds
+        ? !edgeIds.has(edge.id)
         : !scope.has(edge.from) && !scope.has(edge.to)
     )
       continue;

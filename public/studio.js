@@ -201,6 +201,16 @@ function parse(body = doc.body) {
   }
   return res;
 }
+function updateDocumentLabel() {
+  const label = typeof doc?.kind === "string" ? doc.kind : "";
+  const text = $("#kind");
+  const button = $("[data-action=edit-doc-label]");
+  text.textContent = label;
+  text.hidden = mode !== "read" || !label;
+  button.firstElementChild.textContent = label || "Добавить надпись";
+  button.hidden = mode === "read";
+  $(".doc-label-stroke").hidden = !label;
+}
 function nav() {
   const files = $("#files");
   files.replaceChildren();
@@ -224,7 +234,7 @@ function nav() {
     files.append(row);
   }
   $("#filename").textContent = doc?.name || "";
-  $("#kind").textContent = doc?.kind || "";
+  updateDocumentLabel();
   $("#trash-count").textContent =
     [...docs.values()].filter((d) => d.trashed).length || "";
   for (const b of document.querySelectorAll(
@@ -306,7 +316,7 @@ viewport.addEventListener("click", (event) => {
     editor &&
     (event.target === viewport ||
       event.target === host ||
-      event.target.matches(".paper, .doc-label, .doc-label > span, #kind"))
+      event.target.matches(".paper, .doc-label, .doc-label-stroke, #kind"))
   )
     flush();
 });
@@ -341,8 +351,9 @@ function styles() {
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
-const diagramCards = () =>
-  [...host.querySelectorAll(".diagram-card:not(.inline-graph)")];
+const diagramCards = () => [
+  ...host.querySelectorAll(".diagram-card:not(.inline-graph)"),
+];
 const isExpanded = (card) => card.classList.contains("diagram-expanded");
 function updateExpandButton() {
   const button = $("[data-action=expand-diagrams]");
@@ -406,6 +417,7 @@ function render() {
     $("#wordcount").textContent = "";
     return;
   }
+  updateDocumentLabel();
   parts = parse();
   selected = Math.min(selected, Math.max(0, parts.length - 1));
   styles();
@@ -1257,6 +1269,26 @@ function renameFile(id) {
     }
   };
 }
+function editDocumentLabel() {
+  const body = dialog(
+    "Надпись над документом",
+    '<form class="template-form"><label>Текст надписи<input maxlength="80"></label><small>Оставьте поле пустым, чтобы скрыть надпись.</small><button class="primary">Сохранить</button></form>',
+  );
+  const id = doc.id;
+  const form = body.querySelector("form");
+  const input = form.querySelector("input");
+  input.value = doc.kind || "";
+  input.focus({ preventScroll: true });
+  input.select();
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    if (!updateFile(id, (latest) => ({ ...latest, kind: input.value.trim() })))
+      return;
+    modal.close();
+    updateDocumentLabel();
+    $("[data-action=edit-doc-label]").focus({ preventScroll: true });
+  };
+}
 function trashDialog() {
   const body = dialog("Корзина", "");
   const trash = [...docs.values()].filter((d) => d.trashed);
@@ -1755,6 +1787,7 @@ function transferDialog() {
 }
 const actions = {
   "expand-diagrams": toggleAllDiagrams,
+  "edit-doc-label": editDocumentLabel,
   transfer: transferDialog,
   trace: () => panels.trace(),
   links: () => {
@@ -1819,8 +1852,11 @@ document.addEventListener("keydown", (e) => {
   }
   if (
     cmd &&
-    e.key.toLowerCase() === "z" &&
-    !e.target.closest("textarea,input,[contenteditable]")
+    !e.altKey &&
+    !e.isComposing &&
+    (e.key.toLowerCase() === "z" ||
+      (e.code === "KeyZ" && !/^[a-z]$/i.test(e.key))) &&
+    !e.target.closest("textarea,input,select,[contenteditable]")
   ) {
     e.preventDefault();
     if (inlineGraph) {

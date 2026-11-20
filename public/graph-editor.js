@@ -25,7 +25,6 @@ export function graphEditor(
 ) {
   let graph = normalize(raw),
     node = null,
-    edge = null,
     link = null,
     connecting = false,
     zoom = 0.9,
@@ -37,6 +36,7 @@ export function graphEditor(
     multi = false,
     activeModule = null;
   let selected = new Set(),
+    selectedEdges = new Set(),
     panMode = false;
   const history = [],
     future = [];
@@ -75,17 +75,26 @@ export function graphEditor(
   const placement = panel.querySelector(".graph-placement");
   const stage = panel.querySelector(".graph-stage"),
     hint = panel.querySelector("[role=status]");
+  const singleEdge = () =>
+    selectedEdges.size === 1 ? selectedEdges.values().next().value : null;
   const current = () =>
     graph.nodes.find((n) => n.id === node) ||
-    graph.edges.find((e) => e.id === edge) ||
+    graph.edges.find((e) => e.id === singleEdge()) ||
     graph.modules?.find((m) => m.id === activeModule) ||
     graph;
   function select(ids, moduleId = null) {
     selected = new Set(ids);
     node = selected.size === 1 && !moduleId ? [...selected][0] : null;
     activeModule = moduleId;
-    edge = null;
+    selectedEdges.clear();
     activeSegment = null;
+  }
+  function selectEdge(id, additive = false) {
+    const ids = additive ? new Set(selectedEdges) : new Set();
+    if (ids.has(id)) ids.delete(id);
+    else ids.add(id);
+    select([]);
+    selectedEdges = ids;
   }
   function tidyModules() {
     if (graph.modules)
@@ -94,14 +103,14 @@ export function graphEditor(
       );
   }
   function deleteSelection() {
-    if (drag || (!selected.size && !edge)) return;
+    if (drag || (!selected.size && !selectedEdges.size)) return;
     checkpoint();
     if (selected.size) {
       graph.nodes = graph.nodes.filter((n) => !selected.has(n.id));
       graph.edges = graph.edges.filter(
         (e) => !selected.has(e.from) && !selected.has(e.to),
       );
-    } else graph.edges = graph.edges.filter((e) => e.id !== edge);
+    } else graph.edges = graph.edges.filter((e) => !selectedEdges.has(e.id));
     if (selected.has(link)) link = null;
     tidyModules();
     select([]);
@@ -118,7 +127,7 @@ export function graphEditor(
       e.target.closest("input,textarea,select,[contenteditable]")
     )
       return;
-    if (!selected.size && !edge) return;
+    if (!selected.size && !selectedEdges.size) return;
     e.preventDefault();
     e.stopPropagation();
     if (!e.repeat) deleteSelection();
@@ -150,7 +159,8 @@ export function graphEditor(
         editor: true,
         zoom,
         selected,
-        edge,
+        edges: selectedEdges,
+        edge: singleEdge(),
         module: activeModule,
         segment: activeSegment,
       }),
@@ -172,9 +182,11 @@ export function graphEditor(
         ? link
           ? "Выберите конечную фигуру"
           : "Выберите начальную фигуру"
-        : selected.size > 1
-          ? "Выбрано фигур: " + selected.size
-          : "Shift + щелчок или рамка для выделения";
+        : selectedEdges.size
+          ? "Выбрано стрелок: " + selectedEdges.size
+          : selected.size > 1
+            ? "Выбрано фигур: " + selected.size
+            : "Shift + щелчок по стрелкам или фигурам · рамка для фигур";
   }
   function field(label, key, kind, def, opts) {
     const l = document.createElement("label");
@@ -225,10 +237,13 @@ export function graphEditor(
     b.onclick = fn;
     props.append(b);
   }
-  function segmentsOf(connection) {
+  function connectionPoints(connection) {
     const a = graph.nodes.find((n) => n.id === connection.from),
       b = graph.nodes.find((n) => n.id === connection.to);
-    return editableSegments(routePoints(a, b, connection), connection);
+    return routePoints(a, b, connection);
+  }
+  function segmentsOf(connection) {
+    return editableSegments(connectionPoints(connection), connection);
   }
   function reroutePinned(ids) {
     const pinned = graph.edges.filter(
@@ -239,17 +254,19 @@ export function graphEditor(
   function reshapeSegment(connection, segment, replacement, pin) {
     const locks = [...(connection.lockedSegments || [])];
     const original = locks.findIndex((item) => sameSegment(item, segment));
-    const route = connection.points || [];
+    const route = connectionPoints(connection);
     const position =
       original >= 0
         ? original
         : locks.filter((item) => {
-            const i = route.findIndex((p) => samePoint(p, item.from));
-            return i >= 0 && i < segment.index - 1;
+            const i = route.findIndex(([x, y]) =>
+              samePoint({ x, y }, item.from),
+            );
+            return i >= 0 && i < segment.index;
           }).length;
     locks.splice(position, original >= 0 ? 1 : 0, replacement);
     const next = { ...connection, lockedSegments: locks };
-    if (routeEdges({ ...graph, edges: [next] }, new Set(), next.id))
+    if (routeEdges({ ...graph, edges: [next] }, new Set(), new Set([next.id])))
       return null;
     if (!pin && original < 0) {
       locks.splice(position, 1);
@@ -263,7 +280,7 @@ export function graphEditor(
   }
   function focusIssue(issue) {
     select(issue.node ? [issue.node] : []);
-    if (!issue.node) edge = issue.edge || null;
+    if (!issue.node && issue.edge !== undefined) selectEdge(issue.edge);
     refresh();
     const svg = stage.querySelector("svg"),
       rect = stage.getBoundingClientRect();
@@ -298,6 +315,7 @@ export function graphEditor(
     props.replaceChildren();
     renderChecks();
     const picker = document.createElement("select");
+    const edge = singleEdge();
     picker.setAttribute("aria-label", "Выбрать элемент схемы");
     picker.add(new Option("Вся схема", ""));
     graph.nodes.forEach((n, i) =>
@@ -311,9 +329,11 @@ export function graphEditor(
         new Option("Связь · " + (e.label || e.from + " → " + e.to), "e" + i),
       ),
     );
-    if (selected.size > 1 && !activeModule) {
+    if ((selected.size > 1 && !activeModule) || selectedEdges.size > 1) {
       const summary = new Option(
-        "Выделено фигур: " + selected.size,
+        selectedEdges.size
+          ? "Выделено стрелок: " + selectedEdges.size
+          : "Выделено фигур: " + selected.size,
         "selection",
       );
       summary.disabled = true;
@@ -323,15 +343,16 @@ export function graphEditor(
       ? "m" + graph.modules.findIndex((m) => m.id === activeModule)
       : node
         ? "n" + graph.nodes.findIndex((n) => n.id === node)
-        : edge
+        : edge !== null
           ? "e" + graph.edges.findIndex((e) => e.id === edge)
-          : selected.size > 1
+          : selected.size > 1 || selectedEdges.size > 1
             ? "selection"
             : "";
     picker.onchange = () => {
       const key = picker.value,
         idx = Number(key.slice(1));
-      if (key.startsWith("m")) {
+      if (key.startsWith("e")) selectEdge(graph.edges[idx].id, multi);
+      else if (key.startsWith("m")) {
         const id = graph.modules[idx].id;
         select(
           graph.nodes.filter((n) => n.moduleId === id).map((n) => n.id),
@@ -344,7 +365,6 @@ export function graphEditor(
         else ids.add(id);
         select(ids);
       } else select(key.startsWith("n") ? [graph.nodes[idx].id] : []);
-      edge = key.startsWith("e") ? graph.edges[idx].id : null;
       refresh();
       stage.focus({ preventScroll: true });
     };
@@ -356,9 +376,11 @@ export function graphEditor(
         ? "Выделено: " + selected.size
         : node
           ? "Фигура"
-          : edge
-            ? "Связь"
-            : "Схема";
+          : selectedEdges.size > 1
+            ? "Выделено стрелок: " + selectedEdges.size
+            : edge !== null
+              ? "Связь"
+              : "Схема";
     props.append(head);
     if (selected.size > 1 || activeModule) {
       if (activeModule) {
@@ -513,7 +535,7 @@ export function graphEditor(
         select([copy.id]);
         refresh();
       });
-    } else if (edge) {
+    } else if (edge !== null) {
       field("Подпись", "label", "text", "");
       field("Цвет линии", "color", "color", colors.edge);
       const sides = {
@@ -624,6 +646,11 @@ export function graphEditor(
           activeSegment = null;
           refresh();
         });
+    } else if (selectedEdges.size) {
+      const description = document.createElement("p");
+      description.textContent =
+        "«Проложить стрелки» перестроит только эти связи.";
+      props.append(description);
     } else {
       field("Название", "title", "text", "Блок-схема");
       const p = document.createElement("p");
@@ -661,13 +688,15 @@ export function graphEditor(
       wrap.append(assignment);
       props.append(wrap);
     }
-    if (selected.size || edge)
+    if (selected.size || selectedEdges.size)
       action(
         selected.size > 1
           ? "Удалить выделенные фигуры"
           : node || activeModule
             ? "Удалить фигуру"
-            : "Удалить связь",
+            : selectedEdges.size > 1
+              ? "Удалить выделенные связи"
+              : "Удалить связь",
         deleteSelection,
       );
     const details = document.createElement("details");
@@ -751,6 +780,8 @@ export function graphEditor(
       return;
     }
     if (cmd === "layout" || cmd === "route") {
+      const onlyEdges =
+        cmd === "route" && selectedEdges.size ? selectedEdges : null;
       const scope =
         selected.size > 1 || activeModule || (cmd === "route" && selected.size)
           ? selected
@@ -758,10 +789,11 @@ export function graphEditor(
       const next = clone(graph);
       try {
         if (cmd === "layout") arrangeNodes(next, scope);
-        const missed = routeEdges(next, scope, cmd === "route" ? edge : null);
+        const missed = routeEdges(next, scope, onlyEdges);
         if (JSON.stringify(next) !== JSON.stringify(graph)) {
           checkpoint();
           graph = next;
+          activeSegment = null;
         }
         refresh();
         hint.textContent = missed
@@ -769,8 +801,8 @@ export function graphEditor(
             missed +
             ". Раздвиньте соседние фигуры."
           : "Готово · " +
-            (cmd === "route" && edge
-              ? "выбранная связь"
+            (onlyEdges
+              ? "выделено стрелок: " + onlyEdges.size
               : scope.size === graph.nodes.length
                 ? "вся схема"
                 : "выделенные фигуры");
@@ -940,8 +972,7 @@ export function graphEditor(
         checkpoint();
         const id = uid("e");
         graph.edges.push({ id, from: link, to: n });
-        select([]);
-        edge = id;
+        selectEdge(id);
         link = null;
         connecting = false;
       } else {
@@ -954,6 +985,8 @@ export function graphEditor(
     const additive = e.shiftKey || e.ctrlKey || e.metaKey || multi;
     const start = position(e);
     const alreadySelected = selected.has(n);
+    const point = e.target.dataset.point;
+    const segment = e.target.dataset.segment;
     if (n) {
       if (!alreadySelected) select(additive ? [...selected, n] : [n]);
     } else if (m) {
@@ -961,13 +994,11 @@ export function graphEditor(
         graph.nodes.filter((n) => n.moduleId === m).map((n) => n.id),
         m,
       );
-    } else {
-      if (!additive || ed) select([]);
-      edge = ed || null;
-    }
-    const point = e.target.dataset.point;
-    const segment = e.target.dataset.segment;
-    if (ed && segment !== undefined) {
+    } else if (ed !== undefined) {
+      if (point === undefined && segment === undefined)
+        selectEdge(ed, additive);
+    } else if (!additive) select([]);
+    if (ed !== undefined && segment !== undefined) {
       const connection = current();
       activeSegment = segmentsOf(connection)[Number(segment)];
       if (activeSegment)
@@ -1000,9 +1031,15 @@ export function graphEditor(
         h: targets[0].height,
       };
     } else if (point !== undefined) {
-      const p = current().points[Number(point)];
-      drag = { type: "move", start, targets: [{ p, x: p.x, y: p.y }] };
-    } else if (!ed) {
+      const connection = current();
+      const p = connection.points[Number(point)];
+      drag = {
+        type: "move",
+        start,
+        connection,
+        targets: [{ p, x: p.x, y: p.y }],
+      };
+    } else if (ed === undefined) {
       drag = { type: "box", start, base: new Set(selected) };
     }
     if (drag) {
@@ -1024,6 +1061,14 @@ export function graphEditor(
     if (!drag.started && Math.abs(dx) + Math.abs(dy) < 3) return;
     if (!drag.started && drag.type !== "segment") {
       if (drag.type !== "box") checkpoint();
+      if (drag.connection && drag.connection.route !== "curve") {
+        const { p } = drag.targets[0];
+        const points = connectionPoints(drag.connection).slice(1, -1);
+        if (points.length < drag.connection.points.length)
+          drag.connection.points = points.map(([x, y]) =>
+            samePoint({ x, y }, p) ? p : { x, y },
+          );
+      }
       drag.started = true;
     }
     const round = (v) => (snap ? Math.round(v / 14) * 14 : Math.round(v));

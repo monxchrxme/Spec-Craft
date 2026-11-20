@@ -146,7 +146,17 @@
           </section>
           <article class="paper">
             <div class="doc-label">
-              <span></span><b id="kind"></b>
+              <span class="doc-label-stroke" aria-hidden="true"></span>
+              <b id="kind" hidden></b>
+              <button
+                class="doc-label-edit"
+                type="button"
+                data-action="edit-doc-label"
+                aria-label="Изменить надпись над документом"
+                title="Изменить надпись над документом"
+              >
+                <span></span><i data-lucide="pencil" aria-hidden="true"></i>
+              </button>
               <button
                 class="expand-diagrams"
                 data-action="expand-diagrams"

@@ -317,12 +317,32 @@ main {
   color: var(--doc-accent);
   margin: 0 0 10px;
 }
-.doc-label span {
+.doc-label-stroke {
+  flex: 0 0 17px;
   width: 17px;
   height: 2px;
   background: currentColor;
 }
+.doc-label :is(#kind, .doc-label-edit) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.doc-label-edit {
+  flex: 0 1 auto;
+  padding: 3px 5px;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+.doc-label-edit svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
 .expand-diagrams {
+  flex-shrink: 0;
   margin-inline-start: auto;
   padding: 5px 8px;
   color: var(--muted);
@@ -933,10 +953,13 @@ select {
   width: 15px;
   height: 15px;
 }
+.inline-tools .inline-done,
+.inline-graph [data-cmd="save"] {
+  color: var(--muted);
+  background: transparent;
+}
 .inline-tools .inline-done {
   margin-inline-start: auto;
-  color: var(--accent);
-  background: var(--canvas);
 }
 .props > select {
   width: 100%;
