@@ -253,7 +253,7 @@ export function pdfPreview(
       if (sheet.pending !== token) return;
       const view = source.getViewport({ scale: sheet.scale });
       const pixels = Math.min(
-        Math.max(1.5, devicePixelRatio || 1),
+        Math.max(1.5, (devicePixelRatio || 1) * 1.25),
         3,
         Math.sqrt(10e6 / (view.width * view.height)),
       );
