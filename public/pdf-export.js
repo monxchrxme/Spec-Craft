@@ -458,7 +458,6 @@ function diagramSheet({
   separate,
   extra,
   fitted,
-  note,
 }) {
   const fit = (page) =>
     Math.min(
@@ -467,8 +466,6 @@ function diagramSheet({
       1,
     );
   if (profile === "a4") {
-    if (fitted + 0.01 < desired)
-      note("Подписи схемы могут быть мелкими на листе A4.");
     return { scale: fitted, pageSize: separate ? a4 : null };
   }
   if (!separate && fitted + 0.01 >= desired)
@@ -481,8 +478,6 @@ function diagramSheet({
     desired,
     (14400 - 2 * margin - extra - 2) / Math.max(width, height),
   );
-  if (scale + 0.01 < desired)
-    note("Схема достигла предельного размера листа PDF. Проверьте подписи.");
   return {
     scale,
     pageSize: {
@@ -656,6 +651,9 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   let normal = [];
   const warnings = [];
   const blocksOnPages = new Map();
+  const locations = new Map();
+  const automaticSheets = new Set();
+  let pageSizes = [];
   const flush = () => {
     if (normal.length)
       sections.push({
@@ -731,6 +729,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       manualBreak,
     };
     if (pageSize) {
+      if (!separate) automaticSheets.add(i);
       const headings = [];
       if (!manualBreak) {
         while (normal.at(-1)?.heading) {
@@ -756,8 +755,12 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   for (const section of sections) {
     const units = section.section;
     units.forEach((unit, index) => {
-      if (unit.specKeep && units[index + 1])
-        nextBlock.set(unit.id, units[index + 1].id);
+      if (!unit.specKeep) return;
+      let next = index + 1;
+      if (unit.heading) {
+        while (units[next]?.heading && units[next + 1]) next++;
+      }
+      if (units[next]) nextBlock.set(unit.id, units[next].id);
     });
   }
   const pageBreakBefore = (node, container) => {
@@ -774,7 +777,11 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       .getPreviousNodesOnPage()
       .some((item) => item.id?.startsWith("spec-pdf-block-"));
   };
-  pageBreakBefore.specLayout = (nodes) => {
+  pageBreakBefore.specLayout = (nodes, pages) => {
+    pageSizes = pages.map(({ pageSize, pageMargins }) => ({
+      ...pageSize,
+      marginLeft: pageMargins.left,
+    }));
     for (const node of nodes) {
       if (!node.id?.startsWith("spec-pdf-block-") || !node.positions.length)
         continue;
@@ -782,7 +789,21 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       blocksOnPages.set(index, [
         ...new Set(node.positions.map((position) => position.pageNumber)),
       ]);
+      const starts = new Map();
+      for (const { pageNumber, top } of node.positions) {
+        if (!Number.isFinite(top)) continue;
+        starts.set(
+          pageNumber,
+          Math.min(top, starts.get(pageNumber) ?? Infinity),
+        );
+      }
+      for (const [pageNumber, top] of starts) {
+        if (!locations.has(pageNumber)) locations.set(pageNumber, []);
+        locations.get(pageNumber).push({ index, top });
+      }
     }
+    for (const blocks of locations.values())
+      blocks.sort((a, b) => a.top - b.top || a.index - b.index);
   };
   const fonts = Object.fromEntries(
     [...new Set(["Sans", "Mono", font])].map((name) => [name, fontFiles(name)]),
@@ -796,6 +817,15 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       pageSize: "A4",
       pageOrientation: "portrait",
       pageMargins: margin,
+      footer: style.pdfPageNumbers
+        ? (page) => ({
+            text: String(page),
+            alignment: "center",
+            margin: [0, 12, 0, 0],
+            fontSize: 9,
+            color: "#585363",
+          })
+        : null,
       defaultStyle: {
         font,
         fontSize: size,
@@ -806,5 +836,12 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       pageBreakBefore,
     })
     .getBlob();
-  return { blob, warnings, blocksOnPages };
+  return {
+    blob,
+    warnings,
+    blocksOnPages,
+    pageSizes,
+    locations,
+    automaticSheets,
+  };
 }

@@ -29,7 +29,12 @@ import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
 import { diagramView } from "./diagram-view.js";
-import { dragOrder, headingSpan, reorderMarkdown } from "./block-order.js";
+import {
+  dragOrder,
+  headingSpan,
+  outlineHierarchy,
+  reorderMarkdown,
+} from "./block-order.js";
 import { graphEditor } from "./graph-editor.js";
 import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
@@ -296,46 +301,125 @@ function activate(d) {
   doc = d;
   expandAll = false;
   selected = 0;
+  outlineScrollPosition = undefined;
   document.body.classList.remove("show-side");
   render();
   nav();
   viewport.scrollTop = source.scrollTop = 0;
   save();
 }
+const outlineFolds = new Map();
+let outlineScrollPosition;
+function foldedSections(id) {
+  if (!outlineFolds.has(id)) {
+    let keys;
+    try {
+      keys = JSON.parse(localStorage.getItem("buro:outline:" + id));
+    } catch {
+      // Folding is still available during the current session.
+    }
+    outlineFolds.set(id, new Set(Array.isArray(keys) ? keys : []));
+  }
+  return outlineFolds.get(id);
+}
 function outline() {
   const panel = $("#outline");
   panel.replaceChildren();
-  for (const [i, p] of parts.entries()) {
-    if (p.t.type !== "heading_open") continue;
+  const id = doc.id;
+  const folded = foldedSections(id);
+  const headings = outlineHierarchy(parts);
+  const entries = new Map();
+  function applyFolds() {
+    for (const heading of headings) {
+      const { row, toggle } = entries.get(heading);
+      const parent = heading.parent;
+      row.hidden = Boolean(
+        parent && (entries.get(parent).row.hidden || folded.has(parent.key)),
+      );
+      if (!toggle) continue;
+      const expanded = !folded.has(heading.key);
+      const label =
+        (expanded ? "Свернуть подразделы: " : "Развернуть подразделы: ") +
+        heading.title;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.setAttribute("aria-label", label);
+      toggle.title = label;
+    }
+    highlight(
+      (mode === "edit" || mode === "read") &&
+        outlineScrollPosition === undefined
+        ? visibleBlock()
+        : selected,
+    );
+  }
+  for (const heading of headings) {
+    const { index, title, key } = heading;
+    const row = document.createElement("div");
+    row.className = "outline-row";
+    row.style.setProperty(
+      "--outline-indent",
+      Math.min(heading.depth, 5) * 9 + "px",
+    );
+    const toggle = heading.hasChildren
+      ? document.createElement("button")
+      : null;
+    if (toggle) {
+      toggle.type = "button";
+      toggle.className = "outline-toggle";
+      toggle.innerHTML = icon("chevron-right");
+      toggle.onclick = () => {
+        if (folded.has(key)) folded.delete(key);
+        else folded.add(key);
+        applyFolds();
+        try {
+          localStorage.setItem(
+            "buro:outline:" + id,
+            JSON.stringify([...folded]),
+          );
+        } catch {
+          // The visible outline remains usable.
+        }
+      };
+      row.append(toggle);
+    }
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "outline-item";
-    b.dataset.idx = i;
-    b.style.paddingLeft = 8 + Math.min(3, Number(p.t.tag[1]) - 1) * 9 + "px";
-    b.textContent =
-      p.tokens.find((t) => t.type === "inline")?.content || "Заголовок";
+    b.dataset.idx = index;
+    b.textContent = title;
     if (mode === "edit") b.append(sortGrip("Перетащить раздел", false));
     b.onclick = (event) => {
       if (event.target.closest("[data-order-grip]")) return;
       flush();
-      selected = i;
+      selected = index;
       if (mode === "source") {
         source.focus();
-        source.setSelectionRange(parts[i].start, parts[i].end);
+        source.setSelectionRange(parts[index].start, parts[index].end);
         source.scrollTop =
-          source.scrollHeight * (parts[i].start / Math.max(1, doc.body.length));
+          source.scrollHeight *
+          (parts[index].start / Math.max(1, doc.body.length));
       } else if (mode === "pdf") showPdfPreview();
-      else host.children[i]?.scrollIntoView({ block: "start" });
+      else {
+        host.children[index]?.scrollIntoView({ block: "start" });
+        outlineScrollPosition = viewport.scrollTop;
+      }
       document.body.classList.remove("show-side");
-      highlight(i);
+      highlight(index);
     };
-    panel.append(b);
+    row.append(b);
+    entries.set(heading, { row, toggle });
+    panel.append(row);
   }
-  highlight(selected);
+  applyFolds();
 }
 function highlight(i) {
-  const headings = [...$("#outline").children];
-  const active = headings.filter((b) => Number(b.dataset.idx) <= i).at(-1);
-  headings.forEach((b) => b.classList.toggle("active", b === active));
+  const headings = [...$("#outline").querySelectorAll(".outline-item")];
+  const active = headings.findLast(
+    (button) => !button.parentElement.hidden && Number(button.dataset.idx) <= i,
+  );
+  headings.forEach((button) =>
+    button.classList.toggle("active", button === active),
+  );
 }
 function sortGrip(label, block) {
   const grip = document.createElement(block ? "button" : "span");
@@ -409,7 +493,7 @@ const blockSorting = dragOrder({
 const outlineSorting = dragOrder({
   container: $("#outline"),
   scroller: $(".sidebar-navigation"),
-  item: ".outline-item",
+  item: ".outline-row:not([hidden]) > .outline-item",
   handle: ".outline-grip",
   prepare: prepareBlockChange,
   targets: (index) =>
@@ -437,7 +521,9 @@ function insertionBlock() {
     : visibleBlock();
 }
 viewport.onscroll = () => {
-  if (mode !== "source") highlight(visibleBlock());
+  if (Math.abs(viewport.scrollTop - (outlineScrollPosition ?? -10)) < 1) return;
+  outlineScrollPosition = undefined;
+  if (mode === "edit" || mode === "read") highlight(visibleBlock());
 };
 viewport.addEventListener("click", (event) => {
   if (
@@ -616,9 +702,24 @@ function deleteBlockButton(index, label, className) {
     selected = nextIndex;
     render();
     viewport.scrollTop = scrollTop;
-    notice("Блок удалён. Действие можно отменить.");
   };
   return button;
+}
+function addInsertionControl(box, index) {
+  if (!index) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "block-insert-before";
+  button.setAttribute("aria-label", "Вставить блок перед этим");
+  button.title = "Вставить блок между блоками";
+  button.innerHTML = icon("plus");
+  button.onmousedown = (event) => event.preventDefault();
+  button.onclick = (event) => {
+    event.stopPropagation();
+    const anchor = prepareBlockChange(index);
+    if (anchor) insertDialog(anchor);
+  };
+  box.append(button);
 }
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
@@ -627,7 +728,10 @@ function block(p, i, expanded = expandAll) {
     expanded,
     onExpand: updateExpandButton,
   });
-  if (mode === "edit") box.append(sortGrip("Перетащить блок", true));
+  if (mode === "edit") {
+    box.append(sortGrip("Перетащить блок", true));
+    addInsertionControl(box, i);
+  }
   return box;
 }
 function editMermaidCode(index, selectExample = false) {
@@ -657,6 +761,7 @@ function buildBlock(p, i, expanded) {
         const target = host.children[i],
           panel = document.createElement("section");
         target.replaceChildren(panel);
+        addInsertionControl(target, i);
         const dock = $("#graph-dock");
         dock.hidden = false;
         const session = { index: i, panel, expanded: openedWide };
@@ -935,6 +1040,7 @@ function editBlock(i, selectAll = false) {
   done.onclick = finish;
   toolbar.append(done);
   box.replaceChildren(toolbar, ta, preview);
+  addInsertionControl(box, i);
   updatePreview();
   icons();
   const resizeText = () => {
@@ -1237,6 +1343,7 @@ function setMode(next) {
   const offset =
     mode === "source" ? source.selectionStart : parts[selected]?.start || 0;
   mode = next;
+  outlineScrollPosition = undefined;
   selected = Math.max(
     0,
     parts.findLastIndex((p) => p.start <= offset),
@@ -1250,6 +1357,14 @@ function setMode(next) {
 }
 function insertBlock(type, idx = insertionBlock(), content) {
   flush();
+  const anchored = typeof idx === "object" && idx !== null;
+  if (
+    anchored &&
+    (doc.id !== idx.id || doc.body !== idx.body || !parts[idx.origin])
+  ) {
+    notice("Документ изменился. Выберите место для вставки снова.");
+    return;
+  }
   const item = content === undefined ? blocksToInsert[type] : ["", content];
   if (!item) return;
   let body = item[1];
@@ -1264,11 +1379,23 @@ function insertBlock(type, idx = insertionBlock(), content) {
   const pos =
       mode === "source"
         ? source.selectionStart
-        : (parts[idx]?.end ?? doc.body.length),
+        : anchored
+          ? parts[idx.origin].fullStart
+          : (parts[idx]?.end ?? doc.body.length),
     before = doc.body.slice(0, pos),
     after = doc.body.slice(pos);
+  const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
+  const whitespace = before.match(/[\t \r\n]*$/)[0];
+  const existingBreaks = anchored
+    ? whitespace.match(/\r\n|\r|\n/g)?.length || 0
+    : 0;
+  const leading = before.trim()
+    ? newline.repeat(Math.max(0, 2 - existingBreaks))
+    : "";
   const add =
-    (before.trim() ? "\n\n" : "") + body + (after.trim() ? "\n\n" : "\n");
+    leading +
+    body.replace(/\r\n|\r|\n/g, newline) +
+    (after.trim() ? newline + newline : newline);
   patch(pos, pos, add);
   render();
   selected = Math.max(
@@ -1326,8 +1453,8 @@ function option(id, label, symbol) {
     "</button>"
   );
 }
-function insertDialog() {
-  const index = insertionBlock();
+function insertDialog(anchor) {
+  const index = anchor || insertionBlock();
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
@@ -1649,6 +1776,7 @@ function requestPdf(force = false) {
         index,
         label: label || "Блок " + (index + 1),
         rules: part.pdfRules,
+        heading: part.t.type === "heading_open",
       };
     }),
   }));
@@ -1661,6 +1789,11 @@ function requestPdf(force = false) {
 const savePdf = ({ name, blob }) => download(name, blob, "application/pdf");
 const printGeneratedPdf = ({ name, blob }) =>
   printPdf(blob, name, () => notice("PDF скачан. Откройте файл для печати."));
+function setPdfNumbering(enabled) {
+  doc.style = { ...doc.style, pdfPageNumbers: enabled };
+  save();
+  showPdfPreview();
+}
 const pdfViewer = pdfPreview($("#pdf-preview"), {
   profile(value, force) {
     pdfProfile = value;
@@ -1668,20 +1801,20 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
   },
   download: savePdf,
   print: printGeneratedPdf,
+  numbering: setPdfNumbering,
+  select(index) {
+    selected = index;
+    highlight(index);
+  },
   edit(index) {
     if (!parts[index]) return;
     selected = index;
     setMode("edit");
     host.children[selected]?.scrollIntoView({ block: "center" });
   },
-  rules(index, rule) {
+  rules(index, rules) {
     const part = parts[index];
     if (!part) return;
-    const rules = !rule
-      ? []
-      : part.pdfRules.includes(rule)
-        ? part.pdfRules.filter((item) => item !== rule)
-        : [...part.pdfRules, rule];
     const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
     selected = index;
     patch(part.fullStart, part.start, formatPdfRules(rules, newline));
@@ -1690,7 +1823,15 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
 });
 function showPdfPreview(force = false) {
   if (doc && mode === "pdf")
-    void pdfViewer.show(requestPdf(force), pdfProfile, selected, force);
+    void pdfViewer.show(
+      requestPdf(force),
+      {
+        profile: pdfProfile,
+        numbering: Boolean(doc.style?.pdfPageNumbers),
+      },
+      selected,
+      force,
+    );
 }
 function exportDialog() {
   const b = dialog(
@@ -1698,6 +1839,7 @@ function exportDialog() {
     option("preview", "Предпросмотр PDF", "eye") +
       option("pdf", "Скачать PDF", "file-down") +
       '<label>Профиль PDF <select name="pdfProfile"><option value="screen">PDF для экрана</option><option value="a4">Строго A4</option></select></label>' +
+      '<label class="style-check"><input type="checkbox" name="pdfNumbers">Номера страниц</label>' +
       option("md", "Скачать Markdown (.md)", "file-text") +
       option("print", "Печать", "printer") +
       '<p role="status" hidden></p>',
@@ -1708,6 +1850,9 @@ function exportDialog() {
     pdfProfile = profile.value;
     showPdfPreview();
   };
+  const numbers = b.querySelector("[name=pdfNumbers]");
+  numbers.checked = Boolean(doc.style?.pdfPageNumbers);
+  numbers.onchange = () => setPdfNumbering(numbers.checked);
   b.onclick = async (e) => {
     const target = e.target.closest("[data-id]");
     if (!target) return;
@@ -1719,7 +1864,7 @@ function exportDialog() {
       return;
     }
     const status = b.querySelector("[role=status]");
-    const controls = [...b.querySelectorAll("button,select")];
+    const controls = [...b.querySelectorAll("button,select,input")];
     controls.forEach((control) => (control.disabled = true));
     status.hidden = false;
     status.textContent = "Подготовка PDF…";
@@ -1805,6 +1950,7 @@ function styleDialog() {
         typeof initial === "number" ? Number(fields.get(key)) : fields.get(key);
     styles();
     save();
+    showPdfPreview();
     modal.close();
   };
 }

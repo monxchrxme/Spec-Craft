@@ -278,6 +278,9 @@
                 <option value="1.5">150%</option>
                 <option value="2">200%</option>
               </select>
+              <label>
+                <input type="checkbox" data-pdf="numbering" />Номера страниц
+              </label>
               <button type="button" data-pdf="print">Печать</button>
               <button type="button" class="primary" data-pdf="download">
                 Скачать PDF
@@ -303,38 +306,35 @@
                 class="pdf-stage"
                 data-pdf="stage"
                 tabindex="0"
-                aria-label="Лист PDF"
+                aria-label="Страницы PDF"
               ></div>
             </div>
             <div class="pdf-block-controls">
-              <select data-pdf="block" aria-label="Блок на странице"></select>
-              <button type="button" data-pdf="edit">Перейти к блоку</button>
+              <select
+                data-pdf="block"
+                aria-label="Блок на странице"
+                title="Выберите блок на текущей странице"
+              ></select>
+              <span class="pdf-block-location" data-pdf="placement"></span>
+              <button type="button" data-pdf="edit">К блоку в редакторе</button>
               <details class="pdf-rules-menu" data-pdf="rules">
-                <summary>Правила переноса</summary>
-                <div>
-                  <button
-                    type="button"
-                    data-pdf-rule="break-before"
-                    aria-pressed="false"
-                  >
-                    Начать с новой страницы
-                  </button>
-                  <button
-                    type="button"
-                    data-pdf-rule="keep-next"
-                    aria-pressed="false"
-                  >
-                    Держать со следующим блоком
-                  </button>
-                  <button
-                    type="button"
-                    data-pdf-rule="separate-sheet"
-                    aria-pressed="false"
-                  >
-                    Выделить отдельный лист
-                  </button>
+                <summary>Размещение блока</summary>
+                <div class="pdf-rule-fields">
+                  <label>
+                    Начало блока
+                    <select data-pdf="placement-rule" aria-label="Начало блока">
+                      <option value="auto">Автоматически</option>
+                      <option value="break-before">С новой страницы</option>
+                      <option value="separate-sheet">На отдельном листе</option>
+                    </select>
+                  </label>
+                  <p data-pdf="placement-help"></p>
+                  <label class="pdf-keep-next">
+                    <input type="checkbox" data-pdf="keep-next" />Вместе со
+                    следующим блоком
+                  </label>
                   <button type="button" data-pdf="clear" hidden>
-                    Сбросить правила
+                    Вернуть автоматическое размещение
                   </button>
                 </div>
               </details>

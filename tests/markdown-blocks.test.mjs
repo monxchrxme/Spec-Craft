@@ -2,9 +2,43 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { headingSpan, reorderMarkdown } from "../public/block-order.js";
+import {
+  headingSpan,
+  outlineHierarchy,
+  reorderMarkdown,
+} from "../public/block-order.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
+
+test("outline branches follow heading levels and distinguish duplicate titles", () => {
+  const titles = [
+    [1, "Документ"],
+    [3, "Раздел"],
+    [5, "Подраздел"],
+    [3, "Раздел"],
+    [4, "Подраздел"],
+  ];
+  const headings = outlineHierarchy(
+    titles.map(([level, content]) => ({
+      t: { type: "heading_open", tag: "h" + level },
+      tokens: [{ type: "inline", content }],
+    })),
+  );
+  assert.deepEqual(
+    headings.map((heading) => heading.parent?.index),
+    [undefined, 0, 1, 0, 3],
+  );
+  assert.deepEqual(
+    headings.map((heading) => heading.depth),
+    [0, 1, 2, 1, 2],
+  );
+  assert.equal(
+    new Set(headings.map((heading) => heading.key)).size,
+    headings.length,
+  );
+  assert(headings[1].hasChildren && headings[3].hasChildren);
+  assert(!headings[2].hasChildren);
+});
 
 test("moving an outline section retains its descendants and CRLF Markdown", () => {
   const blocks = [

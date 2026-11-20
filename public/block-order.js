@@ -11,6 +11,36 @@ export function headingSpan(parts, start) {
   return [start, next < 0 ? parts.length : next];
 }
 
+export function outlineHierarchy(parts) {
+  const headings = [];
+  const ancestors = [];
+  const occurrences = new Map();
+  for (const [index, part] of parts.entries()) {
+    if (part.t.type !== "heading_open") continue;
+    const level = Number(part.t.tag[1]);
+    while (ancestors.length && ancestors.at(-1).level >= level) ancestors.pop();
+    const parent = ancestors.at(-1);
+    const title =
+      part.tokens.find((token) => token.type === "inline")?.content ||
+      "Заголовок";
+    const path = (parent?.key || "") + "/" + JSON.stringify(title);
+    const number = (occurrences.get(path) || 0) + 1;
+    occurrences.set(path, number);
+    const heading = {
+      index,
+      level,
+      title,
+      parent,
+      key: path + ":" + number,
+      depth: ancestors.length,
+    };
+    if (parent) parent.hasChildren = true;
+    headings.push(heading);
+    ancestors.push(heading);
+  }
+  return headings;
+}
+
 export function reorderMarkdown(body, parts, start, end, boundary) {
   const length = parts.length;
   if (

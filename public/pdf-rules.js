@@ -1,11 +1,5 @@
 const directive =
   /^<!--[ \t]*spec-pdf:[ \t]*((?:break-before|keep-next|separate-sheet)(?:[ \t]+(?:break-before|keep-next|separate-sheet))*)[ \t]*-->$/;
-export const pdfRuleNames = {
-  "break-before": "Начать с новой страницы",
-  "keep-next": "Держать со следующим блоком",
-  "separate-sheet": "Выделить отдельный лист",
-};
-
 export function pdfRules(md) {
   md.block.ruler.before(
     "html_block",
