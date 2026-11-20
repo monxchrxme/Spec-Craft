@@ -5,7 +5,6 @@ import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
-import { tocEntries } from "./portable-blocks.js";
 import { codeLines } from "./code-highlight.js";
 
 const a4 = { width: 595.28, height: 841.89 };
@@ -690,18 +689,20 @@ async function mermaidBlock(source, options) {
 
 function contentsRows(meta, settings, pageNumbers) {
   const { size, accent, headingDestinations } = settings;
-  return tocEntries(meta.headings, meta.numbered).map((entry) => {
-    const { marker, markerChars, label, slug, depth } = entry;
+  return meta.entries.map((entry) => {
+    const { marker, label, slug, depth } = entry;
     const linkToDestination = headingDestinations.get(slug);
     return {
       columns: [
-        { width: markerChars * size * 0.65, text: marker, linkToDestination },
+        ...(marker
+          ? [{ width: "auto", text: marker, linkToDestination, noWrap: true }]
+          : []),
         {
           width: "*",
           text: [{ text: label, linkToDestination, specTocSlug: slug }],
         },
       ],
-      columnGap: size * 0.55,
+      columnGap: size * 0.3,
       color: accent,
       margin: [depth * size * 1.45, 0, pageNumbers ? size * 3 : 0, size * 0.16],
     };
@@ -848,7 +849,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         : diagramBlock(part.t.content, options);
       pageSize = rendered.pageSize || pageSize;
       blocks = [rendered.node];
-    } else if (part.t.type === "spec_toc" && part.t.meta.headings.length) {
+    } else if (part.t.type === "spec_toc" && part.t.meta.entries.length) {
       blocks = contentsRows(part.t.meta, settings, style.pdfPageNumbers);
     } else {
       if (columns > 6 && profile === "a4")

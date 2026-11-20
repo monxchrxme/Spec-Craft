@@ -214,6 +214,62 @@ test("the generated Markdown table of contents uses stable duplicate heading anc
   assert(!numbered.includes("[Оглавление]"));
 });
 
+test("individual TOCs filter heading levels and preserve destinations of unnumbered rows", () => {
+  const scope = {};
+  runInNewContext(
+    readFileSync(
+      new URL("../public/vendor/markdown-it.min.js", import.meta.url),
+      "utf8",
+    ),
+    scope,
+  );
+  const md = scope.markdownit({ html: false }).use(portableBlocks);
+  const toc = (marker) =>
+    [marker, "", "old", "", "<!-- /spec-toc -->"].join("\r\n");
+  const source = [
+    toc("<!-- spec-toc auto levels=2,4 unnumbered=terms -->"),
+    toc("<!-- spec-toc -->"),
+    "# Doc",
+    "## 5. Scope",
+    "### Hidden",
+    "#### 1.2 Details",
+    "## Terms",
+    "## 3D",
+    "## 2026 год",
+  ].join("\r\n\r\n");
+  const output = materializeToc(source, md);
+  assert.equal(materializeToc(output, md), output);
+  const [custom, original] = md
+    .parse(output, {})
+    .filter((token) => token.type === "spec_toc");
+  assert.deepEqual(
+    custom.meta.entries.map(({ marker, label, slug }) => [marker, label, slug]),
+    [
+      ["1.", "Scope", "5-scope"],
+      ["1.1.", "Details", "12-details"],
+      ["", "Terms", "terms"],
+      ["2.", "3D", "3d"],
+      ["3.", "2026 год", "2026-год"],
+    ],
+  );
+  const authored = md
+    .parse(source.replace("spec-toc auto", "spec-toc numbered"), {})
+    .find((token) => token.type === "spec_toc");
+  assert.deepEqual(
+    authored.meta.entries.map((entry) => entry.marker),
+    ["5.", "1.2.", "", "6.", "7."],
+  );
+  assert(custom.meta.markdown.includes("[Terms](#terms)"));
+  assert.equal(original.meta.entries.length, 7);
+  assert(output.includes("#### 1.2 Details"));
+  assert.equal(
+    md
+      .parse(toc("<!-- spec-toc levels=none -->") + "\n\n# Doc", {})
+      .find((token) => token.type === "spec_toc").meta.entries.length,
+    0,
+  );
+});
+
 test("Mermaid view settings preserve front matter and nested state directions", () => {
   const source =
     "---\ntitle: Example\n---\nstateDiagram-v2\n  direction LR\n  state A {\n    direction LR\n  }\n";

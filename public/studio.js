@@ -60,11 +60,13 @@ import {
   portableBlock,
   portableBlocks,
   tocMarkdown,
+  tocEntries,
 } from "./portable-blocks.js";
 import { isProjectTree } from "./project-tree.js";
 import {
   bibliographyEditor,
   projectTreeEditor,
+  tocControls,
 } from "./document-block-editors.js";
 import {
   mermaidPresentation,
@@ -874,33 +876,20 @@ function documentBlockTools(box, part, index, kind) {
   const tools = document.createElement("div");
   tools.className = "document-block-tools";
   if (kind === "toc") {
-    const label = document.createElement("label");
-    label.append("Обозначения ");
-    const select = document.createElement("select");
-    select.add(new Option("Маркеры", "bullets"));
-    select.add(new Option("Номера разделов", "numbers"));
-    select.value = part.t.meta.numbered ? "numbers" : "bullets";
-    select.onchange = () => {
-      const numbered = select.value === "numbers";
+    tocControls(tools, part.t.meta, (options, focus) => {
       const state = prepareBlockChange(index);
-      if (!state) {
-        select.value = part.t.meta.numbered ? "numbers" : "bullets";
-        return;
-      }
+      if (!state) return;
       const current = parts[state.origin];
       if (current?.t.type !== "spec_toc") return;
-      const content = tocMarkdown(current.t.meta.headings, numbered);
-      if (
-        patchStructuredBlock(state, portableBlock("toc", content, numbered))
-      ) {
+      const entries = tocEntries(current.t.meta.headings, options);
+      const content = tocMarkdown(entries, options.numbered);
+      if (patchStructuredBlock(state, portableBlock("toc", content, options))) {
         replaceStructuredView(state.origin);
         host.children[state.origin]
-          .querySelector("select")
-          .focus({ preventScroll: true });
+          .querySelector(focus)
+          ?.focus({ preventScroll: true });
       }
-    };
-    label.append(select);
-    tools.append(label);
+    });
   } else {
     const edit = document.createElement("button");
     edit.type = "button";

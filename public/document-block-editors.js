@@ -1,5 +1,9 @@
 import { projectTreeMarkdown } from "./project-tree.js";
-import { bibliographyMarkdown, bibliographyStyles } from "./portable-blocks.js";
+import {
+  bibliographyMarkdown,
+  bibliographyStyles,
+  tocLevels,
+} from "./portable-blocks.js";
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -21,6 +25,86 @@ function field(form, name, control) {
   label.append(control);
   form.append(label);
   return control;
+}
+
+export function tocControls(tools, meta, apply) {
+  const select = element("select");
+  select.add(new Option("Маркеры", "bullets"));
+  select.add(new Option("Номера разделов", "numbers"));
+  select.add(new Option("Автонумерация", "auto"));
+  select.value = meta.automatic
+    ? "auto"
+    : meta.numbered
+      ? "numbers"
+      : "bullets";
+  field(tools, "Обозначения ", select);
+  const details = element("details", "", "toc-settings");
+  details.append(element("summary", "Состав оглавления"));
+  tools.append(details);
+  let form;
+  function save() {
+    const data = form && new FormData(form);
+    apply(
+      {
+        numbered: select.value !== "bullets",
+        automatic: select.value === "auto",
+        levels: data ? data.getAll("levels").map(Number) : meta.levels,
+        unnumbered: data ? data.getAll("unnumbered") : meta.unnumbered,
+      },
+      details.open ? "summary" : "select",
+    );
+  }
+  select.onchange = save;
+  details.ontoggle = () => {
+    if (!details.open || form) return;
+    form = element("form");
+    function group(title, className) {
+      const group = element("fieldset", "", className);
+      group.append(element("legend", title));
+      form.append(group);
+      return group;
+    }
+    function checkbox(group, name, value, title, checked) {
+      const label = element("label");
+      const box = element("input");
+      box.type = "checkbox";
+      box.name = name;
+      box.value = value;
+      box.checked = checked;
+      label.append(box, " " + title);
+      group.append(label);
+    }
+    const levels = group("Уровни заголовков", "toc-levels");
+    for (const level of tocLevels)
+      checkbox(
+        levels,
+        "levels",
+        level,
+        "H" + level,
+        meta.levels.includes(level),
+      );
+    const exceptions = group(
+      "Разделы без номера или маркера",
+      "toc-exceptions",
+    );
+    const chosen = new Set(meta.unnumbered);
+    for (const { level, label, slug } of meta.headings)
+      checkbox(
+        exceptions,
+        "unnumbered",
+        slug,
+        "H" + level + " · " + label,
+        chosen.has(slug),
+      );
+    const submit = element("button", "Применить", "primary");
+    submit.type = "submit";
+    form.append(submit);
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      save();
+    };
+    details.append(form);
+  };
 }
 
 export function projectTreeEditor(panel, root, save) {

@@ -2523,9 +2523,44 @@ g.workflow-anchored {
 .document-block-tools {
   padding: 4px 0;
 }
-.document-block-tools button {
+.document-block-tools button:not(.primary) {
   font-size: 12px;
   color: var(--muted);
+}
+.toc-settings summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.toc-settings {
+  padding: 0 0.5em;
+}
+.toc-settings[open] {
+  flex-basis: 100%;
+}
+.toc-settings form {
+  max-width: 42rem;
+}
+.toc-settings fieldset {
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.toc-settings label {
+  font-size: 0.875rem;
+  padding: 3px 6px;
+}
+.toc-exceptions {
+  max-height: 13rem;
+  overflow: auto;
+}
+.toc-exceptions label {
+  display: block;
+}
+.toc-levels label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .document-toc ol {
   margin: 0;
@@ -2537,9 +2572,8 @@ g.workflow-anchored {
   margin-block: 0.15em;
 }
 .document-toc li a {
-  display: grid;
-  grid-template-columns: var(--toc-marker) minmax(0, 1fr);
-  column-gap: 0.55em;
+  display: flex;
+  column-gap: 0.3em;
   align-items: baseline;
   text-decoration: none;
 }

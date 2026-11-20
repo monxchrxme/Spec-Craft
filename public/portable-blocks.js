@@ -3,10 +3,48 @@ const markers = {
   bibliography: ["<!-- spec-bibliography -->", "<!-- /spec-bibliography -->"],
 };
 
-const numberedToc = "<!-- spec-toc numbered -->";
+export const tocLevels = [1, 2, 3, 4, 5, 6];
+const tocOpening =
+  /^<!-- spec-toc(?: (numbered|auto))?(?: levels=(none|[1-6](?:,[1-6])*))?(?: unnumbered=([^\s<>]+))? -->$/;
 
-export function portableBlock(kind, content, numbered = false) {
-  const open = kind === "toc" && numbered ? numberedToc : markers[kind][0];
+function readTocOptions(match) {
+  let unnumbered;
+  try {
+    unnumbered = match[3] ? match[3].split(",").map(decodeURIComponent) : [];
+  } catch {
+    return null;
+  }
+  return {
+    numbered: Boolean(match[1]),
+    automatic: match[1] === "auto",
+    levels: match[2]
+      ? tocLevels.filter((level) => match[2].includes(level))
+      : tocLevels,
+    unnumbered,
+  };
+}
+
+export function portableBlock(kind, content, options = {}) {
+  let open = markers[kind][0];
+  if (kind === "toc") {
+    const {
+      numbered = options === true,
+      levels = tocLevels,
+      unnumbered = [],
+    } = options;
+    const fields = ["spec-toc"];
+    if (numbered) fields.push(options.automatic ? "auto" : "numbered");
+    if (levels.length !== tocLevels.length)
+      fields.push("levels=" + (levels.join(",") || "none"));
+    if (unnumbered.length)
+      fields.push(
+        "unnumbered=" +
+          unnumbered
+            .map((slug) => encodeURIComponent(slug).replaceAll("-", "%2D"))
+            .join(","),
+      );
+    open = "<!-- " + fields.join(" ") + " -->";
+  }
   return [open, "", content, "", markers[kind][1]].join("\n");
 }
 
@@ -43,53 +81,64 @@ function linkLabel(title) {
   );
 }
 
-function tocHierarchy(headings) {
+export function tocEntries(
+  headings,
+  { numbered, automatic, levels, unnumbered },
+) {
+  const exceptions = new Set(unnumbered);
   const ancestors = [];
-  const counters = [];
-  return headings.map((heading) => {
-    while (ancestors.length && ancestors.at(-1) >= heading.level)
-      ancestors.pop();
+  const root = { prefix: "", count: 0 };
+  const entries = [];
+  for (const { level, label, slug } of headings) {
+    if (!levels.includes(level)) continue;
+    while (ancestors.length && ancestors.at(-1).level >= level) ancestors.pop();
     const depth = ancestors.length;
-    counters.length = depth + 1;
-    counters[depth] = (counters[depth] || 0) + 1;
-    ancestors.push(heading.level);
-    return { ...heading, depth, number: counters.join(".") + "." };
-  });
+    const siblings = ancestors.at(-1)?.children ?? root;
+    const authored = label.match(
+      /^(\d+(?:\.\d+)*[.)]|\d+(?:\.\d+)+)\s+(?=\S)/u,
+    );
+    const title = authored ? label.slice(authored[0].length) : label;
+    let children = siblings;
+    let marker = "";
+    if (!exceptions.has(slug)) {
+      siblings.count++;
+      let number = siblings.prefix + siblings.count + ".";
+      if (numbered && !automatic && authored) {
+        const digits = authored[1].replace(/[.)]$/, "");
+        number = digits + ".";
+        const split = digits.lastIndexOf(".") + 1;
+        siblings.prefix = digits.slice(0, split);
+        siblings.count = Number(digits.slice(split));
+      }
+      marker = numbered ? number : ["•", "◦", "▪"][depth % 3];
+      children = { prefix: number, count: 0 };
+    }
+    ancestors.push({ level, children });
+    entries.push({ label: title || "Раздел", slug, depth, marker });
+  }
+  return entries;
 }
 
-export function tocEntries(headings, numbered) {
-  const widths = [];
-  return headings
-    .map(({ label, slug, depth, number }) => {
-      const marker = numbered ? number : ["•", "◦", "▪"][depth % 3];
-      widths[depth] = Math.max(widths[depth] || 0, marker.length);
-      // Authors sometimes include the same section number in the heading itself.
-      const prefix =
-        numbered && label.startsWith(number + " ") ? number.length + 1 : 0;
-      return { label: label.slice(prefix) || "Раздел", slug, depth, marker };
-    })
-    .map((entry) => ({ ...entry, markerChars: widths[entry.depth] }));
-}
-
-export function tocMarkdown(headings, numbered = false) {
-  if (!headings.length) return "Заголовки появятся здесь автоматически.";
-  return tocEntries(headings, numbered)
+export function tocMarkdown(entries, numbered) {
+  if (!entries.length) return "Нет заголовков выбранных уровней.";
+  const list = !numbered && entries.every((entry) => entry.marker);
+  return entries
     .map(({ depth, marker, label, slug }) => {
-      const indent = numbered
-        ? "\u00a0\u00a0".repeat(depth)
-        : "  ".repeat(depth) + "- ";
-      const number = numbered ? marker + " " : "";
+      const indent = (list ? "  " : "\u00a0\u00a0").repeat(depth);
+      const prefix = list ? "- " : "";
+      const symbol = list || !marker ? "" : marker + " ";
       return (
         indent +
+        prefix +
         "[" +
-        number +
+        symbol +
         linkLabel(label) +
         "](#" +
         encodeURIComponent(slug) +
         ")"
       );
     })
-    .join(numbered ? "\n\n" : "\n");
+    .join(list ? "\n" : "\n\n");
 }
 
 export function portableBlocks(md) {
@@ -107,10 +156,11 @@ export function portableBlocks(md) {
       if (from && state.src[from - 1] !== "\n") return false;
       const line = (index) =>
         state.src.slice(state.bMarks[index], state.eMarks[index]).trim();
-      const numbered = line(start) === numberedToc;
+      const toc = tocOpening.exec(line(start));
+      const options = toc && readTocOptions(toc);
       const matched = Object.entries(markers).find(
         ([kind, pair]) =>
-          pair[0] === line(start) || (kind === "toc" && numbered),
+          pair[0] === line(start) || (kind === "toc" && options),
       );
       if (!matched) return false;
       const [kind, [, close]] = matched;
@@ -118,7 +168,7 @@ export function portableBlocks(md) {
       while (last < end && line(last) !== close) {
         if (
           line(last) === matched[1][0] ||
-          (kind === "toc" && line(last) === numberedToc)
+          (kind === "toc" && tocOpening.test(line(last)))
         )
           return false;
         last++;
@@ -126,7 +176,7 @@ export function portableBlocks(md) {
       if (last === end) return false;
       if (silent) return true;
       const block = state.push("spec_" + kind, "", 0);
-      if (kind === "toc") block.meta = { numbered };
+      if (kind === "toc") block.meta = options;
       block.map = [start, last + 1];
       block.content = state.src
         .slice(state.bMarks[start + 1], state.bMarks[last])
@@ -160,33 +210,32 @@ export function portableBlocks(md) {
         });
     }
     const titleTokens = new Set(titleIndexes.values());
-    const sections = tocHierarchy(
-      headings.filter((heading) => !titleTokens.has(heading.index)),
+    const headingsForToc = headings.filter(
+      (heading) => !titleTokens.has(heading.index),
     );
     for (const token of tokens) {
-      if (token.type === "spec_toc")
-        token.meta = {
-          ...token.meta,
-          headings: sections,
-          markdown: tocMarkdown(sections, token.meta.numbered),
-        };
+      if (token.type !== "spec_toc") continue;
+      const entries = tocEntries(headingsForToc, token.meta);
+      Object.assign(token.meta, {
+        headings: headingsForToc,
+        entries,
+        markdown: tocMarkdown(entries, token.meta.numbered),
+      });
     }
   });
 
   md.renderer.rules.spec_toc = (tokens, index) => {
-    const { headings, numbered, markdown } = tokens[index].meta;
+    const { entries, markdown } = tokens[index].meta;
     const escape = md.utils.escapeHtml;
-    const rows = tocEntries(headings, numbered).map(
-      ({ slug, label, depth, marker, markerChars }) =>
+    const rows = entries.map(
+      ({ slug, label, depth, marker }) =>
         '<li style="--toc-depth:' +
         depth +
-        ";--toc-marker:" +
-        markerChars +
-        'ch"><a href="#' +
+        '"><a href="#' +
         escape(encodeURIComponent(slug)) +
-        '"><span class="toc-marker">' +
-        marker +
-        "</span> <span>" +
+        '">' +
+        (marker ? '<span class="toc-marker">' + marker + "</span> " : "") +
+        "<span>" +
         escape(label) +
         "</span></a></li>",
     );
@@ -222,7 +271,7 @@ export function materializeToc(body, md) {
     const replacement = portableBlock(
       "toc",
       token.meta.markdown,
-      token.meta.numbered,
+      token.meta,
     ).replaceAll("\n", newline);
     body = body.slice(0, start) + replacement + suffix + body.slice(end);
   }
