@@ -102,18 +102,12 @@ button.primary:hover:enabled {
   width: 36px;
   height: 36px;
 }
-.rail button:first-of-type {
+.rail [data-action="files"] {
   background: #403c56;
   color: #e3dafa;
 }
 .rail button:hover:enabled {
   background: #49465f;
-}
-.rail .topbar-toggle {
-  display: none;
-}
-.hide-side .rail .topbar-toggle {
-  display: inline-flex;
 }
 .brand-icon {
   width: 30px;
@@ -166,10 +160,7 @@ button.primary:hover:enabled {
   margin-top: 5px;
 }
 .sidebar > .topbar-toggle {
-  margin: 0 12px;
-  justify-content: flex-start;
-  color: var(--muted);
-  text-align: left;
+  display: none;
 }
 .sidebar section {
   margin: 12px 12px 5px;
@@ -826,6 +817,13 @@ select {
   }
   .show-side .sidebar {
     display: flex;
+  }
+  .sidebar > .topbar-toggle {
+    display: inline-flex;
+    margin: 0 12px;
+    justify-content: flex-start;
+    color: var(--muted);
+    text-align: left;
   }
   .mobile-menu {
     display: inline-flex;
