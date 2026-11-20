@@ -1928,6 +1928,8 @@ g.workflow-anchored {
   display: inline-block;
   position: relative;
   max-width: 100%;
+  /* Leave room for both corner controls on short images. */
+  min-height: 62px;
   vertical-align: top;
 }
 .image-stage > img {
@@ -1956,8 +1958,6 @@ g.workflow-anchored {
 }
 .image-settings-toggle {
   top: 3px;
-  inset-inline-end: auto;
-  inset-inline-start: 3px;
 }
 .image-settings-toggle svg {
   width: 15px;
@@ -1967,21 +1967,6 @@ g.workflow-anchored {
   :is(.image-settings-toggle, .image-grip),
 .image-settings-toggle[aria-expanded="true"] {
   opacity: 1;
-}
-.image-resize-measure {
-  display: none;
-  position: absolute;
-  bottom: 5px;
-  inset-inline-end: 37px;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: white;
-  color: var(--muted);
-  font-size: 12px;
-}
-.image-stage[data-resizing] .image-resize-measure {
-  display: block;
 }
 .image-settings {
   padding: 7px 9px;
@@ -1996,15 +1981,6 @@ g.workflow-anchored {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-}
-.image-options > label {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-}
-.image-options input {
-  width: 66px;
-  padding: 4px 5px;
 }
 .image-settings button {
   color: var(--accent);

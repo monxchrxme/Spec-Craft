@@ -33,19 +33,14 @@ export function imageInspector(paragraph, image, markdown, actions) {
   grip.className = "image-grip";
   grip.textContent = "◢";
   grip.setAttribute("aria-label", "Изменить размер изображения");
-  grip.title = "Потяните или нажмите, чтобы изменить ширину";
-  const measure = document.createElement("output");
-  measure.className = "image-resize-measure";
-  measure.setAttribute("aria-hidden", "true");
-  stage.append(grip, measure);
+  grip.title = "Потяните угол или используйте клавиши со стрелками";
+  stage.append(grip);
 
   const options = document.createElement("div");
   options.className = "image-settings";
   options.hidden = true;
   options.innerHTML = `
     <div class="image-options">
-      <label>Ширина, % <input type="number" min="10" max="100" step="1" placeholder="Авто"></label>
-      <button type="button" data-image-auto>Авто</button>
       <button type="button" data-image-replace>Обрезать или заменить</button>
       <button type="button" data-image-done>Готово</button>
     </div>
@@ -55,44 +50,33 @@ export function imageInspector(paragraph, image, markdown, actions) {
       <button type="button" data-image-apply>Применить исходник</button>
     </details>`;
   paragraph.after(options);
-  const width = options.querySelector("input"),
-    source = options.querySelector("textarea");
+  const source = options.querySelector("textarea");
   source.value = markdown;
   let currentMarkdown = markdown;
   let value = Number(image.dataset.imageWidth) || null;
   let drag = null;
-  let skipGripClick = false;
 
   function display(size) {
     stage.style.width = size ? size + "%" : "";
     image.style.width = size ? "100%" : "";
-    width.value = size || "";
-    measure.textContent = size ? size + "%" : "";
   }
-  function show(open, { reveal = false, focusWidth = false } = {}) {
+  function show(open, { reveal = false } = {}) {
     options.hidden = !open;
     settings.setAttribute("aria-expanded", String(open));
     if (!open) options.querySelector("details").open = false;
     if (open && reveal)
       options.scrollIntoView({ block: "nearest", inline: "nearest" });
-    if (open && focusWidth) width.focus({ preventScroll: true });
-  }
-  function openSettings(focusWidth = false) {
-    const behavior = { reveal: true, focusWidth };
-    if (!actions.reopen(behavior)) show(true, behavior);
   }
   function toggle() {
-    if (options.hidden) openSettings();
-    else {
-      commitWidth();
+    if (!options.hidden) {
       show(false);
-    }
-  }
-  const changeWidth = (size) => {
-    if (size === value) {
-      width.value = value || "";
       return;
     }
+    const behavior = { reveal: true };
+    if (!actions.reopen(behavior)) show(true, behavior);
+  }
+  const changeWidth = (size) => {
+    if (size === value) return;
     const updated = actions.width(
       size,
       !options.hidden,
@@ -104,8 +88,7 @@ export function imageInspector(paragraph, image, markdown, actions) {
     }
     if (source.value === currentMarkdown) source.value = updated;
     currentMarkdown = updated;
-    if (size === null) delete image.dataset.imageWidth;
-    else image.dataset.imageWidth = String(size);
+    image.dataset.imageWidth = String(size);
     value = size;
     display(size);
   };
@@ -113,26 +96,10 @@ export function imageInspector(paragraph, image, markdown, actions) {
   const keepFocus = (event) => event.preventDefault();
   image.onmousedown = settings.onmousedown = grip.onmousedown = keepFocus;
   image.onclick = settings.onclick = toggle;
-  function commitWidth() {
-    changeWidth(
-      width.value === "" ? null : clampImageWidth(Number(width.value)),
-    );
-  }
-  width.onchange = commitWidth;
-  width.onkeydown = (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    width.blur();
-  };
   for (const button of options.querySelectorAll("button"))
     button.onmousedown = keepFocus;
-  options.querySelector("[data-image-auto]").onclick = () => changeWidth(null);
-  options.querySelector("[data-image-replace]").onclick = () => {
-    commitWidth();
-    actions.replace();
-  };
+  options.querySelector("[data-image-replace]").onclick = actions.replace;
   options.querySelector("[data-image-done]").onclick = () => {
-    commitWidth();
     show(false);
     settings.focus({ preventScroll: true });
   };
@@ -142,9 +109,8 @@ export function imageInspector(paragraph, image, markdown, actions) {
   grip.onpointerdown = (event) => {
     if (event.button !== 0 || drag) return;
     const available = paragraph.clientWidth;
-    const bounds = stage.getBoundingClientRect();
+    const bounds = image.getBoundingClientRect();
     if (!available || !bounds.width || !bounds.height) return;
-    skipGripClick = false;
     drag = {
       id: event.pointerId,
       x: event.clientX,
@@ -174,7 +140,6 @@ export function imageInspector(paragraph, image, markdown, actions) {
   function finish(event, commit) {
     if (!drag || drag.id !== event.pointerId) return;
     const { size, moved } = drag;
-    skipGripClick = !!moved;
     drag = null;
     delete stage.dataset.resizing;
     if (moved) {
@@ -185,10 +150,6 @@ export function imageInspector(paragraph, image, markdown, actions) {
   grip.onpointerup = (event) => finish(event, true);
   grip.onpointercancel = grip.onlostpointercapture = (event) =>
     finish(event, false);
-  grip.onclick = (event) => {
-    if (!skipGripClick || event.detail === 0) openSettings(true);
-    skipGripClick = false;
-  };
   grip.onkeydown = (event) => {
     const direction = {
       ArrowLeft: -1,
