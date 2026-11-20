@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { documentParts } from "../public/document-parts.js";
+import { markdownSource } from "../public/markdown-source.js";
 import { latexProjection } from "../public/latex-source.js";
 import { portableBlocks } from "../public/portable-blocks.js";
 import { latex } from "../public/math.js";
@@ -70,4 +71,50 @@ test("existing project files retain text, assets and metadata as ordinary Markdo
     imported.body,
   );
   assert.throws(() => readProject(JSON.stringify({ ...project, version: 2 })));
+});
+
+test("folded image destinations survive edits, CRLF conversion and full-source copy", () => {
+  const url = "https://example.org/image?name=" + "x".repeat(150);
+  const body = [
+    "# One",
+    "⟪фото 1⟫",
+    "![direct](<" + url + '> "caption"){width=40%}',
+    "![second][photo]",
+    "[photo]: " + url,
+    "Last",
+  ].join("\r\n\r\n");
+  const short = markdownSource(body, parts(body), true);
+  assert.equal(short.changes.filter((item) => item.image).length, 2);
+  assert.ok(short.text.includes("⟪фото 2⟫"));
+  assert(!short.text.includes(url));
+  assert.equal(short.apply(short.text).body, body);
+  assert.equal(
+    short.apply(short.text.replace("One", "First").replace("Last", "End")).body,
+    body.replace("One", "First").replace("Last", "End"),
+  );
+  for (const part of parts(body)) {
+    assert.equal(short.raw(short.display(part.start)), part.start);
+    assert.equal(short.raw(short.display(part.end)), part.end);
+  }
+  assert.equal(
+    markdownSource(body, parts(body), false).text,
+    body.replaceAll("\r\n", "\n"),
+  );
+});
+test("image examples in code and ordinary hyperlinks retain their literal URLs", () => {
+  const url = "https://example.org/" + "x".repeat(130);
+  const literal = "![sample](" + url + ")";
+  const body = [
+    "~~~md",
+    literal,
+    "~~~",
+    "",
+    "`" + literal + "` and " + literal,
+    "",
+    "[reference](" + url + ")",
+  ].join("\n");
+  const view = markdownSource(body, parts(body), true);
+  assert.equal(view.changes.filter((item) => item.image).length, 1);
+  assert.ok(view.text.includes("`" + literal + "`"));
+  assert.ok(view.text.endsWith("[reference](" + url + ")"));
 });

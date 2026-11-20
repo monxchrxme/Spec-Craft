@@ -21,6 +21,7 @@ export async function openPdfTask(blob) {
 // Page dimensions and block locations come from the same export as the PDF bytes.
 export function sourcePages(stage, onSelect) {
   let loading,
+    layoutRequest,
     task,
     layout,
     observer,
@@ -41,7 +42,7 @@ export function sourcePages(stage, onSelect) {
     sheets = [];
     if (task) void task.destroy().catch(() => {});
     task = null;
-    layout = null;
+    layout = layoutRequest = null;
   }
   function hide() {
     version++;
@@ -89,28 +90,40 @@ export function sourcePages(stage, onSelect) {
         void draw(sheet, sheet.pdf);
       }
   }).observe(stage);
-  function scrollToBlock(index) {
-    if (!layout) {
-      pendingBlock = index;
-      return;
-    }
-    const number = layout.blocksOnPages.get(index)?.[0],
-      sheet = sheets[number - 1];
-    if (!sheet) return;
+  function pageY(index) {
+    const number = layout.blocksOnPages.get(index)?.[0];
+    const sheet = sheets[number - 1];
+    if (!sheet) return null;
     const y =
       layout.locations.get(number)?.find((row) => row.index === index)?.top ||
       0;
-    const top =
-      sheet.element.offsetTop + (y * sheet.element.clientWidth) / sheet.width;
+    return (
+      sheet.element.offsetTop + (y * sheet.element.clientWidth) / sheet.width
+    );
+  }
+  function scrollToBlock(index, fraction = 0, bottom = false, ensure = false) {
+    if (!layout || loading !== layoutRequest)
+      pendingBlock = [index, fraction, bottom, ensure];
+    if (!layout) return;
+    const start = pageY(index);
+    if (start === null) return;
+    const end = pageY(index + 1) ?? stage.scrollHeight;
+    const y = bottom
+      ? stage.scrollHeight
+      : start + fraction * Math.max(0, end - start);
     if (
-      top < stage.scrollTop ||
-      top > stage.scrollTop + stage.clientHeight - 32
+      !ensure ||
+      y < stage.scrollTop ||
+      y > stage.scrollTop + stage.clientHeight - 32
     )
-      stage.scrollTop = Math.max(0, top - 12);
+      stage.scrollTop = Math.max(0, y - (ensure ? 12 : 0));
   }
   return {
     hide,
     scrollToBlock,
+    cancelFollow() {
+      pendingBlock = undefined;
+    },
     async show(pending, valid) {
       if (loading === pending) return;
       loading = pending;
@@ -139,6 +152,7 @@ export function sourcePages(stage, onSelect) {
         dispose();
         task = next;
         layout = data;
+        layoutRequest = pending;
         const fragment = document.createDocumentFragment();
         for (const [i, { width, height }] of data.pageSizes.entries()) {
           const number = i + 1,
@@ -165,7 +179,7 @@ export function sourcePages(stage, onSelect) {
           if (el) stage.scrollTop = el.offsetTop + fraction * el.offsetHeight;
         }
         if (pendingBlock !== undefined) {
-          scrollToBlock(pendingBlock);
+          scrollToBlock(...pendingBlock);
           pendingBlock = undefined;
         }
         observer = new IntersectionObserver(

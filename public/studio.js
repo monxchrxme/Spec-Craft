@@ -1596,7 +1596,7 @@ source.onbeforeinput = (event) => {
 };
 source.onkeyup = source.onclick = () => {
   const i = sourcePane.cursorBlock();
-  sourcePane.reveal(i);
+  sourcePane.reveal(i, true);
   selected = Math.max(0, i);
   highlight(i);
 };
@@ -1654,7 +1654,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
       type === "toc" &&
       parts.find((part) => part.start >= pos && part.t.type === "spec_toc");
     const caret = insertedToc ? insertedToc.end : pos + add.length;
-    const offset = doc.body.slice(0, caret).replace(/\r\n?/g, "\n").length;
+    const offset = sourcePane.displayOffset(caret);
     source.setSelectionRange(offset, offset);
   } else if (mode === "latex") {
     sourcePane.select(selected);
@@ -1931,6 +1931,28 @@ function trashDialog() {
   const body = dialog("Корзина", "");
   const trash = [...docs.values()].filter((d) => d.trashed);
   if (!trash.length) body.textContent = "Корзина пуста.";
+  if (trash.length) {
+    const clear = document.createElement("button");
+    clear.textContent = "Очистить корзину";
+    clear.className = "danger";
+    clear.onclick = () => {
+      const panel = dialog(
+        "Очистить корзину?",
+        '<p></p><div class="dialog-actions"><button>Отмена</button><button class="danger">Очистить корзину</button></div>',
+      );
+      panel.querySelector("p").textContent =
+        "Будут удалены навсегда документы из корзины (" + trash.length + ").";
+      const [cancel, confirm] = panel.querySelectorAll("button");
+      cancel.onclick = trashDialog;
+      confirm.onclick = () => {
+        for (const item of trash)
+          updateFile(item.id, (latest) => (latest.trashed ? null : latest));
+        nav();
+        trashDialog();
+      };
+    };
+    body.append(clear);
+  }
   for (const d of trash) {
     const row = document.createElement("div");
     row.className = "trash-row";

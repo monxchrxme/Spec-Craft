@@ -212,6 +212,25 @@
                 <i data-lucide="file-text" aria-hidden="true"></i>PDF
               </button>
             </div>
+            <div class="source-controls" hidden>
+              <label
+                id="source-fold-control"
+                title="Сворачивать длинные адреса изображений в исходнике Markdown"
+                ><input id="source-fold" type="checkbox" checked />Свернуть
+                ссылки</label
+              >
+              <label>
+                <select id="source-view" aria-label="Предпросмотр">
+                  <option value="pdf">Печатный вид</option>
+                  <option value="document">Блоки</option>
+                  <option value="off">Скрыт</option>
+                </select></label
+              >
+              <label
+                ><input type="checkbox" id="source-sync" checked /> Следовать за
+                текстом</label
+              >
+            </div>
             <span class="spacer"></span
             ><button
               class="tool"
@@ -392,20 +411,6 @@
             </div>
             <div id="blocks"></div>
             <section id="source-workspace" hidden>
-              <div class="source-controls">
-                <label
-                  >Предпросмотр
-                  <select id="source-view">
-                    <option value="pdf">Печатный вид</option>
-                    <option value="document">Блоки</option>
-                    <option value="off">Скрыт</option>
-                  </select></label
-                >
-                <label
-                  ><input type="checkbox" id="source-sync" checked /> Следовать
-                  за текстом</label
-                >
-              </div>
               <div class="source-columns">
                 <textarea
                   id="source"

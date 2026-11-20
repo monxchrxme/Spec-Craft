@@ -463,7 +463,9 @@ export function draw(g, options = {}) {
       markerUnits: "userSpaceOnUse",
       markerWidth: markerSize,
       markerHeight: markerSize,
-      orient: "auto-start-reverse",
+      // All connectors use marker-end. Both browser SVG and the PDF renderer
+      // rotate this marker to the final tangent with SVG 1.1 auto orientation.
+      orient: "auto",
     });
     const diamond = ["composition", "aggregation"].includes(e.arrow);
     arrow.append(

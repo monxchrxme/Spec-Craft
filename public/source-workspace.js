@@ -1,3 +1,4 @@
+import { markdownSource } from "./markdown-source.js";
 import { sourcePages } from "./pdf-pages.js";
 import { latexProjection } from "./latex-source.js";
 
@@ -14,6 +15,8 @@ export function sourceWorkspace({
     view = document.querySelector("#source-view"),
     sync = document.querySelector("#source-sync"),
     divider = document.querySelector("#source-divider");
+  const fold = document.querySelector("#source-fold");
+  let markdown, nextSelection;
   let tex,
     timer,
     generation = 0,
@@ -32,19 +35,15 @@ export function sourceWorkspace({
       // Keep original assets and opaque block references available throughout a draft.
       // A half-typed command can temporarily stop referring to its image or diagram.
       // Even a partial command has a corresponding literal block in the document.
+      if (live.text === source.value) tex = live;
       spans = live.entries
         .filter((e) => e.block !== null)
         .map((e) => [e.from, e.to]);
     } else {
-      let cursor = 0,
-        offset = 0;
-      spans = parts.map((p) => {
-        offset += body.slice(cursor, p.start).replace(/\r\n?/g, "\n").length;
-        const from = offset;
-        offset += p.text.replace(/\r\n?/g, "\n").length;
-        cursor = p.end;
-        return [from, offset];
-      });
+      spans = parts.map((p) => [
+        markdown.display(p.start),
+        markdown.display(p.end),
+      ]);
     }
     measured = null;
   }
@@ -73,9 +72,11 @@ export function sourceWorkspace({
         );
         return;
       }
+      const initialized = preview.firstElementChild?.matches(".block");
       const oldTop = preview.scrollTop,
         { parts } = current(),
         nodes = [];
+      if (!preview.firstElementChild) preview.replaceChildren();
       const existing = [...preview.children];
       parts.forEach((p, i) => {
         const signature = [
@@ -103,6 +104,7 @@ export function sourceWorkspace({
       while (preview.children.length > nodes.length) preview.lastChild.remove();
       preview.scrollTop = oldTop;
       paint(preview);
+      if (!initialized) followScroll();
     }, delay);
   }
   function cursorBlock() {
@@ -112,15 +114,27 @@ export function sourceWorkspace({
       current().parts.findLastIndex((_, i) => span(i)[0] <= pos),
     );
   }
-  function reveal(i) {
+  function reveal(i, caret = false) {
+    const [start, end] = span(i);
+    const fraction = caret
+      ? Math.min(
+          1,
+          Math.max(
+            0,
+            (source.selectionStart - start) / Math.max(1, end - start),
+          ),
+        )
+      : 0;
     if (sync.checked && view.value === "pdf") {
-      pages.scrollToBlock(i);
+      pages.scrollToBlock(i, fraction, false, true);
       return;
     }
     const box = preview.children[i];
     if (sync.checked && view.value === "document" && box) {
       const delta =
-        box.getBoundingClientRect().top - preview.getBoundingClientRect().top;
+        box.getBoundingClientRect().top -
+        preview.getBoundingClientRect().top +
+        fraction * box.offsetHeight;
       if (delta < 0 || delta > preview.clientHeight - 45)
         preview.scrollTop += delta - 12;
     }
@@ -150,56 +164,69 @@ export function sourceWorkspace({
     });
     const fragment = document.createDocumentFragment(),
       marks = [];
+    const value = source.value;
     let previous = 0;
     for (const [from] of spans) {
-      fragment.append(source.value.slice(previous, from));
+      fragment.append(value.slice(previous, from));
       const mark = document.createElement("span");
       fragment.append(mark);
       marks.push(mark);
       previous = from;
     }
-    fragment.append(source.value.slice(previous));
+    fragment.append(value.slice(previous));
     mirror.replaceChildren(fragment);
     const tops = marks.map((mark) => mark.offsetTop);
     measured = { width, tops };
     return tops;
+  }
+  function followScroll() {
+    if (!visible || !sync.checked || view.value === "off") return;
+    const tops = blockTops();
+    if (!tops.length) return;
+    const bottom =
+      source.scrollHeight > source.clientHeight &&
+      source.scrollTop + source.clientHeight >= source.scrollHeight - 1;
+    const y =
+      source.scrollTop + parseFloat(getComputedStyle(source).paddingTop);
+    const index = Math.max(
+      0,
+      tops.findLastIndex((top) => top <= y),
+    );
+    const fraction = Math.max(
+      0,
+      Math.min(
+        1,
+        (y - tops[index]) /
+          Math.max(1, (tops[index + 1] ?? source.scrollHeight) - tops[index]),
+      ),
+    );
+    if (view.value === "pdf") pages.scrollToBlock(index, fraction, bottom);
+    else {
+      const box = preview.children[index];
+      if (box)
+        preview.scrollTop = bottom
+          ? preview.scrollHeight
+          : preview.scrollTop +
+            box.getBoundingClientRect().top -
+            preview.getBoundingClientRect().top +
+            fraction * box.offsetHeight;
+    }
   }
   source.addEventListener("scroll", () => {
     if (selectedScrollTop === source.scrollTop) {
       selectedScrollTop = undefined;
       return;
     }
-    if (!visible || !sync.checked || view.value === "off" || scrollFrame)
-      return;
+    if (!visible || !sync.checked || scrollFrame) return;
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = 0;
-      if (!visible || !sync.checked || view.value === "off") return;
-      const tops = blockTops(),
-        index = Math.max(
-          0,
-          tops.findLastIndex((y) => y <= source.scrollTop + 8),
-        );
-      if (view.value === "pdf") {
-        pages.scrollToBlock(index);
-        return;
-      }
-      const box = preview.children[index];
-      if (!box) return;
-      const fraction = Math.max(
-        0,
-        Math.min(
-          1,
-          (source.scrollTop - tops[index]) /
-            Math.max(1, (tops[index + 1] ?? source.scrollHeight) - tops[index]),
-        ),
-      );
-      preview.scrollTop +=
-        box.getBoundingClientRect().top -
-        preview.getBoundingClientRect().top +
-        fraction * box.offsetHeight -
-        8;
+      followScroll();
     });
   });
+  sync.onchange = () => {
+    if (sync.checked) followScroll();
+    else pages.cancelFollow();
+  };
   function select(i, follow = true) {
     const [from, to] = span(i);
     source.focus({ preventScroll: true });
@@ -208,7 +235,9 @@ export function sourceWorkspace({
       0,
       (blockTops()[i] || 0) - source.clientHeight * 0.25,
     );
-    if (!follow) selectedScrollTop = source.scrollTop;
+    selectedScrollTop = source.scrollTop;
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
     choose(i);
     if (follow) reveal(i);
   }
@@ -217,7 +246,73 @@ export function sourceWorkspace({
     const box = e.target.closest(".block[data-idx]");
     if (box) select(Number(box.dataset.idx));
   };
-  view.onchange = () => schedule(0);
+  fold.onchange = () => {
+    if (!markdown) return;
+    const { body, parts } = current();
+    const start = markdown.raw(source.selectionStart),
+      end = markdown.raw(source.selectionEnd, true);
+    const block = cursorBlock();
+    markdown = markdownSource(body, parts, fold.checked);
+    source.value = markdown.text;
+    indexSpans();
+    source.setSelectionRange(
+      markdown.display(start),
+      markdown.display(end, true),
+    );
+    source.scrollTop = Math.max(
+      0,
+      (blockTops()[block] || 0) - source.clientHeight * 0.25,
+    );
+    selectedScrollTop = source.scrollTop;
+  };
+  // Expand the selection to the whole folded destination before replacing it.
+  source.addEventListener("beforeinput", (e) => {
+    if (!markdown || !fold.checked || e.inputType.startsWith("history")) return;
+    let a = source.selectionStart,
+      b = source.selectionEnd;
+    for (const item of markdown.changes) {
+      if (!item.image) continue;
+      if (
+        a === b &&
+        ((a === item.to && e.inputType === "deleteContentBackward") ||
+          (a === item.from && e.inputType === "deleteContentForward"))
+      ) {
+        a = item.from;
+        b = item.to;
+      }
+      if (a > item.from && a < item.to) a = item.from;
+      if (b > item.from && b < item.to) b = item.to;
+    }
+    if (a !== source.selectionStart || b !== source.selectionEnd)
+      source.setSelectionRange(a, b);
+  });
+  for (const action of ["copy", "cut"])
+    source.addEventListener(action, (e) => {
+      if (
+        !markdown ||
+        !fold.checked ||
+        source.selectionStart === source.selectionEnd ||
+        !e.clipboardData
+      )
+        return;
+      const a = markdown.raw(source.selectionStart),
+        b = markdown.raw(source.selectionEnd, true);
+      e.clipboardData.setData("text/plain", current().body.slice(a, b));
+      e.preventDefault();
+      if (action === "cut") {
+        source.setRangeText(
+          "",
+          markdown.display(a),
+          markdown.display(b, true),
+          "start",
+        );
+        source.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+  view.onchange = () => {
+    schedule(0);
+    if (view.value === "pdf") followScroll();
+  };
   let dragging = false;
   function width(n) {
     const value = Math.max(22, Math.min(78, n));
@@ -252,6 +347,8 @@ export function sourceWorkspace({
   };
   return {
     show(on) {
+      document.querySelector(".source-controls").hidden = !on;
+      document.querySelector("#source-fold-control").hidden = active();
       visible = on;
       root.hidden = !on;
       generation++;
@@ -265,7 +362,8 @@ export function sourceWorkspace({
       lastDoc = id;
       lastMode = mode;
       if (!on) {
-        tex = null;
+        tex = markdown = null;
+        nextSelection = null;
         measured = null;
         mirror?.replaceChildren();
         pages.hide();
@@ -273,7 +371,8 @@ export function sourceWorkspace({
         return;
       }
       tex = active() ? latexProjection(body, parts) : null;
-      const value = (tex?.text ?? body).replace(/\r\n?/g, "\n");
+      markdown = active() ? null : markdownSource(body, parts, fold.checked);
+      const value = tex?.text ?? markdown.text;
       if (source.value !== value) source.value = value;
       source.setAttribute(
         "aria-label",
@@ -284,42 +383,39 @@ export function sourceWorkspace({
     },
     read() {
       if (active()) return tex.apply(source.value);
-      const { body } = current(),
-        old = body.replace(/\r\n?/g, "\n"),
-        next = source.value;
-      if (old === next) return body;
-      if (!body.includes("\r")) return next;
-      let a = 0,
-        b = old.length,
-        c = next.length;
-      while (a < b && a < c && old[a] === next[a]) a++;
-      while (b > a && c > a && old[b - 1] === next[c - 1]) {
-        b--;
-        c--;
-      }
-      const boundaries = [0];
-      for (const m of body.matchAll(/\r\n|[\s\S]/g))
-        boundaries.push(m.index + m[0].length);
-      const newline = body.match(/\r\n|\r|\n/)?.[0] || "\n";
-      return (
-        body.slice(0, boundaries[a]) +
-        next.slice(a, c).replaceAll("\n", newline) +
-        body.slice(boundaries[b])
-      );
+      const next = markdown.apply(source.value);
+      nextSelection = [
+        next.caret(source.selectionStart),
+        next.caret(source.selectionEnd),
+        source.selectionDirection,
+      ];
+      return next.body;
     },
     update() {
+      if (!active()) {
+        const { body, parts } = current();
+        markdown = markdownSource(body, parts, fold.checked);
+        if (source.value !== markdown.text) {
+          const top = source.scrollTop;
+          source.value = markdown.text;
+          if (nextSelection)
+            source.setSelectionRange(
+              markdown.display(nextSelection[0]),
+              markdown.display(nextSelection[1], true),
+              nextSelection[2],
+            );
+          source.scrollTop = top;
+        }
+        nextSelection = null;
+      }
       indexSpans();
       schedule(view.value === "pdf" ? 650 : 100);
     },
     bodyOffset(offset) {
-      const { body } = current();
-      if (!body.includes("\r\n")) return offset;
-      let raw = offset;
-      for (const match of body.matchAll(/\r\n/g)) {
-        if (match.index >= raw) break;
-        raw++;
-      }
-      return raw;
+      return markdown.raw(offset);
+    },
+    displayOffset(offset) {
+      return markdown.display(offset);
     },
     cursorBlock,
     select,

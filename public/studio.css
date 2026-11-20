@@ -82,6 +82,7 @@ button.primary:hover:enabled {
   display: none !important;
 }
 #workspace {
+  --status-height: 32px;
   --sidebar-default-width: 228px;
   --sidebar-min-width: 155px;
   --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 550px, 480px);
@@ -160,13 +161,6 @@ button.primary:hover:enabled {
   cursor: col-resize;
   touch-action: none;
 }
-.panel-resizer::before {
-  content: "";
-  position: absolute;
-  inset: 0 calc(50% - 1px);
-  background: var(--accent);
-  opacity: 0;
-}
 .panel-resizer::after {
   content: "";
   position: absolute;
@@ -177,18 +171,11 @@ button.primary:hover:enabled {
   border-radius: 2px;
   background: #a9a5bb;
 }
-.panel-resizer:hover::before,
-.panel-resizer:focus-visible::before,
-.panel-resizer[data-resizing]::before {
-  opacity: 1;
-}
-.panel-resizer:hover::after,
-.panel-resizer:focus-visible::after,
-.panel-resizer[data-resizing]::after {
-  background: var(--accent);
+.panel-resizer:focus-visible::after {
+  background: currentColor;
 }
 .panel-resizer:focus-visible {
-  outline-offset: -2px;
+  outline: none;
 }
 .inspector-resizer {
   display: none;
@@ -692,7 +679,8 @@ pre code :is(.hljs-variable, .hljs-deletion) {
 .sidebar-tools-toggle {
   flex: none;
   justify-content: flex-start;
-  padding: 8px 16px;
+  height: calc(var(--status-height) - 1px);
+  padding: 0 16px;
   border-radius: 0;
   text-align: left;
   color: var(--muted);
@@ -972,6 +960,9 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   margin: 3px 0;
 }
 footer {
+  min-height: var(--status-height);
+  flex: none;
+  align-items: center;
   background: #fafbfc;
   border-top: 1px solid var(--line);
   display: flex;
@@ -2625,8 +2616,7 @@ g.workflow-anchored {
 }
 .paper:has(#source-workspace:not([hidden])) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -2641,26 +2631,15 @@ g.workflow-anchored {
   display: contents;
 }
 .paper:has(#source-workspace:not([hidden])) > .doc-label {
-  margin: 0;
-  padding: 3px 10px;
-  min-width: 0;
-  border-bottom: 1px solid var(--line);
-}
-.paper:has(#source-workspace:not([hidden])) .doc-label-edit {
-  min-width: 0;
-}
-.paper:has(#source-workspace:not([hidden])) .doc-label-edit span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: none;
 }
 .source-controls {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding: 3px 10px;
-  border-bottom: 1px solid var(--line);
+  padding-inline: 8px;
+  white-space: nowrap;
   font:
     13px/1.4 system-ui,
     sans-serif;
@@ -2673,12 +2652,14 @@ g.workflow-anchored {
 }
 .source-columns {
   display: grid;
-  grid-template-columns: minmax(0, var(--source-share, 48%)) 8px minmax(0, 1fr);
+  position: relative;
+  grid-template-columns: minmax(0, var(--source-share, 48%)) minmax(0, 1fr);
   grid-column: 1/-1;
   min-height: 0;
   min-width: 0;
 }
 .paper .source-columns #source {
+  outline: none;
   border: 0;
   border-radius: 0;
   padding: 12px 14px;
@@ -2689,14 +2670,19 @@ g.workflow-anchored {
   resize: none;
 }
 #source-divider {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: var(--source-share, 48%);
+  width: 8px;
+  transform: translateX(-50%);
   cursor: col-resize;
   touch-action: none;
-  border-inline: 3px solid white;
-  background: var(--line);
 }
-#source-divider:hover,
 #source-divider:focus-visible {
-  background: var(--doc-accent);
+  outline: 1px dashed var(--muted);
+  outline-offset: -3px;
 }
 #source-preview {
   min-width: 0;
@@ -2706,16 +2692,14 @@ g.workflow-anchored {
 }
 #source-workspace[data-preview="pdf"] #source-preview {
   position: relative;
-  padding: 6px;
-  background: #e8e9ef;
+  padding: 0;
+  background: white;
   overflow-anchor: none;
 }
 .source-sheet {
   width: 100%;
   position: relative;
   background: white;
-  box-shadow: 0 0 0 1px #d2d3da;
-  margin-bottom: 7px;
 }
 .source-sheet canvas {
   display: block;
@@ -2754,4 +2738,11 @@ g.workflow-anchored {
   .controls {
     overflow-x: auto;
   }
+}
+
+.controls:has(.source-controls:not([hidden])) {
+  overflow-x: auto;
+}
+.controls:has(.source-controls:not([hidden])) > :not(.spacer) {
+  flex-shrink: 0;
 }
