@@ -13,13 +13,13 @@ export function diagramView(
   card.setAttribute("aria-label", title);
   card.innerHTML = `
     <header class="diagram-title"><i data-lucide="workflow" aria-hidden="true"></i><strong></strong><span class="spacer"></span></header>
-    <div class="diagram-window graph-bg" tabindex="0"></div>
     <div class="diagram-zoom" role="group" aria-label="Масштаб схемы">
       <button class="zoom-out" aria-label="Уменьшить схему">−</button>
       <button class="zoom-reset" title="Показать в масштабе 100%"></button>
       <button class="zoom-in" aria-label="Увеличить схему">+</button>
       <button class="zoom-fit" aria-pressed="false">Вписать целиком</button>
-    </div>`;
+    </div>
+    <div class="diagram-window graph-bg" tabindex="0"></div>`;
   const header = card.querySelector("header");
   header.querySelector("strong").textContent = title;
   function addAction(name, symbol, fn) {

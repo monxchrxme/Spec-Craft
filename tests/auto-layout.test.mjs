@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { arrangeNodes, routeEdges } from "../public/auto-layout.js";
+import {
+  arrangeNodes,
+  layoutProposals,
+  routeEdges,
+} from "../public/auto-layout.js";
 import { anchors, routePoints } from "../public/graph.js";
 
 const node = (id, x, y, extra = {}) => ({
@@ -10,6 +14,24 @@ const node = (id, x, y, extra = {}) => ({
   width: 100,
   height: 60,
   ...extra,
+});
+
+test("layout proposals compare separate routed graphs against an unchanged original", () => {
+  const graph = {
+    nodes: [node("a", 40, 40), node("b", 232, 40), node("c", 424, 40)],
+    edges: [
+      { id: "ab", from: "a", to: "b" },
+      { id: "bc", from: "b", to: "c" },
+    ],
+  };
+  const baseline = structuredClone(graph);
+  const propose = layoutProposals(graph, new Set(["a", "b", "c"]), "explore");
+  const first = propose();
+  const second = propose();
+  assert(first.moved > 0 && second.moved > 0);
+  assert.notDeepEqual(first.graph.nodes, second.graph.nodes);
+  assert(first.graph.edges.every((edge) => edge.route === "orthogonal"));
+  assert.deepEqual(graph, baseline);
 });
 
 test("a selected route goes around a central obstacle and preserves other links", () => {

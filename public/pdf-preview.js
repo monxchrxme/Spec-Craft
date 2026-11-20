@@ -43,6 +43,13 @@ function formatSheet({ width, height }) {
   return "Увеличенный лист";
 }
 
+function previewCanvas(view, density) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(view.width * density));
+  canvas.height = Math.max(1, Math.ceil(view.height * density));
+  return canvas;
+}
+
 export function pdfPreview(
   root,
   { profile, numbering, download, print, edit, select, rules },
@@ -64,6 +71,7 @@ export function pdfPreview(
   let task, pdf, layout, request, sheetObserver, thumbnailObserver, scrollFrame;
   let sheets = [],
     byIndex = new Map();
+  const thumbnailDrawings = new Map();
   let page = 0,
     selected = null,
     lastWidth = 0,
@@ -79,6 +87,9 @@ export function pdfPreview(
   function stop() {
     sheetObserver?.disconnect();
     thumbnailObserver?.disconnect();
+    for (const thumbnail of thumbnailDrawings.values())
+      thumbnail.drawing?.cancel();
+    thumbnailDrawings.clear();
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
     sheets.forEach(clearSheet);
@@ -242,13 +253,11 @@ export function pdfPreview(
       if (sheet.pending !== token) return;
       const view = source.getViewport({ scale: sheet.scale });
       const pixels = Math.min(
-        devicePixelRatio || 1,
-        2,
-        Math.sqrt(7e6 / (view.width * view.height)),
+        Math.max(1.5, devicePixelRatio || 1),
+        3,
+        Math.sqrt(10e6 / (view.width * view.height)),
       );
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.floor(view.width * pixels));
-      canvas.height = Math.max(1, Math.floor(view.height * pixels));
+      const canvas = previewCanvas(view, pixels);
       canvas.setAttribute("role", "img");
       canvas.setAttribute("aria-label", "Страница " + sheet.number);
       sheet.drawing = source.render({
@@ -365,35 +374,59 @@ export function pdfPreview(
     const current = pdf;
     thumbnailObserver = new IntersectionObserver(
       (entries) => {
+        if (pdf !== current) return;
         for (const { isIntersecting, target } of entries) {
-          if (!isIntersecting || pdf !== current) continue;
-          thumbnailObserver.unobserve(target);
+          const surface = target.firstElementChild;
+          const pending = thumbnailDrawings.get(target);
+          if (!isIntersecting) {
+            pending?.drawing?.cancel();
+            thumbnailDrawings.delete(target);
+            surface.replaceChildren();
+            continue;
+          }
+          if (pending || surface.firstChild) continue;
+          const request = {};
+          thumbnailDrawings.set(target, request);
           void (async () => {
             const sheet = await current.getPage(Number(target.dataset.page));
-            if (pdf !== current || !target.isConnected) return;
+            if (thumbnailDrawings.get(target) !== request) return;
             const { width, height } = sheet.getViewport({ scale: 1 });
             const viewport = sheet.getViewport({
               scale: Math.min(96 / width, 128 / height),
             });
-            const canvas = target.querySelector("canvas");
-            canvas.width = Math.max(1, Math.ceil(viewport.width));
-            canvas.height = Math.max(1, Math.ceil(viewport.height));
-            await sheet.render({ canvas, viewport }).promise;
-          })().catch(() => {});
+            const density = Math.max(2.5, Math.min(3, devicePixelRatio || 1));
+            const canvas = previewCanvas(viewport, density);
+            request.drawing = sheet.render({
+              canvas,
+              viewport,
+              transform: [density, 0, 0, density, 0, 0],
+            });
+            await request.drawing.promise;
+            if (thumbnailDrawings.get(target) === request)
+              surface.append(canvas);
+          })()
+            .catch(() => {})
+            .finally(() => {
+              if (thumbnailDrawings.get(target) === request)
+                thumbnailDrawings.delete(target);
+            });
         }
       },
-      { root: thumbnails },
+      { root: thumbnails, rootMargin: "128px 0px" },
     );
     for (let number = 1; number <= current.numPages; number++) {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.page = number;
       button.setAttribute("aria-label", "Страница " + number);
-      const canvas = document.createElement("canvas");
-      canvas.width = 96;
-      canvas.height = 126;
-      canvas.setAttribute("aria-hidden", "true");
-      button.append(canvas, String(number));
+      const surface = document.createElement("span");
+      surface.className = "pdf-thumbnail-sheet";
+      surface.setAttribute("aria-hidden", "true");
+      const { width, height } = sheets[number - 1];
+      const scale = Math.min(96 / width, 128 / height);
+      surface.style.width = width * scale + "px";
+      surface.style.height = height * scale + "px";
+      button.append(surface, String(number));
       button.onclick = () => jump(number);
       thumbnails.append(button);
       thumbnailObserver.observe(button);

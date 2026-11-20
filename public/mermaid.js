@@ -6,6 +6,7 @@ import {
   mermaidThemes,
 } from "./mermaid-presentation.js";
 import { addHeightHandle, setDiagramHeight } from "./diagram-height.js";
+import { downloadSvg } from "./diagram-download.js";
 
 const channel = "speccraft-mermaid-";
 const cached = new Map();
@@ -41,6 +42,7 @@ export function mermaidBlocks(md) {
         <label class="mermaid-option" data-mermaid-layout title="Как размещаются фигуры и стрелки" hidden>Раскладка <select aria-label="Раскладка Mermaid"></select></label>
         <label class="mermaid-option" data-mermaid-direction title="«Как в коде» следует исходнику. Другой вариант меняет направление при отрисовке." hidden>Направление <select aria-label="Направление Mermaid"></select></label>
         <label class="mermaid-option" data-mermaid-theme title="Цвета и оформление диаграммы" hidden>Оформление <select aria-label="Оформление Mermaid"></select></label>
+        <button type="button" data-mermaid-svg title="Скачать диаграмму Mermaid как SVG" aria-label="Скачать SVG Mermaid" hidden>SVG</button>
         <button type="button" data-mermaid-fit aria-pressed="false" hidden>Вписать</button>
         <button type="button" data-mermaid-expand aria-expanded="false" hidden>Развернуть</button>
       </header>
@@ -98,6 +100,7 @@ function receive(event) {
   else {
     try {
       done(null, {
+        svg,
         url: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
         width,
         height,
@@ -204,7 +207,6 @@ export function mermaidControls(
       current.type &&
       setup("[data-mermaid-direction]", mermaidDirections, current.direction);
     const changePresentation = () => {
-      if (direction) direction.disabled = layout.value === "free";
       presentation(
         layout?.value || "source",
         direction?.value || "source",
@@ -213,7 +215,6 @@ export function mermaidControls(
       );
     };
     if (layout) {
-      direction.disabled = layout.value === "free";
       layout.onchange = direction.onchange = changePresentation;
     }
     theme.onchange = changePresentation;
@@ -255,6 +256,7 @@ async function paint(card, preview, request) {
   const state = card.querySelector(".mermaid-status");
   const surface = card.querySelector(".mermaid-window");
   const details = card.querySelector(".mermaid-source");
+  const download = card.querySelector("[data-mermaid-svg]");
   const source = details.querySelector("code").textContent;
   const controls = [
     "[data-mermaid-fit]",
@@ -263,6 +265,7 @@ async function paint(card, preview, request) {
   ];
   const isCurrent = () => card.isConnected && paintings.get(card) === request;
   card.setAttribute("aria-busy", "true");
+  download.disabled = true;
   try {
     const result = await mermaidGraphic(source);
     if (!isCurrent()) return;
@@ -276,10 +279,14 @@ async function paint(card, preview, request) {
     surface.replaceChildren(image);
     surface.hidden = false;
     state.hidden = true;
-    if (!preview)
+    if (!preview) {
       for (const selector of controls)
         card.querySelector(selector)?.removeAttribute("hidden");
-    else details.hidden = true;
+      download.onclick = () =>
+        downloadSvg(result.svg, result.label || "Mermaid");
+      download.disabled = false;
+      download.hidden = false;
+    } else details.hidden = true;
   } catch (error) {
     if (!isCurrent()) return;
     surface.hidden = !surface.firstChild;

@@ -225,17 +225,21 @@ test("Mermaid view settings preserve front matter and nested state directions", 
   );
 });
 
-test("Mermaid retains appearance and height when changing layout and keeps source direction in free layout", () => {
+test("older Mermaid ELK Stress settings open as ordered ELK and retain appearance and height", () => {
   const source = "stateDiagram-v2\n  direction LR\n  A --> B\n";
   const styled = setMermaidPresentation(source, "elk", "vertical", {
     theme: "blue",
     height: 540,
   });
-  const free = setMermaidPresentation(styled, "free", "vertical");
+  const free = styled.replace(
+    "speccraft-render: elk",
+    "speccraft-render: free",
+  );
   assert.equal(mermaidPresentation(free).height, 540);
+  assert.equal(mermaidPresentation(free).layout, "elk");
   assert.deepEqual(configureMermaid(free), {
-    source,
-    layout: "free",
+    source: "stateDiagram-v2\n    direction TB\n  A --> B\n",
+    layout: "elk",
     theme: "blue",
   });
   assert.equal(

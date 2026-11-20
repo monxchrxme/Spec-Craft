@@ -4,7 +4,6 @@ export const mermaidLayouts = {
   source: "Как в коде",
   compact: "Компактно · Dagre",
   elk: "По порядку из кода · ELK",
-  free: "Свободная · ELK Stress",
 };
 export const mermaidDirections = {
   source: "Как в коде",
@@ -32,7 +31,7 @@ export function mermaidPresentation(source) {
     clean,
     bodyStart,
     type: header?.[1] || "",
-    layout: config?.[1] || "source",
+    layout: config?.[1] === "free" ? "elk" : config?.[1] || "source",
     direction: config?.[2] || "source",
     theme: config?.[3] || "source",
     height: diagramHeight(Number(config?.[4])),
@@ -72,8 +71,7 @@ export function configureMermaid(source) {
   const { clean, layout, direction, type, bodyStart, theme } =
     mermaidPresentation(source);
   const result = { layout: type ? layout : "source", theme };
-  if (!type || direction === "source" || layout === "free")
-    return { ...result, source: clean };
+  if (!type || direction === "source") return { ...result, source: clean };
   const rank = direction === "horizontal" ? "LR" : "TB";
   const body = clean.slice(bodyStart);
   if (type === "flowchart" || type === "graph") {

@@ -1,5 +1,6 @@
 import { checkDiagram } from "./graph-check.js";
-import { arrangeNodes, routeEdges } from "./auto-layout.js";
+import { layoutProposals, routeEdges } from "./auto-layout.js";
+import { downloadSvg } from "./diagram-download.js";
 import {
   normalize,
   draw,
@@ -40,7 +41,7 @@ export function graphEditor(
     panMode = false;
   const history = [],
     future = [];
-  const layoutAttempts = new Map();
+  let layoutPreview = null;
   panel.className = "diagram-card inline-graph";
   panel.innerHTML = `
     <header class="diagram-title">
@@ -52,14 +53,6 @@ export function graphEditor(
       <button data-cmd="multi" aria-pressed="false">Выделение</button>
       <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
-      <select aria-label="Вариант авторасстановки" data-layout-variant>
-        <option value="explore">Разные варианты</option>
-        <option value="horizontal">Поток слева направо</option>
-        <option value="vertical">Поток сверху вниз</option>
-        <option value="grid">Компактная сетка</option>
-        <option value="radial">От центра</option>
-      </select>
-      <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
       <button data-cmd="check" aria-pressed="false">Проверить схему</button>
       <button data-cmd="snap" aria-pressed="false">По сетке</button>
@@ -70,6 +63,30 @@ export function graphEditor(
       <button data-cmd="minus" aria-label="Уменьшить">−</button>
       <output></output><button data-cmd="plus" aria-label="Увеличить">+</button>
     </div>
+    <div class="graph-layout-tools" role="group" aria-label="Авторасстановка схемы">
+      <label>Раскладка
+        <select aria-label="Вариант авторасстановки" data-layout-variant>
+          <option value="explore">Разные варианты</option>
+          <option value="horizontal">Поток слева направо</option>
+          <option value="vertical">Поток сверху вниз</option>
+          <option value="grid">Компактная сетка</option>
+          <option value="radial">От центра</option>
+        </select>
+      </label>
+      <button data-cmd="layout" aria-expanded="false" title="Предпросмотр позиций фигур и маршрутов стрелок">Авторасстановка</button>
+    </div>
+    <section class="graph-layout-preview" aria-label="Предпросмотр авторасстановки" hidden>
+      <div class="layout-preview-controls">
+        <button data-cmd="layout-previous" aria-label="Предыдущий вариант">←</button>
+        <span data-layout-label></span>
+        <button data-cmd="layout-next" aria-label="Следующий вариант">→</button>
+        <button data-cmd="layout-original" aria-pressed="false">Исходная схема</button>
+        <span class="spacer"></span>
+        <button data-cmd="layout-cancel">Отменить</button>
+        <button data-cmd="layout-apply" class="primary">Применить</button>
+      </div>
+      <p data-layout-status role="status"></p>
+    </section>
     <div class="graph-placement">
       <div class="graph-stage graph-bg" tabindex="0" aria-label="Холст схемы"></div>
       <div class="graph-foot">
@@ -82,7 +99,16 @@ export function graphEditor(
     shapePicker.add(new Option(label, shape));
   const placement = panel.querySelector(".graph-placement");
   const stage = panel.querySelector(".graph-stage"),
-    hint = panel.querySelector("[role=status]");
+    hint = panel.querySelector(".graph-foot [role=status]");
+  const layoutPicker = panel.querySelector("[data-layout-variant]");
+  const previewControls = panel.querySelector(".graph-layout-preview");
+  const command = (name) => panel.querySelector('[data-cmd="' + name + '"]');
+  const editingControls = [
+    ...panel.querySelectorAll(
+      '.graph-tools :is(button, select):not([data-cmd="plus"], [data-cmd="minus"], [data-cmd="undo"], [data-cmd="redo"])',
+    ),
+    panel.querySelector(".frame-grip"),
+  ];
   const singleEdge = () =>
     selectedEdges.size === 1 ? selectedEdges.values().next().value : null;
   const current = () =>
@@ -125,6 +151,7 @@ export function graphEditor(
     refresh();
   }
   function handleDelete(e) {
+    if (layoutPreview) return;
     if (
       !["Backspace", "Delete"].includes(e.key) ||
       e.isComposing ||
@@ -153,6 +180,10 @@ export function graphEditor(
     dirty = true;
   }
   function render() {
+    const proposed =
+      layoutPreview && !layoutPreview.original
+        ? layoutPreview.candidates[layoutPreview.index]?.graph
+        : null;
     styleFrame(placement, graph);
     panel.querySelector(".diagram-title strong").textContent =
       graph.title || "Блок-схема";
@@ -163,14 +194,14 @@ export function graphEditor(
       .querySelector("[data-cmd=pan]")
       .setAttribute("aria-pressed", String(panMode));
     stage.replaceChildren(
-      draw(graph, {
+      draw(proposed || graph, {
         editor: true,
         zoom,
-        selected,
-        edges: selectedEdges,
-        edge: singleEdge(),
-        module: activeModule,
-        segment: activeSegment,
+        selected: layoutPreview ? null : selected,
+        edges: layoutPreview ? null : selectedEdges,
+        edge: layoutPreview ? null : singleEdge(),
+        module: layoutPreview ? null : activeModule,
+        segment: layoutPreview ? null : activeSegment,
       }),
     );
     panel
@@ -178,12 +209,12 @@ export function graphEditor(
       .setAttribute("aria-pressed", String(showChecks));
     if (!drag) publish();
     panel.querySelector("output").textContent = Math.round(zoom * 100) + "%";
-    panel.querySelector("[data-cmd=undo]").disabled = !history.length;
-    panel.querySelector("[data-cmd=redo]").disabled = !future.length;
+    command("undo").disabled = !!layoutPreview || !history.length;
+    command("redo").disabled = !!layoutPreview || !future.length;
     panel
       .querySelector("[data-cmd=connect]")
       .setAttribute("aria-pressed", connecting);
-    stage.classList.toggle("is-panning", panMode);
+    stage.classList.toggle("is-panning", panMode || !!layoutPreview);
     hint.textContent = panMode
       ? "Перетащите холст мышью или пальцем, чтобы увидеть другую часть схемы."
       : connecting
@@ -758,19 +789,161 @@ export function graphEditor(
     render();
     inspector();
   }
+  function layoutMode(enabled) {
+    previewControls.hidden = !enabled;
+    command("layout").setAttribute("aria-expanded", String(enabled));
+    props.inert = enabled;
+    for (const control of editingControls) control.disabled = enabled;
+    const remove = panel.querySelector(".diagram-remove");
+    if (remove) remove.disabled = enabled;
+  }
+  function showLayout() {
+    const { candidates, index, original, scope, error, exhausted } =
+      layoutPreview;
+    const choice = candidates[index];
+    previewControls.querySelector("[data-layout-label]").textContent = choice
+      ? "Вариант " + (index + 1)
+      : "Предпросмотр";
+    previewControls.querySelector("[data-layout-status]").textContent = original
+      ? "Показана исходная схема. Нажмите ещё раз, чтобы вернуться к варианту."
+      : error ||
+        (choice
+          ? "Перемещено фигур: " +
+            choice.moved +
+            "." +
+            (choice.missed
+              ? " Связей без нового маршрута: " + choice.missed + "."
+              : "") +
+            (exhausted ? " Выберите другую раскладку для новых вариантов." : "")
+          : "В этом режиме нет другой расстановки для выбранных фигур. Попробуйте изменить выделение или раскладку.");
+    command("layout-original").setAttribute("aria-pressed", String(original));
+    command("layout-original").disabled = !choice;
+    command("layout-apply").disabled = !choice || original;
+    command("layout-previous").disabled = index < 1;
+    command("layout-next").disabled =
+      exhausted && index >= candidates.length - 1;
+    const nodes = (original ? graph : choice?.graph)?.nodes.filter(({ id }) =>
+      scope.has(id),
+    );
+    if (!nodes?.length) {
+      render();
+      return;
+    }
+    const left = Math.min(...nodes.map(({ x }) => x));
+    const top = Math.min(...nodes.map(({ y }) => y));
+    const width = Math.max(...nodes.map(({ x, width }) => x + width)) - left;
+    const height = Math.max(...nodes.map(({ y, height }) => y + height)) - top;
+    zoom = Math.max(
+      0.04,
+      Math.min(
+        1.2,
+        (stage.clientWidth - 36) / width,
+        (stage.clientHeight - 36) / height,
+      ),
+    );
+    render();
+    const view = stage.querySelector("svg").viewBox.baseVal;
+    stage.scrollLeft = (left - view.x) * zoom - 16;
+    stage.scrollTop = (top - view.y) * zoom - 16;
+  }
+  function moveLayout(delta) {
+    const state = layoutPreview;
+    const index = state.index + delta;
+    if (index < 0) return;
+    if (index === state.candidates.length && !state.exhausted) {
+      try {
+        const choice = state.propose();
+        if (choice) state.candidates.push(choice);
+        else state.exhausted = true;
+      } catch (error) {
+        state.exhausted = true;
+        state.error = error.message;
+      }
+    }
+    if (state.candidates[index]) state.index = index;
+    state.original = false;
+    showLayout();
+  }
+  function beginLayout() {
+    const scope =
+      selected.size > 1 || activeModule
+        ? new Set(selected)
+        : new Set(graph.nodes.map(({ id }) => id));
+    const error =
+      graph.nodes.length < 2
+        ? "Добавьте хотя бы две фигуры для авторасстановки."
+        : graph.nodes.some((node) => scope.has(node.id) && !node.pinned)
+          ? ""
+          : "В выбранной области все фигуры закреплены. Снимите закрепление или измените выделение.";
+    const view = layoutPreview?.view || {
+      zoom,
+      left: stage.scrollLeft,
+      top: stage.scrollTop,
+    };
+    layoutPreview = {
+      scope,
+      view,
+      index: -1,
+      candidates: [],
+      propose: layoutProposals(graph, scope, layoutPicker.value),
+      original: false,
+      exhausted: !!error,
+      error,
+    };
+    layoutMode(true);
+    moveLayout(1);
+  }
+  function endLayout(apply) {
+    const state = layoutPreview;
+    const result = apply && !state.original && state.candidates[state.index];
+    layoutPreview = null;
+    layoutMode(false);
+    if (result) {
+      checkpoint();
+      graph = result.graph;
+      activeSegment = null;
+    } else zoom = state.view.zoom;
+    refresh();
+    if (!result) {
+      stage.scrollLeft = state.view.left;
+      stage.scrollTop = state.view.top;
+    }
+    command("layout").focus({ preventScroll: true });
+    hint.textContent = result
+      ? "Раскладка применена. Перемещено фигур: " + result.moved + "."
+      : "Предпросмотр закрыт.";
+  }
+  layoutPicker.onchange = beginLayout;
   panel.onclick = (e) => {
     const cmd = e.target.closest("[data-cmd]")?.dataset.cmd;
     if (!cmd) return;
-    if (cmd === "svg") {
-      const content = new XMLSerializer().serializeToString(draw(graph)),
-        url = URL.createObjectURL(
-          new Blob([content], { type: "image/svg+xml" }),
+    if (cmd === "layout") {
+      if (layoutPreview) moveLayout(1);
+      else beginLayout();
+      return;
+    }
+    if (layoutPreview) {
+      if (cmd === "layout-next") moveLayout(1);
+      else if (cmd === "layout-previous") moveLayout(-1);
+      else if (cmd === "layout-original") {
+        layoutPreview.original = !layoutPreview.original;
+        showLayout();
+      } else if (cmd === "layout-apply" || cmd === "layout-cancel")
+        endLayout(cmd === "layout-apply");
+      else if (cmd === "plus" || cmd === "minus") {
+        zoom = Math.max(
+          0.04,
+          Math.min(2.5, zoom + (cmd === "plus" ? 0.15 : -0.15)),
         );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = (graph.title || "Схема") + ".svg";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+        render();
+      } else if (cmd === "save") onDone();
+      return;
+    }
+    if (cmd === "svg") {
+      downloadSvg(
+        new XMLSerializer().serializeToString(draw(graph)),
+        graph.title || "Схема",
+      );
       return;
     }
     if (cmd === "save") {
@@ -787,75 +960,24 @@ export function graphEditor(
           ?.scrollIntoView({ block: "nearest" });
       return;
     }
-    if (cmd === "layout" || cmd === "route") {
-      const onlyEdges =
-        cmd === "route" && selectedEdges.size ? selectedEdges : null;
+    if (cmd === "route") {
+      const onlyEdges = selectedEdges.size ? selectedEdges : null;
       const scope =
-        selected.size > 1 || activeModule || (cmd === "route" && selected.size)
+        selected.size || activeModule
           ? selected
-          : new Set(graph.nodes.map((n) => n.id));
+          : new Set(graph.nodes.map(({ id }) => id));
       const next = clone(graph);
-      try {
-        let moved = 0;
-        if (cmd === "layout") {
-          const variant = panel.querySelector("[data-layout-variant]").value;
-          const movable = next.nodes.filter(
-            (node) => scope.has(node.id) && !node.pinned,
-          );
-          if (!movable.length) {
-            hint.textContent = "В выбранной области нет незакреплённых фигур.";
-            return;
-          }
-          if (graph.nodes.length < 2) {
-            hint.textContent = "Для авторасстановки нужны хотя бы две фигуры.";
-            return;
-          }
-          const before = movable.map(({ x, y }) => [x, y]);
-          let attempt = layoutAttempts.get(variant) || 0;
-          for (let i = 0; i < 4 && !moved; i++) {
-            arrangeNodes(next, scope, variant, attempt++);
-            moved = movable.filter(
-              ({ x, y }, index) =>
-                x !== before[index][0] || y !== before[index][1],
-            ).length;
-          }
-          layoutAttempts.set(variant, attempt);
-          if (!moved) {
-            hint.textContent =
-              "Фигуры остались на местах. Попробуйте выделить больше фигур или снять закрепление.";
-            return;
-          }
-        }
-        const missed = routeEdges(next, scope, onlyEdges);
-        if (JSON.stringify(next) !== JSON.stringify(graph)) {
-          checkpoint();
-          graph = next;
-          activeSegment = null;
-        }
-        refresh();
-        if (moved) {
-          const viewBox = stage.querySelector("svg").viewBox.baseVal;
-          const placed = graph.nodes.filter((node) => scope.has(node.id));
-          stage.scrollLeft =
-            (Math.min(...placed.map((node) => node.x)) - viewBox.x) * zoom - 20;
-          stage.scrollTop =
-            (Math.min(...placed.map((node) => node.y)) - viewBox.y) * zoom - 20;
-        }
-        hint.textContent =
-          (moved ? "Перемещено фигур: " + moved + ". " : "") +
-          (missed
-            ? "Не удалось обойти фигуры для связей: " + missed + "."
-            : moved
-              ? "Маршруты обновлены."
-              : "Готово · " +
-                (onlyEdges
-                  ? "выделено стрелок: " + onlyEdges.size
-                  : scope.size === graph.nodes.length
-                    ? "вся схема"
-                    : "выделенные фигуры"));
-      } catch (error) {
-        hint.textContent = error.message;
+      const missed = routeEdges(next, scope, onlyEdges);
+      if (JSON.stringify(next) !== JSON.stringify(graph)) {
+        checkpoint();
+        graph = next;
+        activeSegment = null;
       }
+      refresh();
+      hint.textContent = missed
+        ? "Не удалось обойти фигуры для связей: " + missed + "."
+        : "Маршруты обновлены" +
+          (onlyEdges ? " · выделено стрелок: " + onlyEdges.size : ".");
       return;
     }
     if (cmd === "add") {
@@ -903,7 +1025,7 @@ export function graphEditor(
       link = null;
     }
     if (cmd === "plus") zoom = Math.min(2.5, zoom + 0.15);
-    if (cmd === "minus") zoom = Math.max(0.25, zoom - 0.15);
+    if (cmd === "minus") zoom = Math.max(Math.min(0.25, zoom), zoom - 0.15);
     if (cmd === "undo" && history.length) {
       future.push(clone(graph));
       graph = history.pop();
@@ -999,7 +1121,7 @@ export function graphEditor(
     // Redrawing replaces the pressed SVG node. Keep keyboard focus on the canvas.
     e.preventDefault();
     stage.focus({ preventScroll: true });
-    if (panMode) {
+    if (panMode || layoutPreview) {
       drag = {
         type: "pan",
         id: e.pointerId,
@@ -1214,5 +1336,12 @@ export function graphEditor(
       ?.scrollIntoView({ block: "center", inline: "center" });
     stage.focus({ preventScroll: true });
   }
-  return publish;
+  return {
+    publish,
+    cancelPreview() {
+      if (!layoutPreview) return false;
+      endLayout(false);
+      return true;
+    },
+  };
 }

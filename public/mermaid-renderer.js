@@ -42,7 +42,6 @@
       layout: "elk",
       elk: { preset: "modelOrder", forceNodeModelOrder: true },
     },
-    free: { layout: "elk.stress" },
   };
   const themes = {
     neutral: { theme: "neutral", look: "classic" },

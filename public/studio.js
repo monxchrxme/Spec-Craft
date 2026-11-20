@@ -626,12 +626,14 @@ function closeGraph(restore = true) {
   const session = inlineGraph;
   const box = session.panel.parentElement;
   const top = restore && box?.isConnected ? blockTop(box) : null;
-  session.publish?.();
+  session.editor?.publish();
   inlineGraph = null;
   const dock = $("#graph-dock");
   dock.hidden = true;
-  dock.querySelector(".props").onkeydown = null;
-  dock.querySelector(".props").replaceChildren();
+  const props = dock.querySelector(".props");
+  props.inert = false;
+  props.onkeydown = null;
+  props.replaceChildren();
   if (top !== null) {
     const p = parts[session.index];
     if (p) {
@@ -908,7 +910,7 @@ function buildBlock(p, i, expanded) {
         const session = { index: i, panel, expanded: openedWide };
         inlineGraph = session;
         selected = i;
-        session.publish = graphEditor(
+        session.editor = graphEditor(
           normalize(JSON.parse(parts[i].t.content)),
           panel,
           dock.querySelector(".props"),
@@ -2881,7 +2883,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (inlineGraph && e.key === "Escape") {
-    closeGraph();
+    if (!inlineGraph.editor.cancelPreview()) closeGraph();
     e.preventDefault();
     return;
   }
@@ -2958,14 +2960,14 @@ window.addEventListener("storage", (event) => {
   if (event.key?.startsWith(prefix)) syncFile(event.key.slice(prefix.length));
 });
 window.addEventListener("pagehide", () => {
-  inlineGraph?.publish?.();
+  inlineGraph?.editor?.publish();
   closeBibliography();
   if (tableEdit) finishCell();
   save();
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    inlineGraph?.publish?.();
+    inlineGraph?.editor?.publish();
     if (tableEdit) finishCell(true);
     save();
   } else liveEdit?.client?.queue();

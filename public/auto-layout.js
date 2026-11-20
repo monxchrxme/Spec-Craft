@@ -348,6 +348,27 @@ export function routeEdges(graph, scope, edgeIds = null) {
 
 const layoutVariants = ["horizontal", "vertical", "grid", "radial"];
 
+export function layoutProposals(graph, scope, variant) {
+  const signature = (nodes) => JSON.stringify(nodes.map(({ x, y }) => [x, y]));
+  const seen = new Set([signature(graph.nodes)]);
+  let attempt = 0;
+  return () => {
+    for (let tries = 0; tries < 8; tries++) {
+      const next = structuredClone(graph);
+      arrangeNodes(next, scope, variant, attempt++);
+      const positions = signature(next.nodes);
+      if (seen.has(positions)) continue;
+      const moved = next.nodes.filter(
+        ({ x, y }, i) => x !== graph.nodes[i].x || y !== graph.nodes[i].y,
+      ).length;
+      const missed = routeEdges(next, scope);
+      seen.add(positions);
+      return { graph: next, moved, missed };
+    }
+    return null;
+  };
+}
+
 export function arrangeNodes(
   graph,
   scope,
