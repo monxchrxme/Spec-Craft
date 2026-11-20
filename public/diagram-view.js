@@ -1,8 +1,12 @@
 // Reading controls change only the viewport. The diagram stored in Markdown
 // keeps its original coordinates and scale.
 import { draw, frameLayout, styleFrame } from "./graph.js";
+import { addHeightHandle, setDiagramHeight } from "./diagram-height.js";
 
-export function diagramView(graph, { edit, expanded = false, onExpand } = {}) {
+export function diagramView(
+  graph,
+  { edit, expanded = false, onExpand, resize } = {},
+) {
   const card = document.createElement("section");
   card.className = "diagram-card";
   const title = graph.title || "Блок-схема";
@@ -48,8 +52,13 @@ export function diagramView(graph, { edit, expanded = false, onExpand } = {}) {
       expandButton.focus();
     }
   });
-  styleFrame(card, graph);
+  styleFrame(card, { layout: { ...graph.layout, height: 0 } });
   const frame = card.querySelector(".diagram-window");
+  const layout = frameLayout(graph);
+  // styleFrame sets the base dimensions for both the canvas and the inspector.
+  const heightLimit = layout.height ? Math.max(150, layout.height) : 0;
+  setDiagramHeight(card, heightLimit);
+  if (resize) addHeightHandle(card, frame, heightLimit, resize);
   frame.setAttribute("aria-label", "Просмотр схемы «" + title + "»");
   const svg = draw(graph);
   const { width, height } = svg.viewBox.baseVal;
@@ -116,7 +125,7 @@ export function diagramView(graph, { edit, expanded = false, onExpand } = {}) {
   frame.onlostpointercapture = () => {
     pan = null;
   };
-  const fitMode = frameLayout(graph).fit;
+  const fitMode = layout.fit;
   scale(fitMode === "contain" ? "fit" : fitMode === "width" ? "width" : 1);
   return card;
 }

@@ -34,20 +34,36 @@
         htmlLabels: false,
         nodeSpacing: 25,
         rankSpacing: 35,
-        curve: "linear",
+        curve: "basis",
       },
       state: { padding: 7, edgeLengthFactor: 12, labelHeight: 14 },
     },
     elk: {
       layout: "elk",
-      elk: { mergeEdges: false, straightenEdges: true },
+      elk: { preset: "modelOrder", forceNodeModelOrder: true },
+    },
+    free: { layout: "elk.stress" },
+  };
+  const themes = {
+    neutral: { theme: "neutral", look: "classic" },
+    blue: {
+      theme: "base",
+      look: "classic",
+      themeVariables: {
+        background: "#ffffff",
+        primaryColor: "#e3efff",
+        primaryTextColor: "#152a49",
+        primaryBorderColor: "#3974b6",
+        lineColor: "#37567b",
+        edgeLabelBackground: "#f0f6ff",
+      },
     },
   };
   const stage = document.querySelector("main");
   let queue = Promise.resolve();
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
-    const { type, id, source, layout } = event.data || {};
+    const { type, id, source, layout, theme } = event.data || {};
     if (
       type !== "speccraft-mermaid-render" ||
       !Number.isSafeInteger(id) ||
@@ -63,12 +79,15 @@
     queue = queue.then(async () => {
       try {
         const preset = Object.hasOwn(layouts, layout) ? layouts[layout] : {};
+        const palette = Object.hasOwn(themes, theme) ? themes[theme] : {};
         engine.initialize({
           ...safeConfig,
           ...preset,
+          ...palette,
           secure: [
             ...safeConfig.secure,
             ...(preset.layout ? ["layout", "elk", "state"] : []),
+            ...(palette.theme ? ["theme", "themeVariables", "look"] : []),
           ],
         });
         const output = await engine.render("specmermaid-" + id, source, stage);

@@ -153,7 +153,7 @@ button.primary:hover:enabled {
   flex: none;
   overflow: hidden;
 }
-.sidebar-resizer {
+.panel-resizer {
   position: relative;
   z-index: 3;
   flex: 0 0 12px;
@@ -161,14 +161,14 @@ button.primary:hover:enabled {
   cursor: col-resize;
   touch-action: none;
 }
-.sidebar-resizer::before {
+.panel-resizer::before {
   content: "";
   position: absolute;
   inset: 0 calc(50% - 1px);
   background: var(--accent);
   opacity: 0;
 }
-.sidebar-resizer::after {
+.panel-resizer::after {
   content: "";
   position: absolute;
   top: calc(50% - 11px);
@@ -178,18 +178,26 @@ button.primary:hover:enabled {
   border-radius: 2px;
   background: #a9a5bb;
 }
-.sidebar-resizer:hover::before,
-.sidebar-resizer:focus-visible::before,
-.sidebar-resizer[data-resizing]::before {
+.panel-resizer:hover::before,
+.panel-resizer:focus-visible::before,
+.panel-resizer[data-resizing]::before {
   opacity: 1;
 }
-.sidebar-resizer:hover::after,
-.sidebar-resizer:focus-visible::after,
-.sidebar-resizer[data-resizing]::after {
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.panel-resizer[data-resizing]::after {
   background: var(--accent);
 }
-.sidebar-resizer:focus-visible {
+.panel-resizer:focus-visible {
   outline-offset: -2px;
+}
+.inspector-resizer {
+  display: none;
+}
+@media (min-width: 761px) {
+  #workspace:has(.graph-dock:not([hidden]), #modal[open]) .inspector-resizer {
+    display: block;
+  }
 }
 .sidebar-navigation {
   flex: 1;
@@ -496,25 +504,29 @@ main {
   margin: 0;
 }
 pre code :is(.hljs-keyword, .hljs-selector-tag) {
-  color: #7a367f;
+  color: #7815a0;
+  font-weight: 700;
 }
 pre code :is(.hljs-string, .hljs-regexp, .hljs-addition) {
-  color: #146447;
+  color: #00623b;
 }
 pre code :is(.hljs-number, .hljs-literal) {
-  color: #9a411e;
+  color: #a43b08;
 }
 pre code :is(.hljs-type, .hljs-built_in, .hljs-title) {
-  color: #1e58a3;
+  color: #004da8;
+}
+pre code :is(.hljs-type, .hljs-built_in) {
+  font-weight: 700;
 }
 pre code :is(.hljs-comment, .hljs-quote) {
-  color: #626b79;
+  color: #535e71;
 }
 pre code :is(.hljs-meta, .hljs-attr, .hljs-attribute, .hljs-symbol) {
-  color: #784a11;
+  color: #7f4500;
 }
 pre code :is(.hljs-variable, .hljs-deletion) {
-  color: #8f334b;
+  color: #a21949;
 }
 .paper table {
   width: 100%;
@@ -600,6 +612,28 @@ pre code :is(.hljs-variable, .hljs-deletion) {
    diagrams scroll at that scale and can be fitted explicitly. */
 .diagram-card {
   --view-height: 68vh;
+  position: relative;
+}
+.diagram-card[data-manual-height] {
+  --view-height: var(--manual-diagram-height) !important;
+}
+.diagram-card[data-manual-height] > .diagram-window {
+  height: var(--view-height);
+}
+.diagram-height-grip {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  color: var(--muted);
+  cursor: ns-resize;
+  touch-action: none;
+}
+.diagram-card:has(.diagram-height-grip) .diagram-zoom,
+.diagram-card:has(.diagram-height-grip) .mermaid-source {
+  padding-inline-end: 30px;
 }
 .diagram-title {
   flex-wrap: wrap;
@@ -1279,12 +1313,13 @@ select {
 /* The document remains the editing surface. Inspectors use a sibling column. */
 .graph-dock,
 #modal[open] {
+  --inspector-default-width: clamp(230px, 21vw, 330px);
   position: static;
-  flex: 0 0 clamp(230px, 21vw, 330px);
+  flex: 0 0 var(--inspector-user-width, var(--inspector-default-width));
   margin: 0;
   width: auto;
-  max-width: none;
-  min-width: 0;
+  max-width: clamp(280px, 100vw - 560px, 560px);
+  min-width: 190px;
   height: 100%;
   max-height: none;
   border: 0;
@@ -1295,7 +1330,7 @@ select {
   overflow: auto;
 }
 #modal[open] {
-  flex-basis: clamp(270px, 27vw, 410px);
+  --inspector-default-width: clamp(270px, 27vw, 410px);
 }
 .graph-dock > header {
   padding: 19px 16px;
@@ -1397,6 +1432,8 @@ body:has(.inline-graph) .paper {
   .graph-dock,
   #modal[open] {
     width: 100%;
+    min-width: 0;
+    max-width: none;
     height: auto;
     flex: 0 0 min(35dvh, 290px);
     border-top: 1px solid var(--line);
@@ -2434,8 +2471,26 @@ g.workflow-anchored {
 .document-toc li {
   margin-block: 3px;
 }
-.document-bibliography > ol {
+.document-bibliography > :is(ol, ul) {
   padding-inline-start: 1.55em;
+}
+.document-bibliography[data-style="references"] > p {
+  padding-inline-start: 2.1em;
+  text-indent: -2.1em;
+}
+.bibliography-form {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.bibliography-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.bibliography-form > label {
+  justify-self: start;
 }
 .structured-form,
 .bibliography-entries {

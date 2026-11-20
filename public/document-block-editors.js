@@ -1,5 +1,5 @@
 import { projectTreeMarkdown } from "./project-tree.js";
-import { bibliographyMarkdown } from "./portable-blocks.js";
+import { bibliographyMarkdown, bibliographyStyles } from "./portable-blocks.js";
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -174,20 +174,27 @@ export function projectTreeEditor(panel, root, save) {
   render();
 }
 
-export function bibliographyEditor(panel, entries, save) {
-  const form = element("form", "", "structured-form");
+export function bibliographyEditor(panel, { entries, style }, save, cancel) {
+  const form = element("form", "", "structured-form bibliography-form");
+  const format = element("select");
+  for (const [id, label] of Object.entries(bibliographyStyles))
+    format.add(new Option(label, id));
+  format.value = style;
+  field(form, "Оформление списка", format);
   const rows = element("div", "", "bibliography-entries");
   const submit = element("button", "Сохранить список", "primary");
   submit.type = "submit";
-  form.append(
-    rows,
+  const actions = element("div", "", "structured-actions");
+  actions.append(
     action("Добавить источник", () => {
       entries.push("");
       render();
       rows.lastElementChild?.querySelector("textarea")?.focus();
     }),
     submit,
+    action("Отменить", cancel),
   );
+  form.append(rows, actions);
   panel.append(form);
   function render() {
     rows.replaceChildren();
@@ -234,7 +241,18 @@ export function bibliographyEditor(panel, entries, save) {
   }
   form.onsubmit = (event) => {
     event.preventDefault();
-    save(bibliographyMarkdown(entries));
+    save();
+  };
+  form.onkeydown = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancel();
   };
   render();
+  return {
+    focus: () =>
+      (rows.querySelector("textarea") || format).focus({ preventScroll: true }),
+    markdown: () => bibliographyMarkdown(entries, format.value),
+  };
 }

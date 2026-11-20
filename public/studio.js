@@ -11,10 +11,12 @@ import {
 import { latex, paintMath } from "./math.js";
 import {
   isMermaid,
+  keepMermaidImage,
   mermaidBlocks,
   mermaidControls,
   mermaidMarkdown,
   paintMermaid,
+  updateMermaidCard,
 } from "./mermaid.js";
 import { makeShare, showReview } from "./review.js";
 import {
@@ -50,9 +52,12 @@ import {
   bibliographyEditor,
   projectTreeEditor,
 } from "./document-block-editors.js";
-import { setMermaidPresentation } from "./mermaid-presentation.js";
+import {
+  mermaidPresentation,
+  setMermaidPresentation,
+} from "./mermaid-presentation.js";
 import { highlightCode } from "./code-highlight.js";
-import { enableSidebarResize } from "./sidebar-width.js";
+import { enablePanelResize } from "./panel-width.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -452,6 +457,12 @@ function sortGrip(label, block) {
 function prepareBlockChange(index) {
   if (mode !== "edit" || modal.open || !parts[index]) return null;
   let offset = parts[index].start;
+  if (inlineBibliography) {
+    const { origin } = inlineBibliography.state;
+    const length = doc.body.length;
+    closeBibliography();
+    if (origin < index) offset += doc.body.length - length;
+  }
   if (editor) {
     liveBlock();
     if (editor.i < index) offset += editor.end - parts[editor.i].end;
@@ -580,6 +591,7 @@ function styles() {
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
+let inlineBibliography = null;
 const diagramCards = () => [
   ...host.querySelectorAll(".diagram-card:not(.inline-graph)"),
 ];
@@ -634,6 +646,7 @@ function closeGraph(restore = true) {
 function render() {
   const scrollTop = viewport.scrollTop;
   closeGraph(false);
+  inlineBibliography = null;
   editor = tableEdit = null;
   $("#empty-workspace").hidden = !!doc;
   $(".paper").hidden = !doc || mode === "pdf";
@@ -722,23 +735,16 @@ function deleteBlockButton(index, label, className) {
 }
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
+  const editableMermaid = mode === "edit" && isMermaid(p.t);
   mermaidControls(box, {
     edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
-    presentation:
-      mode === "edit" && isMermaid(p.t)
-        ? (layout, direction, card) => {
-            const state = prepareBlockChange(i);
-            if (!state || parts[state.origin]?.text !== p.text) return;
-            const original = parts[state.origin];
-            const next = setMermaidPresentation(
-              original.t.content,
-              layout,
-              direction,
-            );
-            if (next === original.t.content) return;
-            saveStructuredBlock(state, mermaidMarkdown(next), isExpanded(card));
-          }
-        : undefined,
+    presentation: editableMermaid
+      ? (layout, direction, theme, card) =>
+          saveMermaidPresentation(i, card, { layout, direction, theme }, true)
+      : undefined,
+    resize: editableMermaid
+      ? (height, card) => saveMermaidPresentation(i, card, { height }, false)
+      : undefined,
     expanded,
     onExpand: updateExpandButton,
   });
@@ -746,6 +752,24 @@ function block(p, i, expanded = expandAll) {
     box.append(sortGrip("Перетащить блок", true));
   }
   return box;
+}
+function saveMermaidPresentation(index, card, changes, repaint) {
+  const raw = card.querySelector(".mermaid-source code").textContent;
+  const options = { ...mermaidPresentation(raw), ...changes };
+  const next = setMermaidPresentation(
+    raw,
+    options.layout,
+    options.direction,
+    options,
+  );
+  if (next === raw) return true;
+  const state = prepareBlockChange(index);
+  if (!state || parts[state.origin]?.t.content !== raw) return false;
+  if (!patchStructuredBlock(state, mermaidMarkdown(next))) return false;
+  if (card.isConnected)
+    updateMermaidCard(card, parts[state.origin].t.content, repaint);
+  else replaceStructuredView(state.origin, isExpanded(card));
+  return true;
 }
 function editMermaidCode(index, selectExample = false) {
   editBlock(index);
@@ -755,22 +779,33 @@ function editMermaidCode(index, selectExample = false) {
   const end = Math.max(start, ta.value.lastIndexOf("\n"));
   ta.setSelectionRange(start, selectExample ? end : start);
 }
-function saveStructuredBlock(state, markup, expanded) {
-  if (doc.id !== state.id || doc.body !== state.body || !parts[state.origin]) {
+function patchStructuredBlock(state, markup) {
+  if (doc?.id !== state.id || doc.body !== state.body || !parts[state.origin]) {
     notice("Блок изменился. Откройте его заново.");
-    return;
+    return false;
   }
   const { start, end } = parts[state.origin];
   const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
-  selected = state.origin;
   patch(start, end, markup.replace(/\r\n|\r|\n/g, newline));
-  render();
-  if (expanded) {
-    host.children[selected]
-      ?.querySelector(".diagram-card")
-      ?.setExpanded?.(true);
-    updateExpandButton();
-  }
+  parts = parse();
+  return true;
+}
+function replaceStructuredView(index, expanded, previousMermaid) {
+  const old = host.children[index];
+  const part = parts[index];
+  if (!old || !part) return;
+  const top = blockTop(old);
+  const replacement = block(part, index, expanded);
+  keepMermaidImage(
+    replacement.querySelector("[data-mermaid]"),
+    previousMermaid,
+  );
+  old.replaceWith(replacement);
+  restoreBlockTop(replacement, top);
+  updateExpandButton();
+  icons();
+  void paintMath(replacement);
+  void paintMermaid(replacement);
 }
 function openStructuredBlock(index, kind) {
   const state = prepareBlockChange(index);
@@ -781,16 +816,35 @@ function openStructuredBlock(index, kind) {
       ? isProjectTree(part.t)
       : bibliographyEntries(part.t.content);
   if (!data) return editBlock(state.origin);
-  const panel = dialog(
-    kind === "projectTree" ? "Структура проекта" : "Список литературы",
-    "",
+  if (kind === "projectTree") {
+    const panel = dialog("Структура проекта", "");
+    projectTreeEditor(panel, data, (markdown) => {
+      modal.close();
+      if (patchStructuredBlock(state, markdown))
+        replaceStructuredView(state.origin);
+    });
+    return;
+  }
+  const box = host.children[state.origin];
+  const top = blockTop(box);
+  selected = state.origin;
+  box.replaceChildren();
+  const form = bibliographyEditor(
+    box,
+    data,
+    () => closeBibliography(),
+    () => closeBibliography(false),
   );
-  const editor =
-    kind === "projectTree" ? projectTreeEditor : bibliographyEditor;
-  editor(panel, data, (markdown) => {
-    modal.close();
-    saveStructuredBlock(state, markdown);
-  });
+  inlineBibliography = { state, form };
+  restoreBlockTop(box, top);
+  form.focus();
+}
+function closeBibliography(save = true) {
+  if (!inlineBibliography) return;
+  const { state, form } = inlineBibliography;
+  inlineBibliography = null;
+  if (save) patchStructuredBlock(state, form.markdown());
+  replaceStructuredView(state.origin);
 }
 function documentBlockTools(box, part, index, kind) {
   const tools = document.createElement("div");
@@ -891,6 +945,20 @@ function buildBlock(p, i, expanded) {
         edit: mode === "read" ? undefined : edit,
         expanded,
         onExpand: updateExpandButton,
+        resize:
+          mode === "edit"
+            ? (height) => {
+                const state = prepareBlockChange(i);
+                const entry = state && parts[state.origin];
+                if (!entry || entry.t.info !== p.t.info) return false;
+                const next = normalize(JSON.parse(entry.t.content));
+                next.layout = { ...next.layout, height };
+                if (!patchStructuredBlock(state, fence(next))) return false;
+                if (!card.isConnected)
+                  replaceStructuredView(state.origin, isExpanded(card));
+                return true;
+              }
+            : undefined,
       });
       if (mode === "edit")
         card
@@ -1013,6 +1081,9 @@ function editBlock(i, selectAll = false) {
   const p = parts[i],
     box = host.children[i];
   if (!p || !box) return;
+  const originalMermaid = isMermaid(p.t)
+    ? box.querySelector("[data-mermaid]")
+    : null;
   selected = i;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
@@ -1021,7 +1092,14 @@ function editBlock(i, selectAll = false) {
   ta.value = p.text;
   const embeddedImage = /data:image\/[a-z]+;base64,/i.test(ta.value);
   if (embeddedImage) ta.wrap = "off";
-  editor = { i, ta, baseline: p.text, start: p.start, end: p.end };
+  editor = {
+    i,
+    ta,
+    baseline: p.text,
+    start: p.start,
+    end: p.end,
+    expanded: originalMermaid ? isExpanded(originalMermaid) : undefined,
+  };
   const toolbar = document.createElement("div");
   toolbar.className = "inline-tools";
   function finish() {
@@ -1034,6 +1112,10 @@ function editBlock(i, selectAll = false) {
   function updatePreview() {
     const template = document.createElement("template");
     template.innerHTML = md.render(ta.value);
+    keepMermaidImage(
+      template.content.querySelector("[data-mermaid]"),
+      preview.querySelector("[data-mermaid]") || originalMermaid,
+    );
     preview.replaceChildren(
       ...template.content.querySelectorAll(
         "[data-tex], [data-mermaid], pre:has(> code[class^='language-'])",
@@ -1219,9 +1301,24 @@ function liveBlock() {
 }
 function flush() {
   closeGraph();
+  closeBibliography();
   if (editor) {
     liveBlock();
+    const { i, expanded } = editor;
     editor = null;
+    if (expanded !== undefined) {
+      const next = parse();
+      if (
+        next.length === parts.length &&
+        next[i]?.start === parts[i].start &&
+        isMermaid(next[i]?.t)
+      ) {
+        const preview = host.children[i]?.querySelector("[data-mermaid]");
+        parts = next;
+        replaceStructuredView(i, expanded, preview);
+        return;
+      }
+    }
     render();
   } else if (tableEdit) {
     finishCell();
@@ -1582,7 +1679,7 @@ function insertDialog() {
             math: "sigma",
             list: "list",
             projectTree: "folder-tree",
-            toc: "list-toc",
+            toc: "list-ordered",
             bibliography: "book-open",
           }[k],
         ),
@@ -2862,6 +2959,7 @@ window.addEventListener("storage", (event) => {
 });
 window.addEventListener("pagehide", () => {
   inlineGraph?.publish?.();
+  closeBibliography();
   if (tableEdit) finishCell();
   save();
 });
@@ -2874,10 +2972,17 @@ document.addEventListener("visibilitychange", () => {
 });
 nav();
 render();
-enableSidebarResize(
+enablePanelResize(
   $("#workspace"),
-  $("#workspace-sidebar"),
+  [$("#workspace-sidebar")],
   $(".sidebar-resizer"),
+  "left",
+);
+enablePanelResize(
+  $("#workspace"),
+  [modal, $("#graph-dock")],
+  $(".inspector-resizer"),
+  "right",
 );
 try {
   if (localStorage.getItem(toolbarKey) === "true") setToolbarCollapsed(true);

@@ -40,6 +40,7 @@ export function graphEditor(
     panMode = false;
   const history = [],
     future = [];
+  const layoutAttempts = new Map();
   panel.className = "diagram-card inline-graph";
   panel.innerHTML = `
     <header class="diagram-title">
@@ -52,9 +53,11 @@ export function graphEditor(
       <button data-cmd="pan" title="Перетаскивать видимую область холста мышью или пальцем" aria-pressed="false">Перемещать холст</button>
       <button data-cmd="connect">Связать</button>
       <select aria-label="Вариант авторасстановки" data-layout-variant>
+        <option value="explore">Разные варианты</option>
         <option value="horizontal">Поток слева направо</option>
         <option value="vertical">Поток сверху вниз</option>
         <option value="grid">Компактная сетка</option>
+        <option value="radial">От центра</option>
       </select>
       <button data-cmd="layout" title="Расставить фигуры и проложить стрелки в выделении или на всей схеме">Авторасстановка</button>
       <button data-cmd="route" title="Перестроить связи в выделении или на всей схеме">Проложить стрелки</button>
@@ -793,12 +796,36 @@ export function graphEditor(
           : new Set(graph.nodes.map((n) => n.id));
       const next = clone(graph);
       try {
-        if (cmd === "layout")
-          arrangeNodes(
-            next,
-            scope,
-            panel.querySelector("[data-layout-variant]").value,
+        let moved = 0;
+        if (cmd === "layout") {
+          const variant = panel.querySelector("[data-layout-variant]").value;
+          const movable = next.nodes.filter(
+            (node) => scope.has(node.id) && !node.pinned,
           );
+          if (!movable.length) {
+            hint.textContent = "В выбранной области нет незакреплённых фигур.";
+            return;
+          }
+          if (graph.nodes.length < 2) {
+            hint.textContent = "Для авторасстановки нужны хотя бы две фигуры.";
+            return;
+          }
+          const before = movable.map(({ x, y }) => [x, y]);
+          let attempt = layoutAttempts.get(variant) || 0;
+          for (let i = 0; i < 4 && !moved; i++) {
+            arrangeNodes(next, scope, variant, attempt++);
+            moved = movable.filter(
+              ({ x, y }, index) =>
+                x !== before[index][0] || y !== before[index][1],
+            ).length;
+          }
+          layoutAttempts.set(variant, attempt);
+          if (!moved) {
+            hint.textContent =
+              "Фигуры остались на местах. Попробуйте выделить больше фигур или снять закрепление.";
+            return;
+          }
+        }
         const missed = routeEdges(next, scope, onlyEdges);
         if (JSON.stringify(next) !== JSON.stringify(graph)) {
           checkpoint();
@@ -806,16 +833,26 @@ export function graphEditor(
           activeSegment = null;
         }
         refresh();
-        hint.textContent = missed
-          ? "Не удалось обойти фигуры для связей: " +
-            missed +
-            ". Раздвиньте соседние фигуры."
-          : "Готово · " +
-            (onlyEdges
-              ? "выделено стрелок: " + onlyEdges.size
-              : scope.size === graph.nodes.length
-                ? "вся схема"
-                : "выделенные фигуры");
+        if (moved) {
+          const viewBox = stage.querySelector("svg").viewBox.baseVal;
+          const placed = graph.nodes.filter((node) => scope.has(node.id));
+          stage.scrollLeft =
+            (Math.min(...placed.map((node) => node.x)) - viewBox.x) * zoom - 20;
+          stage.scrollTop =
+            (Math.min(...placed.map((node) => node.y)) - viewBox.y) * zoom - 20;
+        }
+        hint.textContent =
+          (moved ? "Перемещено фигур: " + moved + ". " : "") +
+          (missed
+            ? "Не удалось обойти фигуры для связей: " + missed + "."
+            : moved
+              ? "Маршруты обновлены."
+              : "Готово · " +
+                (onlyEdges
+                  ? "выделено стрелок: " + onlyEdges.size
+                  : scope.size === graph.nodes.length
+                    ? "вся схема"
+                    : "выделенные фигуры"));
       } catch (error) {
         hint.textContent = error.message;
       }

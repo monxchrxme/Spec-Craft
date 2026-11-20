@@ -1,27 +1,33 @@
-export function enableSidebarResize(workspace, sidebar, handle) {
-  const storageKey = "buro:sidebar-width";
-  const widthProperty = "--sidebar-user-width";
+export function enablePanelResize(workspace, panels, handle, side) {
+  const right = side === "right";
+  const name = right ? "inspector" : "sidebar";
+  const storageKey = "buro:" + name + "-width";
+  const widthProperty = "--" + name + "-user-width";
+  const direction = right ? -1 : 1;
+  const panel = () => panels.find((item) => item.offsetWidth);
   let drag;
 
   function limits() {
-    const style = getComputedStyle(sidebar);
+    const style = getComputedStyle(panel());
     return [parseFloat(style.minWidth), parseFloat(style.maxWidth)];
   }
 
   function updateAria() {
-    if (!sidebar.offsetWidth) return;
+    const active = panel();
+    if (!active || !handle.offsetWidth) return;
     const [min, max] = limits();
     handle.setAttribute("aria-valuemin", min);
     handle.setAttribute("aria-valuemax", max);
-    handle.setAttribute("aria-valuenow", sidebar.offsetWidth);
+    handle.setAttribute("aria-valuenow", active.offsetWidth);
+    handle.setAttribute("aria-controls", active.id);
   }
 
   function setWidth(width) {
     if (width === null) workspace.style.removeProperty(widthProperty);
-    else {
+    else if (panel()) {
       const [min, max] = limits();
       const bounded = Math.round(Math.max(min, Math.min(max, width)));
-      if (bounded !== sidebar.offsetWidth)
+      if (bounded !== panel().offsetWidth)
         workspace.style.setProperty(widthProperty, bounded + "px");
     }
     updateAria();
@@ -46,11 +52,11 @@ export function enableSidebarResize(workspace, sidebar, handle) {
   }
 
   handle.onpointerdown = (event) => {
-    if (event.button !== 0 || drag) return;
+    if (event.button !== 0 || drag || !panel()) return;
     drag = {
       id: event.pointerId,
       x: event.clientX,
-      width: sidebar.offsetWidth,
+      width: panel().offsetWidth,
     };
     handle.setPointerCapture(drag.id);
     handle.dataset.resizing = "";
@@ -58,7 +64,7 @@ export function enableSidebarResize(workspace, sidebar, handle) {
   };
   handle.onpointermove = (event) => {
     if (drag?.id === event.pointerId)
-      setWidth(drag.width + event.clientX - drag.x);
+      setWidth(drag.width + direction * (event.clientX - drag.x));
   };
   handle.onlostpointercapture = (event) => {
     if (drag?.id !== event.pointerId) return;
@@ -71,10 +77,12 @@ export function enableSidebarResize(workspace, sidebar, handle) {
     saveWidth();
   };
   handle.onkeydown = (event) => {
+    const active = panel();
+    if (!active) return;
     const [min, max] = limits();
     const width = {
-      ArrowLeft: sidebar.offsetWidth - 16,
-      ArrowRight: sidebar.offsetWidth + 16,
+      ArrowLeft: active.offsetWidth - direction * 16,
+      ArrowRight: active.offsetWidth + direction * 16,
       Home: min,
       End: max,
       Enter: null,
@@ -86,7 +94,7 @@ export function enableSidebarResize(workspace, sidebar, handle) {
   };
 
   const observer = new ResizeObserver(updateAria);
-  observer.observe(sidebar);
+  panels.forEach((element) => observer.observe(element));
   observer.observe(workspace);
   updateAria();
 }

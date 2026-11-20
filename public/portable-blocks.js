@@ -135,7 +135,9 @@ export function portableBlocks(md) {
     md.render(tokens[index].meta.markdown, { portableFragment: true }) +
     "</nav>";
   md.renderer.rules.spec_bibliography = (tokens, index) =>
-    '<div class="document-bibliography">' +
+    '<div class="document-bibliography" data-style="' +
+    (bibliographyEntries(tokens[index].content)?.style || "numbered") +
+    '">' +
     md.render(tokens[index].content, { portableFragment: true }) +
     "</div>";
 }
@@ -162,27 +164,52 @@ export function materializeToc(body, md) {
   return body;
 }
 
+export const bibliographyStyles = {
+  numbered: "Нумерованный · 1.",
+  bullets: "Маркированный · •",
+  references: "Номера в скобках · [1]",
+};
+
+const bibliographyMarkers = {
+  numbered: /^\d{1,9}[.)][ \t]+(.+)$/,
+  bullets: /^[-+*][ \t]+(.+)$/,
+  references: /^\\?\[\d{1,9}\\?\][ \t]+(.+)$/,
+};
+
 export function bibliographyEntries(source) {
   const entries = [];
+  const first = source.split("\n").find((line) => line.trim());
+  const style = first
+    ? Object.keys(bibliographyMarkers).find((key) =>
+        bibliographyMarkers[key].test(first),
+      )
+    : "numbered";
+  if (!style) return null;
   for (const line of source.split("\n")) {
-    const item = /^\d{1,9}[.)][ \t]+(.+)$/.exec(line);
+    const item = bibliographyMarkers[style].exec(line);
     if (item) entries.push(item[1].trimEnd());
     else if (/^\s+$/.test(line) || !line) continue;
     else if (entries.length && /^ {2,}\S/.test(line))
       entries[entries.length - 1] += "\n" + line.trim();
     else return null;
   }
-  return entries;
+  return { style, entries };
 }
 
-export function bibliographyMarkdown(entries) {
+export function bibliographyMarkdown(entries, style = "numbered") {
+  const references = style === "references";
   const list = entries
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry, index) => {
-      const marker = index + 1 + ". ";
-      return marker + entry.replaceAll("\n", "\n" + " ".repeat(marker.length));
+      const marker = references
+        ? `\\[${index + 1}] `
+        : style === "bullets"
+          ? "- "
+          : `${index + 1}. `;
+      const indent = references ? "  " : " ".repeat(marker.length);
+      return marker + entry.replace(/\s*\n+\s*/g, "\n" + indent);
     })
-    .join("\n");
+    .join(references ? "\n\n" : "\n");
   return portableBlock("bibliography", list);
 }

@@ -7,44 +7,56 @@ export function highlightCode(code, language) {
 
 // Use the same token colors as the document's code blocks in studio.css.
 const tokenColors = {
-  "hljs-keyword": "#7a367f",
-  "hljs-selector-tag": "#7a367f",
-  "hljs-string": "#146447",
-  "hljs-regexp": "#146447",
-  "hljs-addition": "#146447",
-  "hljs-number": "#9a411e",
-  "hljs-literal": "#9a411e",
-  "hljs-type": "#1e58a3",
-  "hljs-built_in": "#1e58a3",
-  "hljs-title": "#1e58a3",
-  "hljs-comment": "#626b79",
-  "hljs-quote": "#626b79",
-  "hljs-meta": "#784a11",
-  "hljs-attr": "#784a11",
-  "hljs-attribute": "#784a11",
-  "hljs-symbol": "#784a11",
-  "hljs-variable": "#8f334b",
-  "hljs-deletion": "#8f334b",
+  "hljs-keyword": "#7815a0",
+  "hljs-selector-tag": "#7815a0",
+  "hljs-string": "#00623b",
+  "hljs-regexp": "#00623b",
+  "hljs-addition": "#00623b",
+  "hljs-number": "#a43b08",
+  "hljs-literal": "#a43b08",
+  "hljs-type": "#004da8",
+  "hljs-built_in": "#004da8",
+  "hljs-title": "#004da8",
+  "hljs-comment": "#535e71",
+  "hljs-quote": "#535e71",
+  "hljs-meta": "#7f4500",
+  "hljs-attr": "#7f4500",
+  "hljs-attribute": "#7f4500",
+  "hljs-symbol": "#7f4500",
+  "hljs-variable": "#a21949",
+  "hljs-deletion": "#a21949",
 };
+const boldTokens = new Set([
+  "hljs-keyword",
+  "hljs-selector-tag",
+  "hljs-type",
+  "hljs-built_in",
+]);
 
 export function codeLines(pre, tabSize) {
   const lines = [[]];
   const indentation = " ".repeat(tabSize);
-  function append(node, color) {
+  function append(node, style = {}) {
     if (node.nodeType === 3) {
       const segments = node.textContent
         .replaceAll("\t", indentation)
         .split("\n");
       segments.forEach((text, index) => {
         if (index) lines.push([]);
-        if (text) lines.at(-1).push(color ? { text, color } : { text });
+        if (text) lines.at(-1).push({ text, ...style });
       });
     } else if (node.nodeType === 1) {
-      const ownColor = Array.from(
+      const color = Array.from(
         node.classList,
         (name) => tokenColors[name],
       ).find(Boolean);
-      for (const child of node.childNodes) append(child, ownColor ?? color);
+      const bold = Array.from(node.classList).some((name) =>
+        boldTokens.has(name),
+      );
+      const nested = { ...style };
+      if (color) nested.color = color;
+      if (bold) nested.bold = true;
+      for (const child of node.childNodes) append(child, nested);
     }
   }
 

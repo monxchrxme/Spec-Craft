@@ -1,15 +1,23 @@
+import { diagramHeight } from "./diagram-height.js";
+
 export const mermaidLayouts = {
   source: "Как в коде",
   compact: "Компактно · Dagre",
-  elk: "Ортогонально · ELK",
+  elk: "По порядку из кода · ELK",
+  free: "Свободная · ELK Stress",
 };
 export const mermaidDirections = {
   source: "Как в коде",
   horizontal: "Слева направо",
   vertical: "Сверху вниз",
 };
+export const mermaidThemes = {
+  source: "Как в коде",
+  blue: "Синяя",
+  neutral: "Монохромная",
+};
 const marker =
-  /^%%[ \t]+speccraft-render:[ \t]+(source|compact|elk)[ \t]+(source|horizontal|vertical)[ \t]*(?:\r?\n|$)/m;
+  /^%%[ \t]+speccraft-render:[ \t]+(source|compact|elk|free)[ \t]+(source|horizontal|vertical)(?:[ \t]+(source|blue|neutral)[ \t]+(\d{1,4}))?[ \t]*(?:\r?\n|$)/m;
 const frontmatter = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export function mermaidPresentation(source) {
@@ -26,44 +34,57 @@ export function mermaidPresentation(source) {
     type: header?.[1] || "",
     layout: config?.[1] || "source",
     direction: config?.[2] || "source",
+    theme: config?.[3] || "source",
+    height: diagramHeight(Number(config?.[4])),
   };
 }
 
-export function setMermaidPresentation(source, layout, direction) {
-  const { clean, bodyStart } = mermaidPresentation(source);
+export function setMermaidPresentation(
+  source,
+  layout,
+  direction,
+  appearance = {},
+) {
+  const current = mermaidPresentation(source);
+  const { clean, bodyStart } = current;
+  const { theme = current.theme, height = current.height } = appearance;
   if (
     !Object.hasOwn(mermaidLayouts, layout) ||
-    !Object.hasOwn(mermaidDirections, direction)
+    !Object.hasOwn(mermaidDirections, direction) ||
+    !Object.hasOwn(mermaidThemes, theme)
   )
     return source;
-  if (layout === "source" && direction === "source") return clean;
+  const extra = theme !== "source" || height ? ` ${theme} ${height}` : "";
+  if (layout === "source" && direction === "source" && !extra) return clean;
   return (
     clean.slice(0, bodyStart) +
     "%% speccraft-render: " +
     layout +
     " " +
     direction +
+    extra +
     "\n" +
     clean.slice(bodyStart)
   );
 }
 
 export function configureMermaid(source) {
-  const { clean, layout, direction, type, bodyStart } =
+  const { clean, layout, direction, type, bodyStart, theme } =
     mermaidPresentation(source);
-  if (!type) return { source: clean, layout: "source" };
-  if (direction === "source") return { source: clean, layout };
+  const result = { layout: type ? layout : "source", theme };
+  if (!type || direction === "source" || layout === "free")
+    return { ...result, source: clean };
   const rank = direction === "horizontal" ? "LR" : "TB";
   const body = clean.slice(bodyStart);
   if (type === "flowchart" || type === "graph") {
     return {
+      ...result,
       source:
         clean.slice(0, bodyStart) +
         body.replace(
           /^(\s*(?:flowchart|graph))\b(?:[ \t]+(?:TD|TB|BT|RL|LR)\b)?/m,
           "$1 " + rank,
         ),
-      layout,
     };
   }
   const lines = body.split("\n");
@@ -81,5 +102,8 @@ export function configureMermaid(source) {
     return true;
   });
   statements.splice(header + 1, 0, "    direction " + rank);
-  return { source: clean.slice(0, bodyStart) + statements.join("\n"), layout };
+  return {
+    ...result,
+    source: clean.slice(0, bodyStart) + statements.join("\n"),
+  };
 }

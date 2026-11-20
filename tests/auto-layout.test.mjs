@@ -261,3 +261,33 @@ test("alternative layouts follow vertical dependencies or a compact grid", () =>
   assert(grid.nodes[2].y > grid.nodes[0].y);
   assert.deepEqual(grid.nodes[3], graph.nodes[3]);
 });
+
+test("successive explorations move nodes relative to each other and preserve pins", () => {
+  const graph = {
+    nodes: [
+      node("a", 45, 55),
+      node("b", 310, 60),
+      node("c", 185, 175),
+      node("d", 580, 495, { pinned: true }),
+    ],
+    edges: [
+      { from: "a", to: "b" },
+      { from: "b", to: "c" },
+      { from: "c", to: "a" },
+    ],
+  };
+  const scope = new Set(graph.nodes.map(({ id }) => id));
+  const pinned = { ...graph.nodes[3] };
+  const views = new Set();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    arrangeNodes(graph, scope, "explore", attempt);
+    const [anchor] = graph.nodes;
+    const view = JSON.stringify(
+      graph.nodes.slice(0, 3).map(({ x, y }) => [x - anchor.x, y - anchor.y]),
+    );
+    assert(!views.has(view));
+    views.add(view);
+    assert.deepEqual(graph.nodes[3], pinned);
+    assert(graph.nodes.every(({ x, y }) => x >= 0 && y >= 0));
+  }
+});

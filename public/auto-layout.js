@@ -346,9 +346,20 @@ export function routeEdges(graph, scope, edgeIds = null) {
   return missed;
 }
 
-export function arrangeNodes(graph, scope, variant = "horizontal") {
+const layoutVariants = ["horizontal", "vertical", "grid", "radial"];
+
+export function arrangeNodes(
+  graph,
+  scope,
+  variant = "horizontal",
+  attempt = 0,
+) {
   const nodes = graph.nodes.filter((n) => scope.has(n.id));
   if (!nodes.length) return;
+  if (variant === "explore") {
+    variant = layoutVariants[attempt % layoutVariants.length];
+    attempt = Math.floor(attempt / layoutVariants.length);
+  }
   const pending = new Set(nodes.map((n) => n.id)),
     rank = new Map();
   const outgoing = new Map(nodes.map((n) => [n.id, []])),
@@ -358,6 +369,9 @@ export function arrangeNodes(graph, scope, variant = "horizontal") {
       outgoing.get(e.from).push(e.to);
       indegree.set(e.to, indegree.get(e.to) + 1);
     }
+  const degree = new Map(
+    nodes.map(({ id }) => [id, outgoing.get(id).length + indegree.get(id)]),
+  );
   const ready = nodes.filter((n) => !indegree.get(n.id)).map((n) => n.id);
   while (pending.size) {
     // Cycles retain a stable source order.
@@ -380,45 +394,80 @@ export function arrangeNodes(graph, scope, variant = "horizontal") {
   const down = vertical ? "x" : "y";
   const wide = vertical ? "height" : "width";
   const tall = vertical ? "width" : "height";
-  const count = Math.ceil(Math.sqrt(nodes.length));
-  for (const [index, node] of nodes.entries()) {
-    const tier = grid ? index % count : rank.get(node.id) || 0;
-    if (!columns.has(tier)) columns.set(tier, []);
-    columns.get(tier).push(node);
-  }
+  const spacing = [0, 35, 72][attempt % 3];
   let start = Math.min(...nodes.map((node) => node[across]));
   const top = Math.min(...nodes.map((node) => node[down]));
   const placements = [];
-  const gridStep = grid ? Math.max(...nodes.map((node) => node[tall])) + 58 : 0;
-  for (const [, column] of [...columns].sort(([a], [b]) => a - b)) {
-    let offset = top;
-    for (const node of column) {
-      if (node.pinned) {
-        if (grid) offset += gridStep;
-        continue;
-      }
-      let collision;
-      while (
-        (collision = occupied.find(
-          (other) =>
-            start < other[across] + other[wide] + 30 &&
-            start + node[wide] + 30 > other[across] &&
-            offset < other[down] + other[tall] + 30 &&
-            offset + node[tall] + 30 > other[down],
-        ))
-      ) {
-        offset = collision[down] + collision[tall] + 42;
-      }
-      if (start > 20000 || offset > 20000)
-        throw Error(
-          "Для раскладки недостаточно места. Выделите меньший модуль.",
-        );
-      const position = { [across]: start, [down]: offset };
-      occupied.push({ ...position, width: node.width, height: node.height });
-      placements.push([node, position]);
-      offset += gridStep || node[tall] + 54;
+  function place(node, lane, offset) {
+    lane = Math.max(0, lane);
+    offset = Math.max(0, offset);
+    let collision;
+    while (
+      (collision = occupied.find(
+        (other) =>
+          lane < other[across] + other[wide] + 30 &&
+          lane + node[wide] + 30 > other[across] &&
+          offset < other[down] + other[tall] + 30 &&
+          offset + node[tall] + 30 > other[down],
+      ))
+    )
+      offset = collision[down] + collision[tall] + 42;
+    if (lane > 20000 || offset > 20000)
+      throw Error("Для раскладки недостаточно места. Выделите меньший модуль.");
+    const position = { [across]: lane, [down]: offset };
+    occupied.push({ ...position, width: node.width, height: node.height });
+    placements.push([node, position]);
+    return offset;
+  }
+  if (variant === "radial") {
+    const ring = nodes.toSorted((a, b) => degree.get(b.id) - degree.get(a.id));
+    const center = ring.shift();
+    const step =
+      Math.max(...nodes.map((node) => Math.max(node.width, node.height))) + 68;
+    const radius =
+      Math.max(step, (Math.max(1, ring.length) * step) / (2 * Math.PI)) +
+      spacing;
+    if (!center.pinned)
+      place(center, Math.round(start + radius), Math.round(top + radius));
+    const originX = center.pinned ? center.x : start + radius;
+    const originY = center.pinned ? center.y : top + radius;
+    ring.forEach((node, index) => {
+      if (node.pinned) return;
+      const angle =
+        (2 * Math.PI * index) / ring.length -
+        Math.PI / 2 +
+        (attempt * Math.PI) / 6;
+      place(
+        node,
+        Math.round(originX + radius * Math.cos(angle)),
+        Math.round(originY + radius * Math.sin(angle)),
+      );
+    });
+  } else {
+    const order = attempt % 2 ? nodes.toReversed() : nodes;
+    const count = Math.ceil(Math.sqrt(nodes.length));
+    for (const [index, node] of order.entries()) {
+      const tier = grid ? index % count : rank.get(node.id) || 0;
+      if (!columns.has(tier)) columns.set(tier, []);
+      columns.get(tier).push(node);
     }
-    start += Math.max(...column.map((node) => node[wide])) + (grid ? 65 : 92);
+    const gridStep = grid
+      ? Math.max(...nodes.map((node) => node[tall])) + 58 + spacing
+      : 0;
+    for (const [tier, column] of [...columns].sort(([a], [b]) => a - b)) {
+      let offset = top + (attempt % 2 && tier % 2 ? 40 : 0);
+      for (const node of column) {
+        if (!node.pinned)
+          offset =
+            place(node, start, offset) +
+            (gridStep || node[tall] + 54 + spacing);
+        else if (grid) offset += gridStep;
+      }
+      start +=
+        Math.max(...column.map((node) => node[wide])) +
+        (grid ? 65 : 92) +
+        spacing;
+    }
   }
   for (const [node, position] of placements) Object.assign(node, position);
 }

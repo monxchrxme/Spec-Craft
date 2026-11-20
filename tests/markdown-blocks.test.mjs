@@ -9,13 +9,19 @@ import {
 } from "../public/block-order.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
-import { materializeToc, portableBlocks } from "../public/portable-blocks.js";
+import {
+  bibliographyEntries,
+  bibliographyMarkdown,
+  materializeToc,
+  portableBlocks,
+} from "../public/portable-blocks.js";
 import {
   projectTreeMarkdown,
   readProjectTree,
 } from "../public/project-tree.js";
 import {
   configureMermaid,
+  mermaidPresentation,
   setMermaidPresentation,
 } from "../public/mermaid-presentation.js";
 
@@ -217,4 +223,40 @@ test("Mermaid view settings preserve front matter and nested state directions", 
     ).source,
     "flowchart LR; A --> B",
   );
+});
+
+test("Mermaid retains appearance and height when changing layout and keeps source direction in free layout", () => {
+  const source = "stateDiagram-v2\n  direction LR\n  A --> B\n";
+  const styled = setMermaidPresentation(source, "elk", "vertical", {
+    theme: "blue",
+    height: 540,
+  });
+  const free = setMermaidPresentation(styled, "free", "vertical");
+  assert.equal(mermaidPresentation(free).height, 540);
+  assert.deepEqual(configureMermaid(free), {
+    source,
+    layout: "free",
+    theme: "blue",
+  });
+  assert.equal(
+    setMermaidPresentation(free, "source", "source", {
+      theme: "source",
+      height: 0,
+    }),
+    source,
+  );
+});
+
+test("bibliography formats remain editable after exporting portable Markdown", () => {
+  const entries = [
+    "*Book*.\nSecond line.",
+    "[Documentation](https://example.com)",
+  ];
+  for (const style of ["numbered", "bullets", "references"]) {
+    const source = bibliographyMarkdown(entries, style)
+      .split("\n")
+      .slice(2, -2)
+      .join("\n");
+    assert.deepEqual(bibliographyEntries(source), { style, entries });
+  }
 });
