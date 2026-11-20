@@ -597,9 +597,10 @@ function styles() {
 let inlineGraph = null;
 let inlineBibliography = null;
 let graphTransition = 0;
-const diagramCards = () => [
-  ...host.querySelectorAll(".diagram-card:not(.inline-graph)"),
-];
+const diagramCards = () =>
+  [...host.querySelectorAll(".diagram-card:not(.inline-graph)")].filter(
+    (card) => card.setExpanded,
+  );
 const isExpanded = (card) => card.classList.contains("diagram-expanded");
 function updateExpandButton() {
   const button = $("[data-action=expand-diagrams]");
@@ -1148,6 +1149,8 @@ function editBlock(i, selectAll = false) {
   const originalMermaid = isMermaid(p.t)
     ? box.querySelector("[data-mermaid]")
     : null;
+  const mermaidTop = originalMermaid ? blockTop(box) : null;
+  if (originalMermaid) suspendGraphScrollAnchoring();
   selected = i;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
@@ -1176,10 +1179,18 @@ function editBlock(i, selectAll = false) {
   function updatePreview() {
     const template = document.createElement("template");
     template.innerHTML = md.render(ta.value);
+    const mermaid = template.content.querySelector("[data-mermaid]");
     keepMermaidImage(
-      template.content.querySelector("[data-mermaid]"),
+      mermaid,
       preview.querySelector("[data-mermaid]") || originalMermaid,
     );
+    if (originalMermaid && mermaid) {
+      mermaid.setExpanded = (value) => {
+        editor.expanded = value;
+        mermaid.classList.toggle("diagram-expanded", value);
+      };
+      mermaid.setExpanded(editor.expanded);
+    }
     preview.replaceChildren(
       ...template.content.querySelectorAll(
         "[data-tex], [data-mermaid], pre:has(> code[class^='language-'])",
@@ -1198,6 +1209,7 @@ function editBlock(i, selectAll = false) {
       void paintMath(preview);
       void paintMermaid(preview, true);
     }
+    if (originalMermaid) updateExpandButton();
   }
   function schedulePreview() {
     clearTimeout(previewTimer);
@@ -1301,7 +1313,9 @@ function editBlock(i, selectAll = false) {
   };
   resizeText();
   ta.focus({ preventScroll: true });
-  ta.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (mermaidTop === null)
+    ta.scrollIntoView({ block: "nearest", inline: "nearest" });
+  else restoreBlockTop(box, mermaidTop);
   if (selectAll) ta.select();
   else ta.setSelectionRange(ta.value.length, ta.value.length);
   ta.oninput = () => {
@@ -1379,6 +1393,7 @@ function flush() {
       ) {
         const preview = host.children[i]?.querySelector("[data-mermaid]");
         parts = next;
+        suspendGraphScrollAnchoring();
         replaceStructuredView(i, expanded, preview);
         return;
       }
