@@ -88,13 +88,13 @@ export function tocControls(tools, meta, apply) {
       "toc-exceptions",
     );
     const chosen = new Set(meta.unnumbered);
-    for (const { level, label, slug } of meta.headings)
+    for (const { level, label, slug, id = slug } of meta.headings)
       checkbox(
         exceptions,
         "unnumbered",
-        slug,
+        id,
         "H" + level + " · " + label,
-        chosen.has(slug),
+        chosen.has(id) || chosen.has(slug),
       );
     const submit = element("button", "Применить", "primary");
     submit.type = "submit";

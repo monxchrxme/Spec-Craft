@@ -1,5 +1,7 @@
 // Only edited spans pass through the converter. Everything outside them keeps its
 // original Markdown spelling, including reference definitions and line endings.
+import { isHeadingIdentity } from "./portable-blocks.js";
+
 const sections = [
   "section",
   "subsection",
@@ -120,6 +122,7 @@ function inlineMarkdown(tex) {
 }
 function convert(tex, library, assets) {
   if (library.has(tex)) return library.get(tex);
+  if (isHeadingIdentity(tex)) return tex;
   try {
     const figure =
       /^\\begin\{figure\}\n\\includegraphics\{([^{}\n]+)\}(?:\n\\caption\{(.*)\})?\n\\end\{figure\}$/.exec(
@@ -210,6 +213,7 @@ function texBlocks(text, library, assets) {
       while (i < lines.length && lines[i].trim() !== "\\]") i++;
       if (i < lines.length) i++;
     } else if (
+      !isHeadingIdentity(lines[start]) &&
       !/^\\(?:section|subsection|subsubsection|paragraph|subparagraph|Spec\w+)\{/.test(
         lines[start],
       )
@@ -217,6 +221,7 @@ function texBlocks(text, library, assets) {
       while (
         i < lines.length &&
         lines[i].trim() &&
+        !isHeadingIdentity(lines[i]) &&
         !/^\\(?:begin|section|subsection|subsubsection|Spec\w+)\{/.test(
           lines[i],
         )

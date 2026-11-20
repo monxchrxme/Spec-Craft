@@ -9,6 +9,10 @@ export function documentParts(md, body) {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.level || !t.map) continue;
+    if (t.type === "spec_heading_id") {
+      if (t.attached) fullStart ??= starts[t.map[0]];
+      continue;
+    }
     if (t.type === "spec_pdf") {
       fullStart ??= starts[t.map[0]];
       options.push(...t.meta);

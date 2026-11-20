@@ -3,6 +3,15 @@ const markers = {
   bibliography: ["<!-- spec-bibliography -->", "<!-- /spec-bibliography -->"],
 };
 
+const headingIdentity =
+  /^<!-- spec-heading-id: ([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}) -->$/;
+export const isHeadingIdentity = (line) => headingIdentity.test(line.trim());
+export function formatHeadingIdentity(ref, newline) {
+  return ref
+    ? "<!-- spec-heading-id: " + ref.slice(3) + " -->" + newline + newline
+    : "";
+}
+
 export const tocLevels = [1, 2, 3, 4, 5, 6];
 const tocOpening =
   /^<!-- spec-toc(?: (numbered|auto))?(?: levels=(none|[1-6](?:,[1-6])*))?(?: unnumbered=([^\s<>]+))? -->$/;
@@ -89,7 +98,7 @@ export function tocEntries(
   const ancestors = [];
   const root = { prefix: "", count: 0 };
   const entries = [];
-  for (const { level, label, slug } of headings) {
+  for (const { level, label, slug, id } of headings) {
     if (!levels.includes(level)) continue;
     while (ancestors.length && ancestors.at(-1).level >= level) ancestors.pop();
     const depth = ancestors.length;
@@ -100,7 +109,7 @@ export function tocEntries(
     const title = authored ? label.slice(authored[0].length) : label;
     let children = siblings;
     let marker = "";
-    if (!exceptions.has(slug)) {
+    if (!exceptions.has(id) && !exceptions.has(slug)) {
       siblings.count++;
       let number = siblings.prefix + siblings.count + ".";
       if (numbered && !automatic && authored) {
@@ -156,6 +165,16 @@ export function portableBlocks(md) {
       if (from && state.src[from - 1] !== "\n") return false;
       const line = (index) =>
         state.src.slice(state.bMarks[index], state.eMarks[index]).trim();
+      const identity = headingIdentity.exec(line(start));
+      if (identity) {
+        if (!silent) {
+          const token = state.push("spec_heading_id", "", 0);
+          token.map = [start, start + 1];
+          token.meta = identity[1];
+          state.line = start + 1;
+        }
+        return true;
+      }
       const toc = tocOpening.exec(line(start));
       const options = toc && readTocOptions(toc);
       const matched = Object.entries(markers).find(
@@ -192,12 +211,24 @@ export function portableBlocks(md) {
     const headings = [],
       used = new Set();
     const titleIndexes = new Map();
+    const identities = new Set();
     for (const [index, token] of tokens.entries()) {
       if (token.type !== "heading_open") continue;
       const label = plainHeading(tokens[index + 1]);
       const slug = headingSlug(label, used);
       token.attrSet("id", "doc-heading-" + slug);
       token.meta = { ...token.meta, anchor: slug };
+      const identity = tokens[index - 1];
+      if (
+        token.level === 0 &&
+        identity?.type === "spec_heading_id" &&
+        token.map[0] <= identity.map[1] + 1 &&
+        !identities.has(identity.meta)
+      ) {
+        identities.add(identity.meta);
+        token.meta.tocId = "id:" + identity.meta;
+        identity.attached = true;
+      }
       const next = tokens[index + 3];
       if (next?.type === "spec_toc" && label === "Оглавление")
         titleIndexes.set(next, index);
@@ -207,6 +238,7 @@ export function portableBlocks(md) {
           level: Number(token.tag[1]),
           slug,
           label,
+          id: token.meta.tocId,
         });
     }
     const titleTokens = new Set(titleIndexes.values());
@@ -224,6 +256,7 @@ export function portableBlocks(md) {
     }
   });
 
+  md.renderer.rules.spec_heading_id = () => "";
   md.renderer.rules.spec_toc = (tokens, index) => {
     const { entries, markdown } = tokens[index].meta;
     const escape = md.utils.escapeHtml;
@@ -253,6 +286,67 @@ export function portableBlocks(md) {
     '">' +
     md.render(tokens[index].content, { portableFragment: true }) +
     "</div>";
+}
+
+// Upgrade old slug-based exceptions and attach IDs to newly marked headings.
+export function bindTocExceptions(body, parts, selection) {
+  const tocs = parts.filter(
+    ({ t, start }) =>
+      t.type === "spec_toc" &&
+      (start === selection?.start ||
+        t.meta.unnumbered.some((ref) => !ref.startsWith("id:"))),
+  );
+  if (!tocs.length) return body;
+
+  const headings = new Map(
+    parts
+      .filter(({ t }) => t.type === "heading_open")
+      .map((part) => [part.t.meta.anchor, part]),
+  );
+  const ids = new Map();
+  const changes = [];
+  const newline = body.match(/\r\n|\r|\n/)?.[0] || "\n";
+  for (const part of tocs) {
+    const selected = part.start === selection?.start;
+    const options = selected ? selection.options : part.t.meta;
+    const unnumbered = options.unnumbered.map((ref) => {
+      const heading = headings.get(ref);
+      if (!heading) return ref;
+      if (heading.t.meta.tocId) return heading.t.meta.tocId;
+      if (!ids.has(ref)) {
+        const id = "id:" + crypto.randomUUID();
+        ids.set(ref, id);
+        changes.push({
+          start: heading.start,
+          end: heading.start,
+          text: formatHeadingIdentity(id, newline),
+        });
+      }
+      return ids.get(ref);
+    });
+    if (
+      !selected &&
+      unnumbered.every((ref, index) => ref === options.unnumbered[index])
+    )
+      continue;
+    const entries = tocEntries(part.t.meta.headings, options);
+    const replacement = portableBlock(
+      "toc",
+      tocMarkdown(entries, options.numbered),
+      {
+        ...options,
+        unnumbered,
+      },
+    );
+    changes.push({
+      start: part.start,
+      end: part.end,
+      text: replacement.replaceAll("\n", newline),
+    });
+  }
+  for (const { start, end, text } of changes.sort((a, b) => b.start - a.start))
+    body = body.slice(0, start) + text + body.slice(end);
+  return body;
 }
 
 export function materializeToc(body, md) {

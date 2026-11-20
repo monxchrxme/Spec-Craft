@@ -5,7 +5,12 @@ import { runInNewContext } from "node:vm";
 import { documentParts } from "../public/document-parts.js";
 import { markdownSource } from "../public/markdown-source.js";
 import { latexProjection } from "../public/latex-source.js";
-import { portableBlocks } from "../public/portable-blocks.js";
+import {
+  bindTocExceptions,
+  materializeToc,
+  portableBlocks,
+} from "../public/portable-blocks.js";
+import { reorderMarkdown } from "../public/block-order.js";
 import { latex } from "../public/math.js";
 
 import { readProject } from "../public/project-import.js";
@@ -21,6 +26,55 @@ runInNewContext(
 const md = scope.markdownit().use(latex).use(portableBlocks);
 const parts = (body) => documentParts(md, body);
 const tex = (body) => latexProjection(body, parts(body));
+test("old TOC exceptions stay with the same section after moving duplicate headings and renaming", () => {
+  const original = [
+    "<!-- spec-toc numbered unnumbered=terms-1 -->",
+    "old",
+    "<!-- /spec-toc -->",
+    "<!-- spec-toc numbered -->",
+    "old",
+    "<!-- /spec-toc -->",
+    "## Terms",
+    "First section",
+    "## Terms",
+    "Second section",
+  ].join("\r\n\r\n");
+  const bound = bindTocExceptions(original, parts(original));
+  const parsed = parts(bound);
+  const id = parsed[4].t.meta.tocId;
+  assert.match(id, /^id:/);
+  assert.equal(bindTocExceptions(bound, parsed), bound);
+  const moved = reorderMarkdown(bound, parsed, 4, 6, 2).body;
+  const afterMove = parts(moved);
+  assert.equal(afterMove[2].t.meta.tocId, id);
+  assert.deepEqual(
+    afterMove[0].t.meta.entries.map((entry) => [entry.slug, entry.marker]),
+    [
+      ["terms", ""],
+      ["terms-1", "1."],
+    ],
+  );
+  assert.equal(afterMove[1].t.meta.entries[0].marker, "1.");
+
+  const projection = tex(moved);
+  const renamed = projection.apply(
+    projection.text.replace("\\subsection{Terms}", "\\subsection{Glossary}"),
+  );
+  const materialized = materializeToc(renamed, md);
+  assert(materialized.includes("[Glossary](#glossary)"));
+  assert.deepEqual(
+    parts(materialized)[0].t.meta.entries.map((entry) => [
+      entry.slug,
+      entry.marker,
+    ]),
+    [
+      ["glossary", ""],
+      ["terms", "1."],
+    ],
+  );
+  assert(!md.render(renamed).includes("spec-heading-id"));
+});
+
 test("editing one TeX section preserves unedited Markdown, CRLF, definitions and opaque diagrams", () => {
   const body =
     "# One\r\n\r\nText _here_ and [link][id].\r\n\r\n~~~mermaid\r\nflowchart TD\r\nA-->B\r\n~~~\r\n\r\n[id]: /docs\r\n";

@@ -57,10 +57,9 @@ import { pdfPreview, printPdf } from "./pdf-preview.js";
 import {
   bibliographyEntries,
   materializeToc,
-  portableBlock,
+  bindTocExceptions,
+  formatHeadingIdentity,
   portableBlocks,
-  tocMarkdown,
-  tocEntries,
 } from "./portable-blocks.js";
 import { isProjectTree } from "./project-tree.js";
 import {
@@ -693,6 +692,11 @@ function render() {
   }
   updateDocumentLabel();
   parts = parse();
+  const bound = bindTocExceptions(doc.body, parts);
+  if (bound !== doc.body) {
+    setText(bound, false);
+    parts = parse();
+  }
   selected = Math.min(selected, Math.max(0, parts.length - 1));
   styles();
   document.body.classList.toggle("read-view", mode === "read");
@@ -881,14 +885,15 @@ function documentBlockTools(box, part, index, kind) {
       if (!state) return;
       const current = parts[state.origin];
       if (current?.t.type !== "spec_toc") return;
-      const entries = tocEntries(current.t.meta.headings, options);
-      const content = tocMarkdown(entries, options.numbered);
-      if (patchStructuredBlock(state, portableBlock("toc", content, options))) {
-        replaceStructuredView(state.origin);
-        host.children[state.origin]
-          .querySelector(focus)
-          ?.focus({ preventScroll: true });
-      }
+      const bound = bindTocExceptions(doc.body, parts, {
+        start: current.start,
+        options,
+      });
+      setText(bound);
+      render();
+      host.children[state.origin]
+        ?.querySelector(focus)
+        ?.focus({ preventScroll: true });
     });
   } else {
     const edit = document.createElement("button");
@@ -2187,7 +2192,8 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
     if (!part) return;
     const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
     selected = index;
-    patch(part.fullStart, part.start, formatPdfRules(rules, newline));
+    const anchor = formatHeadingIdentity(part.t.meta?.tocId, newline);
+    patch(part.fullStart, part.start, formatPdfRules(rules, newline) + anchor);
     render();
   },
 });
