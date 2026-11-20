@@ -19,7 +19,8 @@ export function sourceWorkspace({
   let markdown, nextSelection;
   let tex,
     frame,
-    buildingPdf = false,
+    pdfTimer,
+    pdfWork,
     generation = 0,
     visible = false,
     lastDoc,
@@ -51,32 +52,33 @@ export function sourceWorkspace({
   const span = (i) => spans[i] || [0, 0];
   let selectedScrollTop;
   const pages = sourcePages(preview, (i) => select(i, false));
-  function schedule() {
+  async function renderPdf(stamp) {
+    if (pdfWork) await pdfWork;
+    if (stamp !== generation) return;
+    const pending = pages.show(requestPdf(), () => stamp === generation);
+    pdfWork = pending;
+    try {
+      await pending;
+    } finally {
+      if (pdfWork === pending) pdfWork = null;
+    }
+  }
+  function schedule(typing = false) {
+    clearTimeout(pdfTimer);
     cancelAnimationFrame(frame);
     const stamp = ++generation;
     if (!visible) return;
     root.dataset.preview = view.value;
     sync.disabled = view.value === "off";
-    if (view.value !== "pdf") pages.hide();
-    frame = requestAnimationFrame(async () => {
+    if (view.value === "pdf") {
+      if (typing) pdfTimer = setTimeout(() => renderPdf(stamp), 650);
+      else void renderPdf(stamp);
+      return;
+    }
+    pages.hide();
+    if (view.value === "off") return;
+    frame = requestAnimationFrame(() => {
       if (stamp !== generation) return;
-      if (view.value === "off") return;
-      if (view.value === "pdf") {
-        if (buildingPdf) return;
-        buildingPdf = true;
-        const { id } = current();
-        try {
-          await pages.show(
-            requestPdf(),
-            () => visible && view.value === "pdf" && current().id === id,
-          );
-        } finally {
-          buildingPdf = false;
-          if (stamp !== generation && visible && view.value === "pdf")
-            schedule();
-        }
-        return;
-      }
       const initialized = preview.firstElementChild?.matches(".block");
       const oldTop = preview.scrollTop,
         { parts } = current(),
@@ -367,6 +369,7 @@ export function sourceWorkspace({
       visible = on;
       root.hidden = !on;
       generation++;
+      clearTimeout(pdfTimer);
       cancelAnimationFrame(frame);
       const { body, mode, id, parts } = current();
       if (lastDoc !== id || mode !== lastMode) source.dataset.group = "";
@@ -424,7 +427,7 @@ export function sourceWorkspace({
         nextSelection = null;
       }
       indexSpans();
-      schedule();
+      schedule(true);
     },
     refreshPreview: schedule,
     bodyOffset(offset) {

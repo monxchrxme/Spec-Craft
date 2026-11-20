@@ -50,6 +50,24 @@ replaceOnce(
 );
 
 replaceOnce(
+  "t.leadingCut>0&&u<g&&(p=u+p-g,u=g,p<=0)||this.pdfDocument.fillColor(o).rect(u,n,p,i).fill()",
+  `if(a.specCodeSpan){
+    // The line breaker splits a code span at words. Paint one rounded shape
+    // for its visible fragment on this line, including justified word spacing.
+    let last = a;
+    while(s+1<t.inlines.length && t.inlines[s+1].specCodeSpan===a.specCodeSpan)
+      last=t.inlines[++s];
+    const left=Math.max(r+a.x,g), width=r+last.x+last.width-left;
+    const height=a.font.lineHeight(a.fontSize)+1.5;
+    const top=n+t.getAscenderHeight()-a.font.ascender/1000*a.fontSize-0.75;
+    if(width>0) this.pdfDocument.fillColor(o)
+      .roundedRect(left,top,width,height,Math.min(2.25,width/2,height/2)).fill();
+  }else{
+    t.leadingCut>0&&u<g&&(p=u+p-g,u=g,p<=0)||this.pdfDocument.fillColor(o).rect(u,n,p,i).fill()
+  }`,
+);
+
+replaceOnce(
   "processSection(t){let r=this.writer.context().getCurrentPage();if(!r||r&&r.items.length)",
   `processSection(t){
     let context = this.writer.context(), r = context.getCurrentPage();

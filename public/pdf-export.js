@@ -155,6 +155,7 @@ async function markdownBlocks(html, settings) {
   const { size, accent, gap, align, tabSize, note, pageSize } = settings;
   const pageWidth = pageSize.width - settings.horizontal;
   const pageHeight = pageSize.height - settings.vertical;
+  let codeSpan = 0;
 
   async function flow(
     parent,
@@ -218,7 +219,11 @@ async function markdownBlocks(html, settings) {
             highlightColors[node.dataset.highlight] || highlightColors.yellow
           ).color;
         if (tag === "code")
-          Object.assign(childStyle, { font: "Mono", background: "#f0eef4" });
+          Object.assign(childStyle, {
+            font: "Mono",
+            background: "#f0eff6",
+            specCodeSpan: ++codeSpan,
+          });
         if (tag === "a" && node.hasAttribute("data-wiki")) {
           const hits = settings.index.resolve(node.dataset.wiki);
           if (hits.length === 1)
@@ -409,15 +414,33 @@ async function markdownBlocks(html, settings) {
     }
     if (tag === "pre")
       return {
-        stack: codeLines(el, tabSize).map((text) => ({
-          text,
-          specParagraph: true,
-          specKeepLines: true,
-        })),
+        table: {
+          widths: ["*"],
+          body: [
+            [
+              {
+                fillColor: "#f2f3f7",
+                stack: codeLines(el, tabSize).map((text) => ({
+                  text,
+                  specParagraph: true,
+                  specKeepLines: true,
+                })),
+              },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 0,
+          vLineWidth: () => 0,
+          paddingLeft: () => 9,
+          paddingRight: () => 9,
+          paddingTop: () => 9,
+          paddingBottom: () => 9,
+        },
         font: "Mono",
         fontSize: size * 0.9,
         preserveLeadingSpaces: true,
-        margin: [8, 4, 4, gap],
+        margin: [0, 4, 0, gap],
       };
     if (tag === "blockquote")
       return {

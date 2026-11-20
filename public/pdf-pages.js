@@ -125,7 +125,10 @@ export function sourcePages(stage, onSelect) {
       pendingBlock = undefined;
     },
     async show(pending, valid) {
-      if (loading === pending) return;
+      if (layoutRequest === pending) {
+        loading = pending;
+        return;
+      }
       loading = pending;
       const key = ++version;
       const active = () => key === version && valid();
@@ -149,6 +152,10 @@ export function sourcePages(stage, onSelect) {
         const fraction = old
           ? (pos - old.element.offsetTop) / old.element.offsetHeight
           : 0;
+        // Keep the last visible page in place until its replacement is painted.
+        const previousCanvases = sheets.map(
+          (sheet) => sheet.element.firstElementChild,
+        );
         dispose();
         task = next;
         layout = data;
@@ -170,6 +177,7 @@ export function sourcePages(stage, onSelect) {
             const row = rows.findLast((r) => r.top <= y + 2) || rows[0];
             if (row) onSelect(row.index);
           };
+          if (previousCanvases[i]) element.append(previousCanvases[i]);
           sheets.push({ number, width, element, pdf, revision: 0 });
           fragment.append(element);
         }
