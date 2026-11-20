@@ -49,64 +49,80 @@
         </button>
       </nav>
       <aside class="sidebar">
-        <div class="brand">SpecCraft<span>Студия Markdown</span></div>
-        <button
-          class="topbar-toggle"
-          type="button"
-          data-action="toggle-topbar"
-          aria-controls="workspace-toolbar"
-          aria-expanded="true"
-          title="Скрыть верхнюю панель"
-        >
-          <i data-lucide="panel-top-close" aria-hidden="true"></i>
-          <span>Скрыть верхнюю панель</span>
-        </button>
-        <section>
-          <div class="side-heading">
-            <h2>Документы</h2>
-            <button
-              data-action="new"
-              title="Новый документ"
-              aria-label="Новый документ"
-            >
-              <i data-lucide="plus"></i>
+        <div class="sidebar-navigation">
+          <div class="brand">SpecCraft<span>Студия Markdown</span></div>
+          <button
+            class="topbar-toggle"
+            type="button"
+            data-action="toggle-topbar"
+            aria-controls="workspace-toolbar"
+            aria-expanded="true"
+            title="Скрыть верхнюю панель"
+          >
+            <i data-lucide="panel-top-close" aria-hidden="true"></i>
+            <span>Скрыть верхнюю панель</span>
+          </button>
+          <section class="documents-wrap">
+            <div class="side-heading">
+              <h2>Документы</h2>
+              <button
+                data-action="new"
+                title="Новый документ"
+                aria-label="Новый документ"
+              >
+                <i data-lucide="plus"></i>
+              </button>
+            </div>
+            <div id="files"></div>
+            <button class="import" data-action="open">
+              <i data-lucide="folder-open"></i>Открыть файл
+            </button>
+          </section>
+          <section class="outline-wrap">
+            <div class="side-heading">
+              <h2>Структура</h2>
+              <i data-lucide="list-tree"></i>
+            </div>
+            <div id="outline"></div>
+          </section>
+        </div>
+        <div class="sidebar-tools">
+          <button
+            class="sidebar-tools-toggle"
+            type="button"
+            data-action="toggle-sidebar-tools"
+            aria-expanded="false"
+            aria-controls="sidebar-tool-list"
+          >
+            <i data-lucide="chevron-right" aria-hidden="true"></i>Инструменты
+          </button>
+          <div class="side-utilities" id="sidebar-tool-list" hidden>
+            <button data-action="templates">
+              <i data-lucide="layout-template"></i>Шаблоны
+            </button>
+            <button data-action="trace">
+              <i data-lucide="list-checks"></i>Связи требований
+            </button>
+            <button data-action="links">
+              <i data-lucide="link-2"></i>Ссылки разделов
+            </button>
+            <button data-action="versions">
+              <i data-lucide="history"></i>Версии
+            </button>
+            <button class="mobile-style" data-action="style">
+              <i data-lucide="settings-2"></i>Оформление документа
+            </button>
+            <button data-action="transfer">
+              <i data-lucide="folder-sync"></i>Перенос данных
+            </button>
+            <button data-action="ai">
+              <i data-lucide="sparkles"></i>Для ИИ
+            </button>
+            <button data-action="trash">
+              <i data-lucide="trash-2"></i>Корзина
+              <span id="trash-count"></span>
             </button>
           </div>
-          <div id="files"></div>
-          <button class="import" data-action="open">
-            <i data-lucide="folder-open"></i>Открыть файл
-          </button>
-        </section>
-        <section class="outline-wrap">
-          <div class="side-heading">
-            <h2>Структура</h2>
-            <i data-lucide="list-tree"></i>
-          </div>
-          <div id="outline"></div>
-        </section>
-        <div class="side-utilities">
-          <button data-action="templates">
-            <i data-lucide="layout-template"></i>Шаблоны
-          </button>
-          <button data-action="trace">
-            <i data-lucide="list-checks"></i>Связи требований
-          </button>
-          <button data-action="links">
-            <i data-lucide="link-2"></i>Ссылки разделов
-          </button>
-          <button data-action="versions">
-            <i data-lucide="history"></i>Версии
-          </button>
-          <button class="mobile-style" data-action="style">
-            <i data-lucide="settings-2"></i>Оформление документа
-          </button>
-          <button data-action="transfer">
-            <i data-lucide="folder-sync"></i>Перенос данных
-          </button>
-          <button data-action="ai"><i data-lucide="sparkles"></i>Для ИИ</button>
-          <button data-action="trash">
-            <i data-lucide="trash-2"></i>Корзина <span id="trash-count"></span>
-          </button>
         </div>
         <div class="local">
           <i data-lucide="hard-drive"></i> Локальное пространство

@@ -131,8 +131,7 @@ button.primary:hover:enabled {
 .brand-icon b:last-child {
   width: 9px;
 }
-.rail-bottom,
-.local {
+.rail-bottom {
   margin-top: auto;
 }
 .sidebar {
@@ -142,7 +141,13 @@ button.primary:hover:enabled {
   display: flex;
   flex-direction: column;
   flex: none;
+  overflow: hidden;
+}
+.sidebar-navigation {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .brand {
   padding: 20px 22px;
@@ -159,7 +164,7 @@ button.primary:hover:enabled {
   color: var(--muted);
   margin-top: 5px;
 }
-.sidebar > .topbar-toggle {
+.sidebar-navigation > .topbar-toggle {
   display: none;
 }
 .sidebar section {
@@ -219,6 +224,7 @@ button.primary:hover:enabled {
   font-weight: 600;
 }
 .local {
+  flex: none;
   border-top: 1px solid var(--line);
   padding: 16px;
   display: flex;
@@ -575,17 +581,42 @@ main {
   color: var(--muted);
   flex: none;
 }
+.sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  max-height: 50%;
+  border-top: 1px solid var(--line);
+}
+.sidebar-tools-toggle {
+  flex: none;
+  justify-content: flex-start;
+  padding: 8px 16px;
+  border-radius: 0;
+  text-align: left;
+  font-weight: 600;
+}
+.sidebar-tools-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-tools-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.sidebar-tools-toggle:focus-visible {
+  outline-offset: -3px;
+}
 .side-utilities {
-  margin-top: auto;
-  padding: 12px;
+  min-height: 0;
+  padding: 4px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
   display: grid;
+  align-content: start;
 }
 .side-utilities button {
   color: var(--muted);
   justify-content: flex-start;
-}
-.sidebar .local {
-  margin-top: 0;
 }
 .trash-row {
   display: flex;
@@ -820,7 +851,7 @@ select {
   .show-side .sidebar {
     display: flex;
   }
-  .sidebar > .topbar-toggle {
+  .sidebar-navigation > .topbar-toggle {
     display: inline-flex;
     margin: 0 12px;
     justify-content: flex-start;
@@ -1619,7 +1650,7 @@ body:has(.inline-graph) .paper {
   color: var(--accent);
 }
 
-.live-editing .sidebar > section:first-of-type,
+.live-editing .sidebar .documents-wrap,
 .live-editing .sidebar .local,
 .live-editing
   .side-utilities

@@ -393,7 +393,7 @@ const blockSorting = dragOrder({
 });
 const outlineSorting = dragOrder({
   container: $("#outline"),
-  scroller: $(".sidebar"),
+  scroller: $(".sidebar-navigation"),
   item: ".outline-item",
   handle: ".outline-grip",
   prepare: prepareBlockChange,
@@ -2328,6 +2328,14 @@ const actions = {
   },
   versions: () => panels.versions(),
   "toggle-topbar": toggleToolbar,
+  "toggle-sidebar-tools": () => {
+    const list = $("#sidebar-tool-list");
+    list.hidden = !list.hidden;
+    $('[data-action="toggle-sidebar-tools"]').setAttribute(
+      "aria-expanded",
+      String(!list.hidden),
+    );
+  },
   files: () =>
     document.body.classList.toggle(
       mobileLayout.matches ? "show-side" : "hide-side",
