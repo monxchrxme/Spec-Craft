@@ -1,4 +1,5 @@
 import { paintMath } from "./math.js";
+import { mermaidControls, paintMermaid } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { diagramView } from "./diagram-view.js";
 import { normalize } from "./graph.js";
@@ -390,6 +391,8 @@ export function showReview({
       paper.append(el);
     }
     void paintMath(paper);
+    mermaidControls(paper);
+    void paintMermaid(paper);
     const structure = specIndex(parts);
     paper.onclick = (event) => {
       const cell = event.target.closest("td,th");

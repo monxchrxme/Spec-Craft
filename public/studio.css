@@ -1796,3 +1796,130 @@ g.workflow-anchored {
 #live-people input {
   width: 100%;
 }
+
+.mermaid-engine {
+  position: fixed;
+  width: 1440px;
+  height: 900px;
+  left: -10000px;
+  top: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.mermaid-figure {
+  margin: 0 0 12px;
+}
+.mermaid-window {
+  padding: 12px;
+  background: white;
+}
+.paper .mermaid-window img,
+.math-preview .mermaid-window img {
+  display: block;
+  max-width: none;
+  height: auto;
+  margin-inline: auto;
+}
+.paper .mermaid-fit .mermaid-window img,
+.math-preview .mermaid-window img {
+  max-width: 100%;
+}
+.mermaid-status,
+.mermaid-source {
+  margin: 8px 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.mermaid-source summary {
+  color: var(--accent);
+  cursor: pointer;
+}
+.mermaid-source pre {
+  margin: 5px 0;
+}
+.print-surface .mermaid-source:not([open]) {
+  display: none;
+}
+.print-surface .mermaid-window img {
+  max-width: 100%;
+  max-height: 220mm;
+  width: auto;
+}
+.outline-item {
+  position: relative;
+  padding-inline-end: 24px !important;
+  overflow-wrap: anywhere;
+}
+.block-grip,
+.outline-grip {
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  color: var(--muted);
+  touch-action: none;
+  user-select: none;
+}
+.block-grip {
+  position: absolute;
+  z-index: 1;
+  inset-inline-start: -25px;
+  inset-block-start: 1px;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  opacity: 0;
+}
+.outline-grip {
+  position: absolute;
+  inset-inline-end: 1px;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  opacity: 0.55;
+}
+.block-grip svg,
+.outline-grip svg {
+  width: 15px;
+  height: 15px;
+}
+.block:is(:hover, :focus-within) > .block-grip,
+.outline-item:is(:hover, :focus) .outline-grip {
+  opacity: 1;
+}
+.is-reordering {
+  cursor: grabbing;
+  user-select: none;
+}
+:is(.block, .outline-item):is(.drop-before, .drop-after)::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  inset-inline: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.block.drop-before::after {
+  top: -6px;
+}
+.block.drop-after::after {
+  bottom: -6px;
+}
+.outline-item.drop-before::after {
+  top: 0;
+}
+.outline-item.drop-after::after {
+  bottom: 0;
+}
+@media (hover: none), (max-width: 760px) {
+  .block-grip {
+    inset-inline-start: -18px;
+    width: 18px;
+    opacity: 1;
+  }
+  .outline-grip {
+    opacity: 1;
+  }
+}

@@ -8,6 +8,13 @@ import {
   wrapTypedSelection,
 } from "./formatting.js";
 import { latex, paintMath } from "./math.js";
+import {
+  isMermaid,
+  mermaidBlocks,
+  mermaidControls,
+  mermaidMarkdown,
+  paintMermaid,
+} from "./mermaid.js";
 import { makeShare, showReview } from "./review.js";
 import {
   collaborationRequest,
@@ -21,6 +28,7 @@ import { enableWikiSuggestions } from "./wiki-suggestions.js";
 import { wikiLinks, specIndex } from "./spec-index.js";
 import { specPanels } from "./spec-panels.js";
 import { diagramView } from "./diagram-view.js";
+import { dragOrder, headingSpan, reorderMarkdown } from "./block-order.js";
 import { graphEditor } from "./graph-editor.js";
 import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
@@ -38,7 +46,8 @@ const md = window
   .use(window.markdownitMark)
   .use(coloredHighlights)
   .use(wikiLinks)
-  .use(latex);
+  .use(latex)
+  .use(mermaidBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
   icons = () => window.lucide?.createIcons();
@@ -285,7 +294,9 @@ function outline() {
     b.style.paddingLeft = 8 + Math.min(3, Number(p.t.tag[1]) - 1) * 9 + "px";
     b.textContent =
       p.tokens.find((t) => t.type === "inline")?.content || "Заголовок";
-    b.onclick = () => {
+    if (mode === "edit") b.append(sortGrip("Перетащить раздел", false));
+    b.onclick = (event) => {
+      if (event.target.closest("[data-order-grip]")) return;
       flush();
       selected = i;
       if (mode === "source") {
@@ -306,6 +317,89 @@ function highlight(i) {
   const active = headings.filter((b) => Number(b.dataset.idx) <= i).at(-1);
   headings.forEach((b) => b.classList.toggle("active", b === active));
 }
+function sortGrip(label, block) {
+  const grip = document.createElement(block ? "button" : "span");
+  grip.className = block ? "block-grip" : "outline-grip";
+  grip.dataset.orderGrip = "";
+  grip.title = label + " · Alt+↑ / Alt+↓";
+  if (block) {
+    grip.type = "button";
+    grip.setAttribute("aria-label", label);
+  } else grip.setAttribute("aria-hidden", "true");
+  grip.innerHTML = icon("grip-vertical");
+  grip.onclick = (event) => event.stopPropagation();
+  return grip;
+}
+function prepareOrder(index) {
+  if (mode !== "edit" || modal.open || !parts[index]) return null;
+  let offset = parts[index].start;
+  if (editor) {
+    liveBlock();
+    if (editor.i < index) offset += editor.end - parts[editor.i].end;
+  }
+  const cell = tableEdit;
+  if (cell) {
+    const length = doc.body.length;
+    finishCell();
+    if (cell.i < index) offset += doc.body.length - length;
+  }
+  flush();
+  if (cell) render();
+  const origin = parts.findIndex((part) => part.start === offset);
+  return origin < 0 ? null : { origin, id: doc.id, body: doc.body };
+}
+function moveOrder(state, index, below, section) {
+  if (doc.id !== state.id || doc.body !== state.body) {
+    notice("Документ изменился. Перетащите блок ещё раз.");
+    return;
+  }
+  const [start, end] = section
+    ? headingSpan(parts, state.origin)
+    : [state.origin, state.origin + 1];
+  const boundary = below
+    ? section
+      ? headingSpan(parts, index)[1]
+      : index + 1
+    : index;
+  const next = reorderMarkdown(doc.body, parts, start, end, boundary);
+  if (!next) return;
+  setText(next.body);
+  render();
+  selected = Math.max(
+    0,
+    parts.findLastIndex((part) => part.start <= next.offset),
+  );
+  highlight(selected);
+  const destination = section
+    ? $("#outline").querySelector('[data-idx="' + selected + '"]')
+    : host.children[selected]?.querySelector(".block-grip");
+  destination?.scrollIntoView({ block: "nearest" });
+  destination?.focus({ preventScroll: true });
+  notice(section ? "Раздел перемещён." : "Блок перемещён.");
+}
+const blockSorting = dragOrder({
+  container: host,
+  scroller: viewport,
+  item: ":scope > .block",
+  handle: ".block-grip",
+  prepare: prepareOrder,
+  targets: () => parts.map((_, index) => index),
+  move: (state, index, below) => moveOrder(state, index, below, false),
+});
+const outlineSorting = dragOrder({
+  container: $("#outline"),
+  scroller: $(".sidebar"),
+  item: ".outline-item",
+  handle: ".outline-grip",
+  prepare: prepareOrder,
+  targets: (index) =>
+    parts.flatMap((part, i) =>
+      part.t.type === "heading_open" && part.t.tag === parts[index].t.tag
+        ? [i]
+        : [],
+    ),
+  move: (state, index, below) => moveOrder(state, index, below, true),
+});
 function visibleBlock() {
   const top = viewport.getBoundingClientRect().top + 55;
   let index = 0;
@@ -462,6 +556,7 @@ function render() {
   icons();
   viewport.scrollTop = scrollTop;
   void paintMath(host);
+  void paintMermaid(host);
   updateWordcount();
 }
 function deleteBlockButton(index, label, className) {
@@ -499,6 +594,24 @@ function deleteBlockButton(index, label, className) {
   return button;
 }
 function block(p, i, expanded = expandAll) {
+  const box = buildBlock(p, i, expanded);
+  mermaidControls(box, {
+    edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
+    expanded,
+    onExpand: updateExpandButton,
+  });
+  if (mode === "edit") box.append(sortGrip("Перетащить блок", true));
+  return box;
+}
+function editMermaidCode(index, selectExample = false) {
+  editBlock(index);
+  if (!editor || !isMermaid(parts[index]?.t)) return;
+  const ta = editor.ta;
+  const start = ta.value.indexOf("\n") + 1;
+  const end = Math.max(start, ta.value.lastIndexOf("\n"));
+  ta.setSelectionRange(start, selectExample ? end : start);
+}
+function buildBlock(p, i, expanded) {
   const box = document.createElement("div");
   box.className = "block";
   box.dataset.idx = i;
@@ -579,7 +692,7 @@ function block(p, i, expanded = expandAll) {
     box.title = "Нажмите, чтобы редактировать";
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
-      if (e.target.closest("textarea,.inline-tools")) return;
+      if (e.target.closest("textarea,.inline-tools,.mermaid-figure")) return;
       if (e.target.closest("a") && (e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
       editBlock(i);
@@ -619,9 +732,20 @@ function editBlock(i, selectAll = false) {
   function updatePreview() {
     const template = document.createElement("template");
     template.innerHTML = md.render(ta.value);
-    preview.replaceChildren(...template.content.querySelectorAll("[data-tex]"));
+    preview.replaceChildren(
+      ...template.content.querySelectorAll("[data-tex], [data-mermaid]"),
+    );
     preview.hidden = !preview.childElementCount;
-    if (!preview.hidden) void paintMath(preview);
+    preview.setAttribute(
+      "aria-label",
+      preview.querySelector("[data-mermaid]")
+        ? "Предпросмотр диаграммы Mermaid"
+        : "Предпросмотр формул",
+    );
+    if (!preview.hidden) {
+      void paintMath(preview);
+      void paintMermaid(preview, true);
+    }
   }
   function schedulePreview() {
     clearTimeout(previewTimer);
@@ -1058,6 +1182,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
     host.children[selected]?.scrollIntoView({ block: "nearest" });
     if (["paragraph", "heading", "code", "list", "math"].includes(type))
       editBlock(selected, true);
+    if (type === "mermaid") editMermaidCode(selected, true);
     if (type === "math" && editor) {
       editor.ta.setSelectionRange(3, editor.ta.value.length - 3);
     }
@@ -1113,6 +1238,7 @@ function insertDialog() {
             heading: "heading",
             table: "table",
             diagram: "workflow",
+            mermaid: "git-fork",
             requirement: "list-checks",
             code: "code",
             math: "sigma",
@@ -1380,6 +1506,8 @@ const templates = templateTools({
     }
     icons();
     void paintMath(target);
+    mermaidControls(target);
+    void paintMermaid(target);
   },
 });
 async function printDoc() {
@@ -1396,7 +1524,7 @@ async function printDoc() {
   document.body.append(sheet);
   mode = old;
   render();
-  await paintMath(sheet);
+  await Promise.all([paintMath(sheet), paintMermaid(sheet)]);
   const clean = () => sheet.remove();
   window.addEventListener("afterprint", clean, { once: true });
   window.print();
@@ -1819,6 +1947,8 @@ function startLiveEditing(share, initial) {
       !tableEdit &&
       !inlineGraph &&
       !modal.open &&
+      !blockSorting.active() &&
+      !outlineSorting.active() &&
       document.activeElement !== source,
     status(message, conflict = false) {
       $("#save").textContent = message;
@@ -2113,7 +2243,13 @@ document.addEventListener("click", (e) => {
 $("#file-input").onchange = async (e) => {
   for (const f of e.target.files) {
     try {
-      create(nameOf(f.name), await f.text(), "Markdown");
+      const text = await f.text();
+      const diagram = /\.(mmd|mermaid)$/i.test(f.name);
+      create(
+        nameOf(diagram ? f.name.replace(/\.(mmd|mermaid)$/i, "") : f.name),
+        diagram ? mermaidMarkdown(text) : text,
+        diagram ? "Mermaid" : "Markdown",
+      );
     } catch {
       notice("Не удалось открыть файл");
     }
@@ -2122,6 +2258,15 @@ $("#file-input").onchange = async (e) => {
 };
 document.addEventListener("keydown", (e) => {
   if (stopReview) return;
+  if (
+    e.key === "Escape" &&
+    (blockSorting.active() || outlineSorting.active())
+  ) {
+    blockSorting.cancel();
+    outlineSorting.cancel();
+    e.preventDefault();
+    return;
+  }
   if (modal.open && e.key === "Escape") {
     modal.close();
     e.preventDefault();

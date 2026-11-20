@@ -1,5 +1,6 @@
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
+import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 
@@ -139,6 +140,14 @@ async function markdownBlocks(html, settings) {
           flush();
           stack.push(formula);
         } else runs.push({ ...style, ...formula });
+      } else if (node.hasAttribute?.("data-mermaid")) {
+        flush();
+        const drawing = await mermaidBlock(
+          node.querySelector("code").textContent,
+          false,
+          widthLimit,
+        );
+        stack.push(drawing.node);
       } else if (tag === "img") {
         flush();
         stack.push(await imageBlock(node));
@@ -371,6 +380,65 @@ function diagramBlock(raw, enlarge) {
   };
 }
 
+async function mermaidBlock(source, enlarge, widthLimit = contentWidth) {
+  try {
+    const { url, width, height } = await mermaidGraphic(source);
+    const availableHeight = a4.height - 2 * margin - 54;
+    const fitted = Math.min(0.75, widthLimit / width, availableHeight / height);
+    const large = enlarge && fitted < 0.58;
+    const scale = large
+      ? Math.min(0.75, 14000 / Math.max(width, height))
+      : fitted;
+    const pixels = Math.min(scale * 4, 4096 / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(width * pixels));
+    canvas.height = Math.max(1, Math.ceil(height * pixels));
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const drawing = {
+      image: canvas.toDataURL("image/png"),
+      width: width * scale,
+      height: height * scale,
+      alignment: "center",
+    };
+    return {
+      node: { stack: [drawing], unbreakable: true, margin: [0, 2, 0, 8] },
+      pageSize: large
+        ? {
+            width: Math.max(
+              a4.width,
+              Math.ceil(drawing.width + 2 * margin + 1),
+            ),
+            height: Math.max(360, Math.ceil(drawing.height + 2 * margin + 55)),
+          }
+        : null,
+    };
+  } catch {
+    return {
+      node: {
+        stack: [
+          {
+            text: "Ошибка Mermaid · не удалось построить изображение",
+            color: "#8b2841",
+          },
+          {
+            text: source.trimEnd(),
+            font: "Mono",
+            fontSize: 9,
+            preserveLeadingSpaces: true,
+          },
+        ],
+        margin: [0, 4, 0, 8],
+      },
+    };
+  }
+}
+
 export async function exportPdf(parts, md, doc, enlarge) {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
@@ -389,8 +457,14 @@ export async function exportPdf(parts, md, doc, enlarge) {
     normal = [];
   };
   for (const [i, part] of parts.entries()) {
-    if (part.t.type === "fence" && part.t.info.trim() === "studio-diagram") {
-      const { node, pageSize } = diagramBlock(part.t.content, enlarge);
+    const mermaid = isMermaid(part.t);
+    if (
+      mermaid ||
+      (part.t.type === "fence" && part.t.info.trim() === "studio-diagram")
+    ) {
+      const { node, pageSize } = mermaid
+        ? await mermaidBlock(part.t.content, enlarge)
+        : diagramBlock(part.t.content, enlarge);
       if (pageSize) {
         const heading = normal.at(-1)?.headlineLevel ? normal.pop() : null;
         flush();
