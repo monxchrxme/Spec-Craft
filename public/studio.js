@@ -557,6 +557,7 @@ function styles() {
 let inlineGraph = null;
 let inlineBibliography = null;
 let graphTransition = 0;
+let renderedDocumentId;
 const diagramCards = () =>
   [...host.querySelectorAll(".diagram-card:not(.inline-graph)")].filter(
     (card) => card.setExpanded,
@@ -671,8 +672,28 @@ const sourcePane = sourceWorkspace({
     }
   },
 });
+function diagramViewKey(card) {
+  if (card.matches("[data-mermaid]")) {
+    return "mermaid:" + card.querySelector(".mermaid-source code").textContent;
+  }
+  const index = Number(card.closest(".block")?.dataset.idx);
+  return parts[index]?.text;
+}
+function captureDiagramViews() {
+  const views = new Map();
+  if (renderedDocumentId !== doc?.id) return views;
+  // Keep separate entries for diagrams with identical source.
+  for (const card of diagramCards()) {
+    const key = diagramViewKey(card);
+    if (!views.has(key)) views.set(key, []);
+    views.get(key).push(card);
+  }
+  return views;
+}
 function render() {
   const scrollTop = viewport.scrollTop;
+  const previousDiagrams = captureDiagramViews();
+  renderedDocumentId = doc?.id;
   closeGraph(false);
   inlineBibliography = null;
   editor = tableEdit = null;
@@ -720,6 +741,13 @@ function render() {
     pdfViewer.hide();
     const blocks = document.createDocumentFragment();
     parts.forEach((p, i) => blocks.append(block(p, i)));
+    for (const card of blocks.querySelectorAll(".diagram-card")) {
+      if (!card.setExpanded) continue;
+      const previous = previousDiagrams.get(diagramViewKey(card))?.shift();
+      if (!previous) continue;
+      card.setExpanded(isExpanded(previous));
+      if (card.matches("[data-mermaid]")) keepMermaidImage(card, previous);
+    }
     host.replaceChildren(blocks);
   }
   updateExpandButton();
