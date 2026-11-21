@@ -2,6 +2,8 @@
 // original Markdown spelling, including reference definitions and line endings.
 import { isHeadingIdentity } from "./portable-blocks.js";
 
+import { readColumnWidths, tableWidthMarker } from "./table-widths.js";
+
 const sections = [
   "section",
   "subsection",
@@ -159,7 +161,9 @@ function convert(tex, library, assets) {
     if (env) {
       if (env[1].startsWith("equation")) return "$$\n" + env[3] + "\n$$";
       if (env[1] === "tabular" && env[2]) {
+        const marker = /^% spec-table-widths: ([\d,]+)\n/.exec(env[3]);
         const rows = env[3]
+          .slice(marker?.[0].length || 0)
           .split(/\\\\[ \t]*(?:\n|$)/)
           .filter((v) => v.trim())
           .map((row) =>
@@ -171,6 +175,9 @@ function convert(tex, library, assets) {
           );
         if (!rows.length || rows.some((row) => row.length !== env[2].length))
           return literal(tex);
+        rows[0][0] += tableWidthMarker(
+          readColumnWidths(marker?.[1], env[2].length),
+        );
         rows.splice(
           1,
           0,
@@ -314,10 +321,12 @@ function partTex(p, index, assets) {
                 ] || "l",
             )
             .join("");
+          const widths = t.attrGet("data-column-widths");
           return (
             "\\begin{tabular}{" +
             spec +
             "}\n" +
+            (widths ? "% spec-table-widths: " + widths + "\n" : "") +
             lines.join("\n") +
             "\n\\end{tabular}"
           );

@@ -514,6 +514,38 @@ pre code :is(.hljs-variable, .hljs-deletion) {
 .table-scroll {
   overflow: auto;
 }
+table[data-column-widths] {
+  width: 100%;
+  table-layout: fixed;
+}
+table[data-column-widths] :is(th, td) {
+  overflow-wrap: anywhere;
+}
+.table-scroll th[data-column-resize] {
+  position: relative;
+  touch-action: pan-y;
+}
+.table-scroll th[data-column-resize]::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0 -6px 0 auto;
+  width: 12px;
+  content: "";
+  cursor: col-resize;
+}
+.table-scroll th[data-column-resize]:hover::after {
+  background: linear-gradient(
+    to right,
+    transparent 5px,
+    var(--accent) 5px 7px,
+    transparent 7px
+  );
+}
+.table-scroll .resizing-columns,
+.table-scroll .resizing-columns * {
+  cursor: col-resize;
+  user-select: none;
+}
 .table-tools {
   display: flex;
   gap: 5px;
@@ -1794,6 +1826,9 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   #blocks .table-scroll :is(th, td) {
     min-width: 7.5rem;
     height: calc(1lh + 16px);
+  }
+  #blocks .table-scroll table[data-column-widths] :is(th, td) {
+    min-width: 0;
   }
 }
 .block-remove,

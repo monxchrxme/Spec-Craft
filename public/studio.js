@@ -73,6 +73,14 @@ import {
 } from "./mermaid-presentation.js";
 import { highlightCode } from "./code-highlight.js";
 import { enablePanelResize } from "./panel-width.js";
+import {
+  applyTableWidths,
+  enableTableResize,
+  readColumnWidths,
+  setTableWidthMarker,
+  tableWidthMarker,
+  tableWidths,
+} from "./table-widths.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -93,6 +101,7 @@ const md = window
   .use(mermaidBlocks)
   .use(imageSizes)
   .use(pdfRules)
+  .use(tableWidths)
   .use(portableBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
@@ -547,11 +556,33 @@ viewport.addEventListener("click", (event) => {
   )
     flush();
 });
+function updateAutocorrect(field) {
+  const enabled =
+    doc?.style?.spellcheck === true &&
+    field.getAttribute("spellcheck") !== "false";
+  field.setAttribute("autocorrect", enabled ? "on" : "off");
+  if (enabled) field.removeAttribute("autocapitalize");
+  else field.setAttribute("autocapitalize", "none");
+}
+$("#workspace").addEventListener("focusin", ({ target }) => {
+  if (
+    target.matches(
+      "textarea, input:is(:not([type]), [type=text]), [contenteditable=true], [contenteditable=plaintext-only]",
+    )
+  )
+    updateAutocorrect(target);
+});
 function styles() {
   const p = $(".paper"),
     s = doc.style || {};
   paintDocumentStyle(p, s);
   $("#workspace").spellcheck = s.spellcheck === true;
+  $("#workspace").setAttribute(
+    "writingsuggestions",
+    String(s.spellcheck === true),
+  );
+  updateAutocorrect(source);
+  host.querySelectorAll("[contenteditable]").forEach(updateAutocorrect);
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
@@ -1178,6 +1209,7 @@ function editBlock(i, selectAll = false) {
   selected = i;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
+  updateAutocorrect(ta);
   ta.setAttribute("aria-label", "Редактировать блок Markdown");
   ta.value = p.text;
   const embeddedImage = /data:image\/[a-z]+;base64,/i.test(ta.value);
@@ -1439,18 +1471,26 @@ function tableRows(p) {
   const align = p.tokens
     .filter((t) => t.type === "th_open")
     .map((t) => t.attrGet("style")?.replace("text-align:", "") || "");
-  return { rows, align };
+  return {
+    rows,
+    align,
+    widths: readColumnWidths(p.t.attrGet("data-column-widths"), align.length),
+  };
 }
 function tableText(data) {
-  const format = (r) =>
+  const format = (r, marker = "") =>
     "| " +
     r
-      .map((s) => s.replace(/\\?\|/g, "\\|").replace(/[\r\n]+/g, " "))
+      .map(
+        (s, index) =>
+          s.replace(/\\?\|/g, "\\|").replace(/[\r\n]+/g, " ") +
+          (index === 0 ? marker : ""),
+      )
       .join(" | ") +
     " |";
   const [head, ...tail] = data.rows;
   return [
-    format(head),
+    format(head, tableWidthMarker(data.widths)),
     format(
       head.map(
         (_, i) =>
@@ -1458,7 +1498,7 @@ function tableText(data) {
           "---",
       ),
     ),
-    ...tail.map(format),
+    ...tail.map((row) => format(row)),
   ].join(doc.body.includes("\r\n") ? "\r\n" : "\n");
 }
 function finishCell(keepFocus = false) {
@@ -1478,14 +1518,19 @@ function buildTable(box, p, i) {
     '<div class="table-scroll">' +
     md.renderer.render(p.tokens, md.options, {}) +
     "</div>";
-  if (mode !== "edit") return;
+  const table = box.querySelector("table");
+  if (mode !== "edit") {
+    enableTableResize(table, false);
+    return;
+  }
   const data = tableRows(p),
-    cells = [...box.querySelector("table").rows];
+    cells = [...table.rows];
   let activeCol = 0,
     activeRow = 1;
   cells.forEach((row, r) =>
     [...row.cells].forEach((cell, c) => {
       cell.contentEditable = "plaintext-only";
+      updateAutocorrect(cell);
       cell.setAttribute(
         "aria-label",
         "Строка " + (r + 1) + ", столбец " + (c + 1),
@@ -1513,6 +1558,8 @@ function buildTable(box, p, i) {
           data.rows[0].length,
           c + Math.max(...pasted.map((row) => row.length)),
         );
+        while (data.widths && data.widths.length < width)
+          data.widths.push(data.widths[c]);
         for (const existing of data.rows)
           while (existing.length < width) existing.push("");
         for (const [dr, values] of pasted.entries()) {
@@ -1585,6 +1632,7 @@ function buildTable(box, p, i) {
           r.splice(activeCol + 1, 0, j ? "" : "Столбец"),
         );
         data.align.splice(activeCol + 1, 0, "");
+        data.widths?.splice(activeCol + 1, 0, data.widths[activeCol]);
         return [Math.min(activeRow, data.rows.length - 1), activeCol + 1];
       },
     ],
@@ -1602,6 +1650,7 @@ function buildTable(box, p, i) {
         if (data.rows[0].length <= 1) return;
         data.rows.forEach((r) => r.splice(activeCol, 1));
         data.align.splice(activeCol, 1);
+        data.widths?.splice(activeCol, 1);
         return [
           Math.min(activeRow, data.rows.length - 1),
           Math.min(activeCol, data.rows[0].length - 1),
@@ -1618,7 +1667,26 @@ function buildTable(box, p, i) {
     };
     actions.append(b);
   }
-  actions.append(deleteBlockButton(i, "Удалить таблицу", "table-remove"));
+  const reset = document.createElement("button");
+  reset.textContent = "Сбросить ширину";
+  reset.disabled = !data.widths;
+  function saveWidths(widths) {
+    finishCell(true);
+    data.widths = widths;
+    const part = parts[i];
+    patch(part.start, part.end, setTableWidthMarker(part.text, widths));
+    parts = parse();
+    reset.disabled = !widths;
+  }
+  reset.onclick = () => {
+    applyTableWidths(table, null);
+    saveWidths(null);
+  };
+  enableTableResize(table, true, saveWidths);
+  actions.append(
+    reset,
+    deleteBlockButton(i, "Удалить таблицу", "table-remove"),
+  );
   box.append(actions);
 }
 let sourceOutlineSignature;

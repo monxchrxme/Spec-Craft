@@ -10,6 +10,7 @@ import {
   materializeToc,
   portableBlocks,
 } from "../public/portable-blocks.js";
+import { setTableWidthMarker, tableWidths } from "../public/table-widths.js";
 import { reorderMarkdown } from "../public/block-order.js";
 import { latex } from "../public/math.js";
 
@@ -23,7 +24,7 @@ runInNewContext(
   ),
   scope,
 );
-const md = scope.markdownit().use(latex).use(portableBlocks);
+const md = scope.markdownit().use(latex).use(portableBlocks).use(tableWidths);
 const parts = (body) => documentParts(md, body);
 const tex = (body) => latexProjection(body, parts(body));
 test("old TOC exceptions stay with the same section after moving duplicate headings and renaming", () => {
@@ -73,6 +74,19 @@ test("old TOC exceptions stay with the same section after moving duplicate headi
     ],
   );
   assert(!md.render(renamed).includes("spec-heading-id"));
+});
+
+test("table width metadata survives LaTeX edits and leaves the header clean", () => {
+  const plain = "| ID\\|копия | Название |\r\n| --- | --- |\r\n| КЛП | Токен |";
+  const sized = setTableWidthMarker(plain, [125, 375]);
+  assert.equal(setTableWidthMarker(sized, null), plain);
+  assert.equal(parts(sized)[0].t.attrGet("data-column-widths"), "125,375");
+  assert.match(md.render(sized), /<col style="width:25%">/);
+  assert(!md.render(sized).includes("spec-table-widths"));
+  const view = tex(sized);
+  const updated = view.apply(view.text.replace("Токен", "Вектор"));
+  assert.equal(parts(updated)[0].t.attrGet("data-column-widths"), "125,375");
+  assert.match(updated, /Вектор/);
 });
 
 test("editing one TeX section preserves unedited Markdown, CRLF, definitions and opaque diagrams", () => {

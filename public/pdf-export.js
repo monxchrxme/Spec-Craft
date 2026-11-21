@@ -5,6 +5,7 @@ import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
+import { readColumnWidths } from "./table-widths.js";
 import { codeLines } from "./code-highlight.js";
 
 const a4 = { width: 595.28, height: 841.89 };
@@ -272,16 +273,18 @@ async function markdownBlocks(html, settings) {
     const tag = el.localName;
     if (tag === "table") {
       const rows = Array.from(el.rows);
-      const weights = Array.from(rows[0].cells, (_, i) =>
-        Math.sqrt(
-          Math.max(
-            6,
-            ...rows.map((row) =>
-              Math.min(65, row.cells[i]?.textContent.length || 0),
+      const weights =
+        readColumnWidths(el.dataset.columnWidths, rows[0].cells.length) ||
+        Array.from(rows[0].cells, (_, i) =>
+          Math.sqrt(
+            Math.max(
+              6,
+              ...rows.map((row) =>
+                Math.min(65, row.cells[i]?.textContent.length || 0),
+              ),
             ),
           ),
-        ),
-      );
+        );
       const total = weights.reduce((a, b) => a + b, 0);
       if (!total) return { text: "" };
       const headerRows = el.tHead?.rows.length || 0;

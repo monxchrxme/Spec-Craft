@@ -14,7 +14,7 @@
     <script type="module" src="studio.js"></script>
   </head>
   <body>
-    <div id="workspace" spellcheck="false">
+    <div id="workspace" spellcheck="false" writingsuggestions="false">
       <nav class="rail" aria-label="Инструменты студии">
         <div class="brand-icon" aria-label="SpecCraft">
           <b></b><b></b><b></b>
@@ -439,6 +439,8 @@
                 <textarea
                   id="source"
                   aria-label="Исходный Markdown"
+                  autocorrect="off"
+                  autocapitalize="none"
                 ></textarea>
                 <div
                   role="separator"
