@@ -80,7 +80,9 @@ export function sectionAt(sections, index) {
 
 function blockIndex(paper, element) {
   const block = element?.closest(".block");
-  return block?.parentElement === paper ? Number(block.dataset.workIndex) : -1;
+  return block?.parentElement === paper
+    ? Number(block.dataset.workIndex ?? block.dataset.idx)
+    : -1;
 }
 
 function readText(root) {

@@ -144,6 +144,7 @@ export function workflowPanel({
   mutate,
   commentAt,
   status,
+  advanced = false,
 }) {
   const tabs = node("div", undefined, "workflow-tabs");
   tabs.setAttribute("role", "group");
@@ -179,6 +180,16 @@ export function workflowPanel({
   let chosenSection, approvalPicker, approvalDraft;
   const place = node("p", undefined, "workflow-place");
   place.hidden = true;
+  const more = button(
+    "Инструменты согласования",
+    () => {
+      advanced = !advanced;
+      if (!advanced) setChoosing(false);
+      setView(advanced ? view : "comments");
+    },
+    "review-muted-button",
+  );
+  more.hidden = true;
 
   const mark = button("Комментировать выделение", () => {
     const next = selectedTextAnchor(paper, sections());
@@ -203,10 +214,10 @@ export function workflowPanel({
     control.onpointerdown = (event) => event.preventDefault();
   tools.append(mark, pick, suggest);
   tools.hidden = true;
-  panel.prepend(tabs, tools, hint, place);
+  comments.before(more, tabs, tools, hint, place);
   panel.append(content);
   for (const [id, label] of Object.entries({
-    comments: "Замечания",
+    comments: "Комментарии",
     proposals: "Предложения",
     history: "История",
     approval: "Согласование",
@@ -286,6 +297,10 @@ export function workflowPanel({
 
   function setView(value) {
     view = value;
+    more.setAttribute("aria-expanded", String(advanced));
+    panel.classList.toggle("is-advanced", advanced);
+    tabs.hidden = more.hidden || !advanced;
+    updateFigureMarkers();
     if (choosing && !["comments", "proposals"].includes(view))
       setChoosing(false);
     for (const [id, control] of Object.entries(buttons)) {
@@ -297,6 +312,7 @@ export function workflowPanel({
       state().role === "reader" ||
       !["comments", "proposals"].includes(view);
     mark.hidden = view !== "comments";
+    pick.hidden = suggest.hidden = !advanced;
     if (value === "proposals") {
       if (!proposalForm.childElementCount) prepareProposal();
       renderProposals();
@@ -305,6 +321,18 @@ export function workflowPanel({
     else if (value === "people" && presence) {
       updatePeople = presencePanel(peoplePane, presence, state().role);
       void presence.pulse();
+    }
+  }
+
+  function updateFigureMarkers() {
+    for (const figure of paper.querySelectorAll("[data-review-target]")) {
+      if (advanced) {
+        figure.setAttribute("role", "button");
+        figure.setAttribute("tabindex", "0");
+      } else {
+        figure.removeAttribute("role");
+        figure.removeAttribute("tabindex");
+      }
     }
   }
 
@@ -831,6 +859,8 @@ export function workflowPanel({
     },
     update(data) {
       if (!data || data.role === "reader") return;
+      more.hidden = false;
+      updateFigureMarkers();
       if (choosing) setChoosing(true);
       buttons.history.hidden = !["editor", "owner"].includes(data.role);
       if (!presence) {
@@ -843,7 +873,6 @@ export function workflowPanel({
             if (view === "people") updatePeople?.(people);
           },
         });
-        tabs.hidden = false;
         setView(view);
       }
       const next = JSON.stringify([

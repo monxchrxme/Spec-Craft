@@ -5,7 +5,7 @@ import { specIndex } from "./spec-index.js";
 import { diagramView } from "./diagram-view.js";
 import { normalize } from "./graph.js";
 import { workflowPanel } from "./workflow-panel.js";
-import { participantName } from "./presence.js";
+import { participantName, rememberParticipantName } from "./presence.js";
 
 const element = (tag, text, className) => {
   const el = document.createElement(tag);
@@ -96,12 +96,18 @@ export function showReview({
   onEdit,
   request = reviewRequest,
   labels,
+  directEdit = false,
+  advanced = false,
+  dock,
 }) {
   const live = !!labels;
   const workspace = document.getElementById("workspace");
   const focusBefore = document.activeElement;
   const root = element("section");
-  root.id = "review-workspace";
+  if (!dock) {
+    root.id = "review-workspace";
+    root.classList.toggle("live-review", live);
+  }
   const main = element("main"),
     header = element("header", undefined, "topbar");
   const title = element("h1", live ? "Общий документ" : "Согласование");
@@ -113,10 +119,15 @@ export function showReview({
   const paper = element("article", undefined, "paper");
   viewport.append(paper);
   main.append(header, viewport);
-  const panel = element("aside", undefined, "review-dock");
-  panel.setAttribute("aria-label", "Замечания");
+  const panel = element(
+    dock ? "div" : "aside",
+    undefined,
+    dock ? "review-dock review-dock-embedded" : "review-dock",
+  );
+  panel.setAttribute("aria-label", live ? "Комментарии" : "Замечания");
   const commentsPane = live ? element("div") : panel;
-  const panelTitle = element("h2", "Замечания");
+  const panelTitle = element("h2", live ? "Комментарии" : "Замечания");
+  if (live && !dock) panel.append(panelTitle);
   const picker = element("select");
   picker.setAttribute("aria-label", "Место замечания");
   const status = element(
@@ -133,10 +144,16 @@ export function showReview({
   name.maxLength = 80;
   note.maxLength = 2000;
   name.placeholder = "Имя";
-  note.placeholder = "Что нужно уточнить или исправить?";
+  note.placeholder = live
+    ? "Напишите комментарий…"
+    : "Что нужно уточнить или исправить?";
   name.setAttribute("aria-label", "Ваше имя");
   note.setAttribute("aria-label", "Текст замечания");
-  const send = element("button", "Оставить замечание", "primary");
+  const send = element(
+    "button",
+    live ? "Отправить комментарий" : "Оставить замечание",
+    "primary",
+  );
   form.append(name, note, send);
   form.hidden = picker.hidden = true;
   const replyForm = element("form", undefined, "review-form review-reply-form");
@@ -167,16 +184,53 @@ export function showReview({
     () => refresh(true),
     "review-muted-button",
   );
-  commentsPane.append(panelTitle, refreshButton, picker, list, form, replyForm);
-  if (live) panel.append(commentsPane, status);
-  else commentsPane.insertBefore(status, picker);
-  root.append(main, panel);
-  workspace.hidden = true;
-  document.body.append(root);
+  const context = element("small", undefined, "review-context");
+  const filter = element("details", undefined, "review-filter");
+  const atSelection = button("Комментировать выделение", () => {
+    const target = dock.selection();
+    if (target) commentAt(target);
+    else
+      status.textContent =
+        "Выделите фразу в одном блоке в режиме чтения или редактора.";
+  });
+  atSelection.onpointerdown = (event) => event.preventDefault();
+  filter.hidden = atSelection.hidden = true;
+  if (live) {
+    filter.append(element("summary", "Место и фильтр"), picker, refreshButton);
+    form.prepend(context);
+    if (dock) commentsPane.append(atSelection);
+    commentsPane.append(filter, form, replyForm);
+    if (dock) commentsPane.append(status);
+    else panel.append(status);
+    if (dock) {
+      commentsPane.append(
+        button("Инструменты согласования", dock.onTools, "review-muted-button"),
+      );
+    }
+    commentsPane.append(list);
+    panel.append(commentsPane);
+  } else
+    commentsPane.append(
+      panelTitle,
+      refreshButton,
+      status,
+      picker,
+      list,
+      form,
+      replyForm,
+    );
+  if (dock) {
+    root.append(panel);
+    dock.container.append(root);
+  } else {
+    root.append(main, panel);
+    workspace.hidden = true;
+    document.body.append(root);
+  }
 
   let data,
     targets = [],
-    active = share.owner ? "all" : "document",
+    active = live || share.owner ? "all" : "document",
     timer,
     busy = false,
     revision = 0,
@@ -187,8 +241,8 @@ export function showReview({
     inlineTargets = new Map();
   const allTargets = () => [...targets, ...inlineTargets.values()];
   let workflow;
-  if (live) {
-    name.value = participantName();
+  if (live) name.value = participantName();
+  if (live && !dock) {
     workflow = workflowPanel({
       share,
       panel,
@@ -198,17 +252,12 @@ export function showReview({
       parse,
       request,
       mutate,
+      advanced,
       state: () => data,
       status: (message) => {
         status.textContent = message;
       },
-      commentAt(target) {
-        const key = "anchor:" + crypto.randomUUID();
-        inlineTargets.set(key, { ...target, key });
-        updatePicker();
-        select(key);
-        note.focus({ preventScroll: true });
-      },
+      commentAt,
     });
   }
   const closeLink =
@@ -231,11 +280,15 @@ export function showReview({
     panel.append(closeLink);
   }
   const stop = () => {
+    if (!root.isConnected) return;
     clearInterval(timer);
     workflow?.stop();
+    dock?.clear();
     root.remove();
-    workspace.hidden = false;
-    focusBefore?.focus({ preventScroll: true });
+    if (!dock) {
+      workspace.hidden = false;
+      focusBefore?.focus({ preventScroll: true });
+    }
   };
   function close() {
     stop();
@@ -244,10 +297,18 @@ export function showReview({
   const isAuthor = () => (live ? data?.role === "owner" : !!share.owner);
   const canComment = () =>
     !live || ["owner", "editor", "commenter"].includes(data?.role);
+  function commentAt(target) {
+    const key = "anchor:" + crypto.randomUUID();
+    inlineTargets.set(key, { ...target, key });
+    updatePicker();
+    select(key);
+    filter.open = true;
+    note.focus({ preventScroll: true });
+  }
   function composeReply(comment) {
     if (replying?.id !== comment.id) replyNote.value = "";
     replying = comment;
-    replyContext.textContent = "Ответ на замечание · " + comment.author;
+    replyContext.textContent = "Ответ · " + comment.author;
     replyName.hidden = isAuthor();
     replyName.required = !isAuthor();
     if (!replyName.value) replyName.value = name.value;
@@ -270,17 +331,31 @@ export function showReview({
     if (scroll) marker?.scrollIntoView({ block: "center", inline: "center" });
     const anchor = inlineTargets.get(active)?.anchor;
     if (anchor) {
-      if (!workflow?.locate(anchor, scroll))
+      if (!(dock || workflow)?.locate(anchor, scroll) && scroll)
         status.textContent =
           "Исходный фрагмент изменён или удалён. Ветка сохранена.";
-    } else workflow?.clear();
-    form.hidden = !canComment() || data.closed || active === "all";
+    } else {
+      (dock || workflow)?.clear();
+      if (dock && scroll)
+        dock.target(targets.find((target) => target.key === active));
+    }
+    context.textContent =
+      active === "all" || active === "document"
+        ? "Весь документ"
+        : allTargets().find((target) => target.key === active)?.label || "";
+    form.hidden = !canComment() || data.closed || (!live && active === "all");
     const items =
       active === "all"
         ? data.comments
         : data.comments.filter((c) => c.target === active);
     if (!items.length)
-      list.append(element("p", "Здесь пока нет замечаний.", "review-status"));
+      list.append(
+        element(
+          "p",
+          live ? "Пока нет комментариев." : "Здесь пока нет замечаний.",
+          "review-status",
+        ),
+      );
     for (const c of items) {
       const card = element("article", undefined, "review-comment");
       card.append(
@@ -294,7 +369,10 @@ export function showReview({
           card.prepend(
             button(
               target.label,
-              () => select(target.key, true),
+              () => {
+                if (live) filter.open = true;
+                select(target.key, true);
+              },
               "review-comment-target",
             ),
           );
@@ -331,9 +409,15 @@ export function showReview({
     title.textContent = live
       ? snapshot.name
       : snapshot.title + " · " + snapshot.name;
+    const parts = parse(snapshot.body);
+    targets = canComment()
+      ? reviewTargets(parts, live).filter(
+          (t) => live || data.anchors.includes(t.key),
+        )
+      : [];
+    if (dock) return;
     paper.replaceChildren();
     markers.clear();
-    const parts = parse(snapshot.body);
     const style = snapshot.style || {};
     paintFormulaStyle(paper, style);
     paper.style.setProperty("--doc-size", (Number(style.size) || 16) + "px");
@@ -358,11 +442,6 @@ export function showReview({
       paper.style.setProperty("--doc-font", "monospace");
     if (/^#[a-f0-9]{6}$/i.test(style.accent))
       paper.style.setProperty("--doc-accent", style.accent);
-    targets = canComment()
-      ? reviewTargets(parts, live).filter(
-          (t) => live || data.anchors.includes(t.key),
-        )
-      : [];
     for (const [i, block] of parts.entries()) {
       const el = element("div", undefined, "block");
       if (live) el.dataset.workIndex = i;
@@ -426,8 +505,10 @@ export function showReview({
         );
         if (!node) continue;
         node.classList.add("review-figure");
-        node.setAttribute("role", "button");
-        node.setAttribute("tabindex", "0");
+        if (!live) {
+          node.setAttribute("role", "button");
+          node.setAttribute("tabindex", "0");
+        }
         node.setAttribute("aria-label", "Замечания · " + t.label);
         node.dataset.reviewTarget = t.key;
         node.onkeydown = (e) => {
@@ -478,7 +559,8 @@ export function showReview({
       });
       frame.addEventListener("pointerup", (event) => {
         if (press?.id === event.pointerId) {
-          if (press.key) select(press.key);
+          if (press.key && (!live || panel.classList.contains("is-advanced")))
+            select(press.key);
           else if (press.edge) workflow?.chooseCell(press.edge);
         }
         press = null;
@@ -488,6 +570,10 @@ export function showReview({
   function apply(next) {
     const previous = data;
     if (live && !next.snapshot) next.snapshot = previous?.snapshot;
+    if (!previous && directEdit && ["owner", "editor"].includes(next.role)) {
+      onEdit(next);
+      return;
+    }
     next.comments ??= [];
     data = next;
     for (const comment of data.comments) {
@@ -498,10 +584,12 @@ export function showReview({
           label: comment.targetLabel,
         });
     }
-    status.textContent = data.closed
-      ? "Доступ по ссылке закрыт."
-      : "Открытых замечаний: " +
-        data.comments.filter((c) => !c.resolved).length;
+    status.textContent = live
+      ? ""
+      : data.closed
+        ? "Доступ по ссылке закрыт."
+        : "Открытых замечаний: " +
+          data.comments.filter((c) => !c.resolved).length;
     if (
       previous &&
       previous.revision === next.revision &&
@@ -519,6 +607,7 @@ export function showReview({
       role.textContent = labels[data.role];
       editButton.hidden = !["owner", "editor"].includes(data.role);
       panel.hidden = !canComment();
+      filter.hidden = atSelection.hidden = !canComment();
       name.hidden = isAuthor();
       name.required = !isAuthor();
     }
@@ -549,7 +638,9 @@ export function showReview({
           "Замечания" + (counts.has(key) ? " · " + counts.get(key) : "");
     }
     if (isAuthor() || (live && canComment()))
-      picker.prepend(new Option("Все замечания", "all"));
+      picker.prepend(
+        new Option(live ? "Все комментарии" : "Все замечания", "all"),
+      );
     picker.hidden = false;
   }
   async function refresh(manual = false) {
@@ -560,7 +651,7 @@ export function showReview({
         share,
         undefined,
         live ? data?.revision : undefined,
-        live ? { workflow: true } : undefined,
+        workflow ? { workflow: true } : undefined,
       );
       if (rev === revision && root.isConnected) apply(next);
     } catch (error) {
@@ -575,6 +666,7 @@ export function showReview({
         list.replaceChildren();
         picker.hidden = form.hidden = true;
         replyForm.hidden = editButton.hidden = true;
+        atSelection.hidden = filter.hidden = true;
         panel.hidden = false;
         role.hidden = true;
         workflow?.stop();
@@ -594,7 +686,7 @@ export function showReview({
         share,
         input,
         undefined,
-        live ? { workflow: true } : undefined,
+        workflow ? { workflow: true } : undefined,
       );
       if (root.isConnected) apply(next);
       return true;
@@ -609,9 +701,10 @@ export function showReview({
   form.onsubmit = async (event) => {
     event.preventDefault();
     if (busy) return;
+    const selection = active;
     const input = {
       action: "comment",
-      target: active,
+      target: live && active === "all" ? "document" : active,
       ...(live
         ? {
             targetLabel: (
@@ -634,10 +727,11 @@ export function showReview({
     pending.set(input.target, { signature, id: requestId });
     const sent = await mutate({ ...input, requestId });
     if (sent) {
-      if (active === input.target && note.value.trim() === input.text)
+      if (live && !isAuthor()) rememberParticipantName(input.author);
+      if (active === selection && note.value.trim() === input.text)
         note.value = "";
-      if (drafts.get(input.target)?.trim() === input.text)
-        drafts.delete(input.target);
+      if (drafts.get(selection)?.trim() === input.text)
+        drafts.delete(selection);
       pending.delete(input.target);
     }
   };
@@ -658,6 +752,10 @@ export function showReview({
       previous?.signature === signature ? previous.id : crypto.randomUUID();
     pending.set(key, { signature, id: requestId });
     if (await mutate({ ...input, requestId })) {
+      if (live && !isAuthor()) {
+        rememberParticipantName(input.author);
+        if (!name.value) name.value = input.author;
+      }
       pending.delete(key);
       if (
         replying?.id === input.comment &&

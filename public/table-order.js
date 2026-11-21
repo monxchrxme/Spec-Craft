@@ -14,7 +14,6 @@ export function reorderTable(data, axis, from, to) {
 }
 
 export function tableOrderControls(table, scroller, viewport, reorder) {
-  const grips = new Map();
   const controllers = [];
   function setup(axis, entries, gripCell, scroll) {
     const handle = ".table-" + axis + "-grip";
@@ -26,7 +25,6 @@ export function tableOrderControls(table, scroller, viewport, reorder) {
       const grip = document.createElement("button");
       grip.type = "button";
       grip.className = "table-order-grip " + handle.slice(1);
-      grip.contentEditable = "false";
       grip.setAttribute(
         "aria-label",
         "Переместить " +
@@ -48,7 +46,6 @@ export function tableOrderControls(table, scroller, viewport, reorder) {
       symbol.setAttribute("aria-hidden", "true");
       grip.append(symbol);
       cell.append(grip);
-      grips.set(cell, grip);
     });
     controllers.push(
       dragOrder({
@@ -62,10 +59,11 @@ export function tableOrderControls(table, scroller, viewport, reorder) {
         axis: axis === "row" ? "vertical" : "horizontal",
         prepare: (origin) => ({ origin }),
         targets: () => entries.map((entry) => Number(entry.dataset.idx)),
-        move({ origin }, target, after) {
+        move({ origin, keyboard }, target, after) {
           const boundary = target + Number(after);
           const destination = boundary - Number(origin < boundary);
-          if (destination !== origin) reorder(axis, origin, destination);
+          if (destination !== origin)
+            reorder(axis, origin, destination, keyboard);
         },
       }),
     );
@@ -76,13 +74,6 @@ export function tableOrderControls(table, scroller, viewport, reorder) {
   if (headers.length > 1) setup("column", headers, (cell) => cell, scroller);
   if (rows.length > 1) setup("row", rows, (row) => row.cells[0], viewport);
   return {
-    detach(cell) {
-      grips.get(cell)?.remove();
-    },
-    restore(cell) {
-      const grip = grips.get(cell);
-      if (grip) cell.append(grip);
-    },
     active: () => controllers.some((controller) => controller.active()),
     cancel() {
       const active = controllers.find((controller) => controller.active());

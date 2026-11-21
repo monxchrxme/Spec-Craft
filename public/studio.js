@@ -26,7 +26,13 @@ import {
   paintMermaid,
   updateMermaidCard,
 } from "./mermaid.js";
-import { makeShare, showReview } from "./review.js";
+import { makeShare, reviewTargets, showReview } from "./review.js";
+import {
+  resolveAnchor,
+  selectedTextAnchor,
+  showAnchor,
+  workflowSections,
+} from "./review-anchors.js";
 import {
   collaborationRequest,
   liveSession,
@@ -77,6 +83,7 @@ import {
   applyTableWidths,
   automaticColumnWidths,
   enableTableResize,
+  isColumnBoundary,
   readColumnWidths,
   setTableWidthMarker,
   tableWidthMarker,
@@ -1517,7 +1524,7 @@ function finishCell(keepFocus = false) {
   if (!tableEdit) return;
   const e = tableEdit;
   if (!keepFocus) tableEdit = null;
-  const text = e.cell.innerText;
+  const text = e.field.innerText;
   if (text !== e.original) {
     const p = parts[e.i];
     e.rows.rows[e.r][e.c] = text.replace(/\r\n?|\n/g, "<br>");
@@ -1526,9 +1533,9 @@ function finishCell(keepFocus = false) {
     parts = parse();
   }
 }
-function focusTableCell(cell) {
-  cell?.focus({ preventScroll: true });
-  cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+function focusTableCell(field) {
+  field?.focus({ preventScroll: true });
+  field?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 function replaceTable(index, data) {
   const box = host.children[index];
@@ -1558,6 +1565,21 @@ function buildTable(box, p, i) {
   scroller.classList.add("table-scroll-editable");
   const data = tableRows(p),
     cells = [...table.rows];
+  const fields = cells.map((row, r) =>
+    Array.from(row.cells, (cell, c) => {
+      const field = document.createElement("div");
+      field.className = "table-cell-content";
+      field.contentEditable = "plaintext-only";
+      field.setAttribute(
+        "aria-label",
+        "Строка " + (r + 1) + ", столбец " + (c + 1),
+      );
+      field.append(...cell.childNodes);
+      cell.append(field);
+      updateAutocorrect(field);
+      return field;
+    }),
+  );
   let activeCol = 0,
     activeRow = Math.min(1, cells.length - 1);
   const alignment = document.createElement("select");
@@ -1596,7 +1618,7 @@ function buildTable(box, p, i) {
     table,
     scroller,
     viewport,
-    (axis, from, to) => {
+    (axis, from, to, keyboard) => {
       const next = changeTable((current) =>
         reorderTable(current, axis, from, to),
       );
@@ -1607,7 +1629,7 @@ function buildTable(box, p, i) {
         "[data-table-" + axis + '][data-idx="' + to + '"] .table-order-grip',
       );
       grip?.scrollIntoView({ block: "nearest", inline: "nearest" });
-      grip?.focus({ preventScroll: true });
+      if (keyboard) grip?.focus({ preventScroll: true });
     },
   );
   table.addEventListener("pointerdown", (event) => {
@@ -1615,42 +1637,31 @@ function buildTable(box, p, i) {
   });
   cells.forEach((row, r) =>
     [...row.cells].forEach((cell, c) => {
-      cell.contentEditable = "plaintext-only";
-      updateAutocorrect(cell);
-      cell.setAttribute(
-        "aria-label",
-        "Строка " + (r + 1) + ", столбец " + (c + 1),
-      );
+      const field = fields[r][c];
       let pointerCaret;
-      cell.addEventListener("pointerdown", (event) => {
+      field.addEventListener("pointerdown", (event) => {
         pointerCaret = undefined;
         if (
           event.button !== 0 ||
-          event.target.closest(".table-order-grip") ||
-          tableEdit?.cell === cell ||
+          tableEdit?.field === field ||
           event.metaKey ||
           event.ctrlKey
         )
           return;
-        if (
-          cell.hasAttribute("data-column-resize") &&
-          Math.abs(event.clientX - cell.getBoundingClientRect().right) <= 7
-        )
-          return;
-        const offset = tableCellPoint(cell, event.clientX, event.clientY);
+        const offset = tableCellPoint(field, event.clientX, event.clientY);
         if (offset !== null) {
           const raw = editableCellText(data.rows[r][c] || "", md);
-          pointerCaret = cellSourceOffset(cell.textContent, raw, offset);
+          pointerCaret = cellSourceOffset(field.textContent, raw, offset);
         }
       });
-      cell.onfocus = () => {
+      field.onfocus = () => {
         if (editor || inlineBibliography) {
           const state = prepareBlockChange(i);
           const replacement =
             state &&
-            host.children[state.origin].querySelector("table")?.rows[r]?.cells[
-              c
-            ];
+            host.children[state.origin]
+              .querySelector("table")
+              ?.rows[r]?.cells[c]?.querySelector(".table-cell-content");
           if (replacement) {
             replacement.focus({ preventScroll: true });
             if (pointerCaret !== undefined)
@@ -1661,28 +1672,31 @@ function buildTable(box, p, i) {
         closeGraph();
         finishCell();
         box.selectTableCell(r, c);
-        order.detach(cell);
         const raw = editableCellText(data.rows[r][c] || "", md);
         if (
-          cell.childNodes.length !== 1 ||
-          cell.firstChild.nodeType !== Node.TEXT_NODE ||
-          cell.textContent !== raw
+          field.childNodes.length !== 1 ||
+          field.firstChild.nodeType !== Node.TEXT_NODE ||
+          field.textContent !== raw
         )
-          cell.textContent = raw;
+          field.textContent = raw;
         cell.classList.add("table-cell-editing");
-        tableEdit = { cell, r, c, rows: data, i, original: raw };
-        placeCellCaret(cell, pointerCaret ?? raw.length);
+        tableEdit = { field, r, c, rows: data, i, original: raw };
+        placeCellCaret(field, pointerCaret ?? raw.length);
       };
-      cell.addEventListener("click", () => {
+      cell.addEventListener("click", (event) => {
+        if (event.target === cell && !isColumnBoundary(cell, event))
+          field.focus({ preventScroll: true });
+      });
+      field.addEventListener("click", () => {
         if (
           pointerCaret !== undefined &&
-          tableEdit?.cell === cell &&
+          tableEdit?.field === field &&
           document.getSelection()?.isCollapsed
         )
-          placeCellCaret(cell, pointerCaret);
+          placeCellCaret(field, pointerCaret);
         pointerCaret = undefined;
       });
-      cell.onpaste = (e) => {
+      field.onpaste = (e) => {
         const text = e.clipboardData?.getData("text/plain") || "";
         if (!text.includes("\t")) return;
         e.preventDefault();
@@ -1707,13 +1721,12 @@ function buildTable(box, p, i) {
         }
         update(r, c);
       };
-      cell.onblur = () => {
-        if (tableEdit?.cell === cell) {
+      field.onblur = () => {
+        if (tableEdit?.field === field) {
           finishCell();
           cell.classList.remove("table-cell-editing");
-          cell.innerHTML = md.renderInline(data.rows[r][c]);
-          order.restore(cell);
-          void paintMath(cell);
+          field.innerHTML = md.renderInline(data.rows[r][c]);
+          void paintMath(field);
           const next = automaticColumnWidths(data.rows).join(",");
           if (next !== table.dataset.autoColumnWidths) {
             table.dataset.autoColumnWidths = next;
@@ -1727,9 +1740,9 @@ function buildTable(box, p, i) {
           event.isComposing ||
           (event.type === "beforeinput" && !event.cancelable) ||
           r === 0 ||
-          tableEdit?.cell !== cell ||
+          tableEdit?.field !== field ||
           !document.getSelection()?.isCollapsed ||
-          cell.innerText.trim() ||
+          field.innerText.trim() ||
           data.rows[r].some(
             (value, column) =>
               column !== c && editableCellText(value, md).trim(),
@@ -1738,16 +1751,16 @@ function buildTable(box, p, i) {
           return;
         event.preventDefault();
         if (event.repeat) return;
-        cell.blur();
+        field.blur();
         removeRow(r);
         const previous = update(r - 1, c);
         if (previous) placeCellCaret(previous, 0);
       }
-      cell.addEventListener("beforeinput", (event) => {
+      field.addEventListener("beforeinput", (event) => {
         if (event.inputType === "deleteContentBackward") deleteEmptyRow(event);
       });
-      cell.onkeydown = (event) => {
-        if (event.target !== cell) return;
+      field.onkeydown = (event) => {
+        if (event.target !== field) return;
         if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey)
           return;
         if (event.key === "Backspace") {
@@ -1756,7 +1769,7 @@ function buildTable(box, p, i) {
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          cell.blur();
+          field.blur();
           return;
         }
         const tab = event.key === "Tab";
@@ -1770,12 +1783,12 @@ function buildTable(box, p, i) {
         const nextRow = Math.floor(index / columns);
         const nextColumn = index % columns;
         if (nextRow >= cells.length) {
-          cell.blur();
+          field.blur();
           data.rows.push(data.rows[0].map(() => ""));
           update(nextRow, nextColumn);
           return;
         }
-        focusTableCell(cells[nextRow].cells[nextColumn]);
+        focusTableCell(fields[nextRow][nextColumn]);
       };
     }),
   );
@@ -1783,9 +1796,11 @@ function buildTable(box, p, i) {
   actions.className = "table-tools";
   function update(row, column) {
     const next = replaceTable(i, data);
-    const cell = next.querySelector("table").rows[row]?.cells[column];
-    focusTableCell(cell);
-    return cell;
+    const field = next
+      .querySelector("table")
+      .rows[row]?.cells[column]?.querySelector(".table-cell-content");
+    focusTableCell(field);
+    return field;
   }
   function removeRow(row) {
     if (row < 1 || row >= data.rows.length) return;
@@ -2028,8 +2043,16 @@ function insertBlock(type, idx = insertionBlock(), content) {
       );
   }
 }
-let disposeImageDialog;
+let disposeImageDialog, stopComments;
+function closeComments() {
+  stopComments?.();
+  stopComments = null;
+}
+modal.addEventListener("close", () => {
+  if (!modal.open) closeComments();
+});
 function resetModal() {
+  closeComments();
   disposeImageDialog?.();
   modal.removeAttribute("aria-label");
   modal.onclick = null;
@@ -2764,6 +2787,12 @@ function identifyDiagrams(markdown) {
 
 function sharingDialog() {
   const panel = dialog("Поделиться документом", "");
+  panel.classList.add("share-panel");
+  if (liveEdit) {
+    if (liveEdit.role === "owner")
+      sharePanel({ panel, share: { ...liveEdit.share, published: true } });
+    return;
+  }
   const id = doc.id;
   sharePanel({
     panel,
@@ -2802,7 +2831,7 @@ function sharingDialog() {
   });
 }
 
-function openLiveReview(share) {
+function openLiveReview(share, { advanced = false } = {}) {
   flush();
   modal.close();
   stopReview?.();
@@ -2812,12 +2841,73 @@ function openLiveReview(share) {
     renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
     request: collaborationRequest,
     labels: roleLabels,
+    directEdit: !advanced,
+    advanced,
     onEdit: (state) => startLiveEditing(share, state),
     onClose: () => {
       stopReview = null;
       clearShareHash("document");
     },
   });
+}
+
+function toggleLiveComments() {
+  const session = liveEdit;
+  if (!session) return;
+  if (modal.open && stopComments) {
+    modal.close();
+    closeComments();
+    return;
+  }
+  const container = dialog("Комментарии", "");
+  modal.classList.add("comments-dialog");
+  const trigger = $("[data-action=collaboration-discussion]");
+  trigger.setAttribute("aria-expanded", "true");
+  const showCanvas = () => {
+    if (host.hidden) setMode("read");
+  };
+  const stop = showReview({
+    share: session.share,
+    parse,
+    request: collaborationRequest,
+    labels: roleLabels,
+    dock: {
+      container,
+      selection: () =>
+        host.hidden || editor || tableEdit || inlineGraph
+          ? null
+          : selectedTextAnchor(host, workflowSections(parts, doc.body)),
+      locate(anchor, scroll) {
+        if (scroll) showCanvas();
+        if (host.hidden) return false;
+        return showAnchor(
+          host,
+          resolveAnchor(host, parts, workflowSections(parts, doc.body), anchor),
+          scroll,
+        );
+      },
+      target(target) {
+        if (!target || target.index < 0) return;
+        showCanvas();
+        const current = reviewTargets(parts, true).find(
+          ({ key }) => key === target.key,
+        );
+        if (!current) return;
+        const box = host.children[current.index];
+        const element = current.node
+          ? box?.querySelector('[data-node="' + CSS.escape(current.node) + '"]')
+          : box?.querySelector("table")?.rows[current.row];
+        if (box) showAnchor(host, { element: element || box });
+      },
+      clear: () => showAnchor(host, null),
+      onTools: () =>
+        leaveLiveEditing((share) => openLiveReview(share, { advanced: true })),
+    },
+  });
+  stopComments = () => {
+    stop();
+    trigger.setAttribute("aria-expanded", "false");
+  };
 }
 
 function updateLiveControls() {
@@ -2827,7 +2917,7 @@ function updateLiveControls() {
     "collaboration-people",
   ])
     $("[data-action=" + action + "]").hidden = !liveEdit;
-  $("[data-action=share]").hidden = !!liveEdit;
+  $("[data-action=share]").hidden = !!liveEdit && liveEdit.role !== "owner";
   $("[data-action=collaboration-conflict]").hidden = true;
   $("#live-people").hidden = true;
   $("[data-action=collaboration-people]").setAttribute(
@@ -2888,7 +2978,7 @@ function startLiveEditing(share, initial) {
       !editor &&
       !tableEdit &&
       !inlineGraph &&
-      !modal.open &&
+      (!modal.open || !!stopComments) &&
       !activeTableOrder?.active() &&
       !blockSorting.active() &&
       !outlineSorting.active() &&
@@ -3183,7 +3273,7 @@ const actions = {
   "collaboration-people": toggleLivePeople,
   share: sharingDialog,
   "collaboration-conflict": compareLiveEdits,
-  "collaboration-discussion": () => leaveLiveEditing(openLiveReview),
+  "collaboration-discussion": toggleLiveComments,
   "collaboration-exit": () =>
     leaveLiveEditing(() => clearShareHash("document")),
   "expand-diagrams": toggleAllDiagrams,

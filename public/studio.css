@@ -535,17 +535,18 @@ table[data-auto-column-widths] :is(th, td) {
 .table-scroll th[data-column-resize]::after {
   position: absolute;
   z-index: 1;
-  inset: 0 -6px 0 auto;
-  width: 12px;
+  inset: 0 -7px 0 auto;
+  width: 14px;
   content: "";
   cursor: col-resize;
 }
-.table-scroll th[data-column-resize]:hover::after {
+.table-scroll
+  th[data-column-resize]:is(.column-resize-hover, .resizing-column)::after {
   background: linear-gradient(
     to right,
-    transparent 5px,
-    var(--accent) 5px 7px,
-    transparent 7px
+    transparent 6px,
+    var(--accent) 6px 8px,
+    transparent 8px
   );
 }
 .table-scroll .resizing-columns,
@@ -571,6 +572,14 @@ table[data-auto-column-widths] :is(th, td) {
   border: 0;
   border-inline-end: 1px solid var(--table-rule);
   border-block-end: 1px solid var(--line);
+  padding: 0;
+}
+.table-cell-content {
+  min-height: calc(1lh + 16px);
+  padding: 8px 10px;
+}
+.table-cell-content:focus {
+  outline: none;
 }
 .paper .table-scroll-editable thead th {
   border-block-start: 1px solid var(--line);
@@ -621,13 +630,14 @@ table[data-auto-column-widths] :is(th, td) {
   height: 15px;
   pointer-events: none;
 }
-.table-order-grip:is(:hover, :focus-visible) {
+.table-scroll .table-order-grip:is(:hover, :focus) {
   border-color: var(--line);
   color: var(--accent);
   opacity: 1;
 }
-.table-order-grip:focus-visible {
-  outline-offset: 1px;
+.table-order-grip:focus {
+  outline: none;
+  background: var(--hover, #ecebf3);
 }
 .table-column-grip {
   top: -27px;
@@ -1885,9 +1895,32 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   overflow: auto;
 }
 .review-dock h2 {
-  display: inline-block;
-  margin: 0 10px 0 0;
+  margin: 0 0 10px;
   font-size: 16px;
+}
+.review-dock-embedded {
+  border: 0;
+  padding: 0;
+  overflow: visible;
+}
+.review-dock-embedded button:not(.primary) {
+  text-align: start;
+}
+.review-filter {
+  color: var(--muted);
+  font-size: 13px;
+  margin-block: 8px;
+}
+.review-filter[open] select {
+  margin-top: 6px;
+}
+.review-filter summary,
+.share-management summary {
+  cursor: pointer;
+}
+.review-context {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .review-dock .review-muted-button {
   color: var(--accent);
@@ -1902,6 +1935,9 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   color: var(--muted);
   margin: 9px 0;
   font-size: 13px;
+}
+.review-status:empty {
+  display: none;
 }
 .review-form {
   display: grid;
@@ -1944,6 +1980,13 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 .review-figure.has-review-comment,
 .review-figure.review-anchor-active {
   filter: drop-shadow(0 0 3px #7360c4);
+}
+.live-review:not(:has(.is-advanced)) .review-anchor {
+  display: none;
+}
+.live-review:not(:has(.is-advanced)) .review-figure {
+  cursor: inherit;
+  filter: none;
 }
 @media (max-width: 760px) {
   #review-workspace {
@@ -2172,6 +2215,28 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   gap: 5px 8px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
+}
+.share-form {
+  display: grid;
+  gap: 8px;
+}
+.share-form p {
+  min-height: 2lh;
+}
+.share-panel > button {
+  justify-self: start;
+  color: var(--accent);
+}
+.share-management {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  font-size: 14px;
+}
+.share-management[open] summary {
+  margin-bottom: 10px;
+}
+.share-management > button {
+  color: var(--accent);
 }
 .share-invitation small {
   color: var(--muted);

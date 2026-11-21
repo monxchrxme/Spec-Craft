@@ -112,6 +112,12 @@ function sizeTable(table) {
   else table.style.removeProperty("min-width");
 }
 
+export function isColumnBoundary(cell, event) {
+  if (event.target !== cell || !cell.hasAttribute("data-column-resize"))
+    return false;
+  return Math.abs(event.clientX - cell.getBoundingClientRect().right) <= 7;
+}
+
 export function enableTableResize(table, enabled, save) {
   sizeTable(table);
   if (!enabled) return;
@@ -137,10 +143,19 @@ export function enableTableResize(table, enabled, save) {
     cell.dataset.columnResize = "";
     cell.title = "Потяните правую границу столбца или нажмите Alt+← / Alt+→";
     cell.setAttribute("aria-keyshortcuts", "Alt+ArrowLeft Alt+ArrowRight");
+    const hover = (event) => {
+      cell.classList.toggle(
+        "column-resize-hover",
+        !drag && event.pointerType !== "touch" && isColumnBoundary(cell, event),
+      );
+    };
+    cell.addEventListener("pointerover", hover);
+    cell.addEventListener("pointermove", hover);
+    cell.addEventListener("pointerleave", () =>
+      cell.classList.remove("column-resize-hover"),
+    );
     cell.addEventListener("pointerdown", (event) => {
-      const nearEdge =
-        Math.abs(event.clientX - cell.getBoundingClientRect().right) <= 7;
-      if (event.button !== 0 || !nearEdge || drag) return;
+      if (event.button !== 0 || !isColumnBoundary(cell, event) || drag) return;
       event.preventDefault();
       drag = {
         pointer: event.pointerId,
@@ -150,11 +165,13 @@ export function enableTableResize(table, enabled, save) {
         saved: savedWidths(),
       };
       table.setPointerCapture(event.pointerId);
+      cell.classList.remove("column-resize-hover");
+      cell.classList.add("resizing-column");
       table.classList.add("resizing-columns");
     });
     cell.addEventListener("keydown", (event) => {
       if (
-        event.target !== cell ||
+        !event.target.isContentEditable ||
         !event.altKey ||
         !["ArrowLeft", "ArrowRight"].includes(event.key)
       )
@@ -183,8 +200,9 @@ export function enableTableResize(table, enabled, save) {
   });
   function finish(event) {
     if (drag?.pointer !== event.pointerId) return;
-    const { next, saved } = drag;
+    const { index, next, saved } = drag;
     drag = null;
+    headers[index].classList.remove("resizing-column");
     table.classList.remove("resizing-columns");
     if (event.type === "pointerup" && next) save(next);
     else applyTableWidths(table, saved);

@@ -258,7 +258,8 @@ export function dragOrder({
     );
     const below = event.key === forward;
     const next = list[at + (below ? 1 : -1)];
-    if (next) move(state, Number(next.dataset.idx), below);
+    if (next)
+      move({ ...state, keyboard: true }, Number(next.dataset.idx), below);
   });
   return { active: () => !!drag, cancel: () => cancel(null, false) };
 }

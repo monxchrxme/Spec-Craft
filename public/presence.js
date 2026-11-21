@@ -19,6 +19,13 @@ export function participantName() {
     return "";
   }
 }
+export function rememberParticipantName(name) {
+  try {
+    localStorage.setItem("speccraft:participant", name.trim());
+  } catch {
+    /* Presence remains available with the role label. */
+  }
+}
 export function presenceSession({ share, location, update }) {
   let closed = false,
     busy = false,
@@ -74,11 +81,7 @@ export function presencePanel(container, session, role) {
     input.maxLength = 80;
     input.value = participantName();
     input.onchange = () => {
-      try {
-        localStorage.setItem("speccraft:participant", input.value.trim());
-      } catch {
-        /* Presence remains available with the role label. */
-      }
+      rememberParticipantName(input.value);
       void session.pulse();
     };
     label.append(input);
