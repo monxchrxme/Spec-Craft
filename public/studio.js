@@ -89,6 +89,7 @@ import {
   placeCellCaret,
   tableCellPoint,
 } from "./table-editing.js";
+import { reorderTable, tableOrderControls } from "./table-order.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -598,6 +599,7 @@ let inlineGraph = null;
 let inlineBibliography = null;
 let graphTransition = 0;
 let renderedDocumentId;
+let activeTableOrder;
 const diagramCards = () =>
   [...host.querySelectorAll(".diagram-card:not(.inline-graph)")].filter(
     (card) => card.setExpanded,
@@ -731,6 +733,8 @@ function captureDiagramViews() {
   return views;
 }
 function render() {
+  activeTableOrder?.cancel();
+  activeTableOrder = null;
   const scrollTop = viewport.scrollTop;
   const previousDiagrams = captureDiagramViews();
   renderedDocumentId = doc?.id;
@@ -1527,12 +1531,27 @@ function focusTableCell(cell) {
   cell?.focus({ preventScroll: true });
   cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+function replaceTable(index, data) {
+  const box = host.children[index];
+  const top = viewport.scrollTop;
+  const left = box.querySelector(".table-scroll").scrollLeft;
+  patch(parts[index].start, parts[index].end, tableText(data));
+  parts = parse();
+  const next = block(parts[index], index);
+  box.replaceWith(next);
+  void paintMath(next);
+  next.querySelector(".table-scroll").scrollLeft = left;
+  viewport.scrollTop = top;
+  icons();
+  return next;
+}
 function buildTable(box, p, i) {
   box.innerHTML =
     '<div class="table-scroll">' +
     md.renderer.render(p.tokens, md.options, {}) +
     "</div>";
-  const table = box.querySelector("table");
+  const scroller = box.querySelector(".table-scroll");
+  const table = scroller.querySelector("table");
   if (mode !== "edit") {
     enableTableResize(table, false);
     return;
@@ -1540,7 +1559,60 @@ function buildTable(box, p, i) {
   const data = tableRows(p),
     cells = [...table.rows];
   let activeCol = 0,
-    activeRow = 1;
+    activeRow = Math.min(1, cells.length - 1);
+  const alignment = document.createElement("select");
+  for (const [label, value] of [
+    ["По левому краю", "left"],
+    ["По центру", "center"],
+    ["По правому краю", "right"],
+  ])
+    alignment.add(new Option(label, value));
+  box.selectTableCell = (row, column) => {
+    activeRow = row;
+    activeCol = column;
+    selected = Number(box.dataset.idx);
+    alignment.value = data.align[column] || "left";
+    alignment.title = "Столбец " + (column + 1);
+  };
+  alignment.value = data.align[0] || "left";
+  function changeTable(change) {
+    const state = prepareBlockChange(i);
+    if (!state || parts[state.origin]?.t.type !== "table_open") return null;
+    const current = tableRows(parts[state.origin]);
+    change(current);
+    return replaceTable(state.origin, current);
+  }
+  alignment.onchange = () => {
+    const value = alignment.value;
+    const next = changeTable((current) => {
+      current.align[activeCol] = value;
+    });
+    next?.selectTableCell(activeRow, activeCol);
+    next
+      ?.querySelector(".table-alignment select")
+      .focus({ preventScroll: true });
+  };
+  const order = tableOrderControls(
+    table,
+    scroller,
+    viewport,
+    (axis, from, to) => {
+      const next = changeTable((current) =>
+        reorderTable(current, axis, from, to),
+      );
+      if (!next) return;
+      const [row, column] = axis === "row" ? [to, activeCol] : [activeRow, to];
+      next.selectTableCell(row, column);
+      const grip = next.querySelector(
+        "[data-table-" + axis + '][data-idx="' + to + '"] .table-order-grip',
+      );
+      grip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      grip?.focus({ preventScroll: true });
+    },
+  );
+  table.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".table-order-grip")) activeTableOrder = order;
+  });
   cells.forEach((row, r) =>
     [...row.cells].forEach((cell, c) => {
       cell.contentEditable = "plaintext-only";
@@ -1554,6 +1626,7 @@ function buildTable(box, p, i) {
         pointerCaret = undefined;
         if (
           event.button !== 0 ||
+          event.target.closest(".table-order-grip") ||
           tableEdit?.cell === cell ||
           event.metaKey ||
           event.ctrlKey
@@ -1587,9 +1660,8 @@ function buildTable(box, p, i) {
         }
         closeGraph();
         finishCell();
-        selected = i;
-        activeCol = c;
-        activeRow = r;
+        box.selectTableCell(r, c);
+        order.detach(cell);
         const raw = editableCellText(data.rows[r][c] || "", md);
         if (
           cell.childNodes.length !== 1 ||
@@ -1640,6 +1712,7 @@ function buildTable(box, p, i) {
           finishCell();
           cell.classList.remove("table-cell-editing");
           cell.innerHTML = md.renderInline(data.rows[r][c]);
+          order.restore(cell);
           void paintMath(cell);
           const next = automaticColumnWidths(data.rows).join(",");
           if (next !== table.dataset.autoColumnWidths) {
@@ -1649,6 +1722,7 @@ function buildTable(box, p, i) {
         }
       };
       cell.onkeydown = (event) => {
+        if (event.target !== cell) return;
         if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey)
           return;
         if (event.key === "Escape") {
@@ -1679,18 +1753,8 @@ function buildTable(box, p, i) {
   const actions = document.createElement("div");
   actions.className = "table-tools";
   function update(row, column) {
-    const top = viewport.scrollTop;
-    const left = box.querySelector(".table-scroll").scrollLeft;
-    patch(parts[i].start, parts[i].end, tableText(data));
-    parts = parse();
-    const next = block(parts[i], i);
-    box.replaceWith(next);
-    void paintMath(next);
-    next.querySelector(".table-scroll").scrollLeft = left;
-    viewport.scrollTop = top;
-    const cell = next.querySelector("table").rows[row]?.cells[column];
-    focusTableCell(cell);
-    icons();
+    const next = replaceTable(i, data);
+    focusTableCell(next.querySelector("table").rows[row]?.cells[column]);
   }
   for (const [name, act] of [
     [
@@ -1763,7 +1827,11 @@ function buildTable(box, p, i) {
     saveWidths(null);
   };
   enableTableResize(table, true, saveWidths);
+  const alignLabel = document.createElement("label");
+  alignLabel.className = "table-alignment";
+  alignLabel.append("Выравнивание столбца ", alignment);
   actions.append(
+    alignLabel,
     reset,
     deleteBlockButton(i, "Удалить таблицу", "table-remove"),
   );
@@ -2787,6 +2855,7 @@ function startLiveEditing(share, initial) {
       !tableEdit &&
       !inlineGraph &&
       !modal.open &&
+      !activeTableOrder?.active() &&
       !blockSorting.active() &&
       !outlineSorting.active() &&
       !host.querySelector(".image-stage[data-resizing]") &&
@@ -3183,6 +3252,10 @@ $("#file-input").onchange = async (e) => {
 };
 document.addEventListener("keydown", (e) => {
   if (stopReview) return;
+  if (e.key === "Escape" && activeTableOrder?.cancel()) {
+    e.preventDefault();
+    return;
+  }
   if (
     e.key === "Escape" &&
     (blockSorting.active() || outlineSorting.active())

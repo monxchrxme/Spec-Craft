@@ -97,7 +97,18 @@ export function dragOrder({
   prepare,
   targets,
   move,
+  axis = "vertical",
+  indexSelector = "[data-idx]",
+  region = scroller,
+  keyboardOnItem = true,
 }) {
+  const sideways = axis === "horizontal";
+  const leading = sideways ? "left" : "top";
+  const trailing = sideways ? "right" : "bottom";
+  const extent = sideways ? "width" : "height";
+  const offset = sideways ? "scrollLeft" : "scrollTop";
+  const forward = sideways ? "ArrowRight" : "ArrowDown";
+  const backward = sideways ? "ArrowLeft" : "ArrowUp";
   let drag = null,
     mark = null,
     scrolling = 0,
@@ -119,23 +130,25 @@ export function dragOrder({
 
   function hit() {
     const bounds = scroller.getBoundingClientRect();
+    const area = region === scroller ? bounds : region.getBoundingClientRect();
     if (
-      drag.x < bounds.left ||
-      drag.x > bounds.right ||
-      drag.y < bounds.top ||
-      drag.y > bounds.bottom
+      drag.x < Math.max(bounds.left, area.left) ||
+      drag.x > Math.min(bounds.right, area.right) ||
+      drag.y < Math.max(bounds.top, area.top) ||
+      drag.y > Math.min(bounds.bottom, area.bottom)
     ) {
       paint(null);
       return;
     }
+    const position = sideways ? drag.x : drag.y;
     for (let i = 0; i < drag.entries.length; i++) {
       const node = drag.entries[i],
         rect = node.getBoundingClientRect();
-      if (drag.y < rect.top + rect.height / 2) {
+      if (position < rect[leading] + rect[extent] / 2) {
         paint(Number(node.dataset.idx) === drag.origin ? null : node, false);
         return;
       }
-      if (drag.y < rect.bottom || i === drag.entries.length - 1) {
+      if (position < rect[trailing] || i === drag.entries.length - 1) {
         paint(Number(node.dataset.idx) === drag.origin ? null : node, true);
         return;
       }
@@ -144,7 +157,11 @@ export function dragOrder({
 
   function autoScroll() {
     if (!drag?.started || !scrolling) return;
-    scroller.scrollTop += scrolling;
+    if (!container.isConnected) {
+      cancel();
+      return;
+    }
+    scroller[offset] += scrolling;
     hit();
     frame = requestAnimationFrame(autoScroll);
   }
@@ -166,7 +183,7 @@ export function dragOrder({
 
   container.addEventListener("pointerdown", (event) => {
     const grip = event.target.closest(handle);
-    const node = grip?.closest("[data-idx]");
+    const node = grip?.closest(indexSelector);
     if (
       !node ||
       !container.contains(node) ||
@@ -202,13 +219,17 @@ export function dragOrder({
     scroller.classList.add("is-reordering");
     hit();
     const rect = scroller.getBoundingClientRect();
+    const position = sideways ? drag.x : drag.y;
+    const across = sideways ? drag.y : drag.x;
+    const crossStart = sideways ? rect.top : rect.left;
+    const crossEnd = sideways ? rect.bottom : rect.right;
     const speed =
-      drag.x < rect.left || drag.x > rect.right
+      across < crossStart || across > crossEnd
         ? 0
-        : drag.y < rect.top + 50
-          ? Math.max(-17, (drag.y - rect.top - 50) / 4)
-          : drag.y > rect.bottom - 50
-            ? Math.min(17, (drag.y - rect.bottom + 50) / 4)
+        : position < rect[leading] + 50
+          ? Math.max(-17, (position - rect[leading] - 50) / 4)
+          : position > rect[trailing] - 50
+            ? Math.min(17, (position - rect[trailing] + 50) / 4)
             : 0;
     cancelAnimationFrame(frame);
     scrolling = speed;
@@ -220,9 +241,13 @@ export function dragOrder({
     cancel(event, false),
   );
   container.addEventListener("keydown", (event) => {
-    if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
-    const node = event.target.closest("[data-idx]");
-    if (!node || (node !== event.target && !event.target.closest(handle)))
+    if (!event.altKey || ![backward, forward].includes(event.key)) return;
+    const node = event.target.closest(indexSelector);
+    if (
+      !node ||
+      (!(keyboardOnItem && node === event.target) &&
+        !event.target.closest(handle))
+    )
       return;
     const state = prepare(Number(node.dataset.idx));
     if (!state) return;
@@ -231,7 +256,7 @@ export function dragOrder({
     const at = list.findIndex(
       (entry) => Number(entry.dataset.idx) === state.origin,
     );
-    const below = event.key === "ArrowDown";
+    const below = event.key === forward;
     const next = list[at + (below ? 1 : -1)];
     if (next) move(state, Number(next.dataset.idx), below);
   });

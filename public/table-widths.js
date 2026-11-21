@@ -153,7 +153,11 @@ export function enableTableResize(table, enabled, save) {
       table.classList.add("resizing-columns");
     });
     cell.addEventListener("keydown", (event) => {
-      if (!event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key))
+      if (
+        event.target !== cell ||
+        !event.altKey ||
+        !["ArrowLeft", "ArrowRight"].includes(event.key)
+      )
         return;
       event.preventDefault();
       const start = measured();

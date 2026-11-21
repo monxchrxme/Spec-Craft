@@ -7,6 +7,7 @@ import {
   outlineHierarchy,
   reorderMarkdown,
 } from "../public/block-order.js";
+import { reorderTable } from "../public/table-order.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
@@ -24,6 +25,29 @@ import {
   mermaidPresentation,
   setMermaidPresentation,
 } from "../public/mermaid-presentation.js";
+
+test("reordering table data keeps column widths and alignment with the values", () => {
+  const table = {
+    rows: [
+      ["ID", "Name", "Code"],
+      ["1", "Token", "A"],
+      ["2", "Document", "B"],
+    ],
+    align: ["left", "center", "right"],
+    widths: [95, 280, 120],
+  };
+  reorderTable(table, "column", 2, 0);
+  reorderTable(table, "row", 1, 2);
+  assert.deepEqual(table, {
+    rows: [
+      ["Code", "ID", "Name"],
+      ["B", "2", "Document"],
+      ["A", "1", "Token"],
+    ],
+    align: ["right", "left", "center"],
+    widths: [120, 95, 280],
+  });
+});
 
 test("outline branches follow heading levels and distinguish duplicate titles", () => {
   const titles = [
