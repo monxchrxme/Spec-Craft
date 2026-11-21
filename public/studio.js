@@ -28,9 +28,11 @@ import {
 } from "./mermaid.js";
 import { makeShare, reviewTargets, showReview } from "./review.js";
 import {
+  blockAnchor,
   resolveAnchor,
   selectedTextAnchor,
   showAnchor,
+  sourceTextAnchor,
   workflowSections,
 } from "./review-anchors.js";
 import {
@@ -38,7 +40,7 @@ import {
   liveSession,
   roleLabels,
 } from "./collaboration.js";
-import { snapshotOf } from "./merge-document.js";
+import { mergeDocument, sameSnapshot, snapshotOf } from "./merge-document.js";
 import { sharePanel } from "./share-panel.js";
 import { participantName, presencePanel, presenceSession } from "./presence.js";
 import { enableWikiSuggestions } from "./wiki-suggestions.js";
@@ -1015,6 +1017,9 @@ function buildBlock(p, i, expanded) {
   box.onpointerdown = () => {
     selected = i;
   };
+  box.addEventListener("focusin", () => {
+    selected = i;
+  });
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
@@ -1368,6 +1373,25 @@ function editBlock(i, selectAll = false) {
       tools.append(btn, toggle, palette);
       toolbar.append(tools);
     } else toolbar.append(btn);
+  }
+  if (liveEdit) {
+    for (const [label, symbol, getTarget] of [
+      ["Комментарий к выделению", "message-square-plus", liveTextSelection],
+      ["Комментарий к блоку", "messages-square", liveFocusedBlock],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.innerHTML = icon(symbol);
+      button.onpointerdown = (event) => event.preventDefault();
+      button.onclick = () => {
+        const target = getTarget();
+        if (target) toggleLiveComments(target);
+        else notice("Выделите текст в одном блоке.");
+      };
+      toolbar.append(button);
+    }
   }
   const done = document.createElement("button");
   done.type = "button";
@@ -2043,10 +2067,11 @@ function insertBlock(type, idx = insertionBlock(), content) {
       );
   }
 }
-let disposeImageDialog, stopComments;
+let disposeImageDialog, stopComments, composeLiveComment;
 function closeComments() {
   stopComments?.();
   stopComments = null;
+  composeLiveComment = null;
 }
 modal.addEventListener("close", () => {
   if (!modal.open) closeComments();
@@ -2766,7 +2791,7 @@ function openSharedReview(share, onClose) {
       clearShareHash("review");
       onClose?.();
     },
-  });
+  }).stop;
 }
 function identifyDiagrams(markdown) {
   const replacements = [],
@@ -2839,7 +2864,106 @@ function sharingDialog() {
       if (!panel.isConnected || !modal.open) return;
       openLiveReview(share);
     },
+    pull: (share) => pullSharedChanges(panel, id, share),
   });
+}
+
+async function pullSharedChanges(panel, id, share) {
+  const isOpen = () => panel.isConnected && modal.open && doc?.id === id;
+  const revision = doc.collaboration?.syncedRevision ?? 0;
+  const cloud = await collaborationRequest(share);
+  if (!isOpen()) return "";
+  if (cloud.revision <= revision) return "Новых правок в общем документе нет.";
+  let base;
+  try {
+    const { version } = await collaborationRequest(
+      share,
+      undefined,
+      undefined,
+      { version: revision },
+    );
+    base = version.snapshot;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  if (!isOpen()) return "";
+  flush();
+  const local = snapshotOf(doc);
+  const remote = { ...snapshotOf(cloud.snapshot), name: local.name };
+  const merged = base
+    ? mergeDocument({ ...snapshotOf(base), name: local.name }, local, remote)
+    : sameSnapshot(local, remote)
+      ? local
+      : null;
+
+  function apply(next, backup = false) {
+    flush();
+    if (
+      doc?.id !== id ||
+      doc.collaboration?.id !== share.id ||
+      (doc.collaboration.syncedRevision ?? 0) !== revision ||
+      !sameSnapshot(doc, local) ||
+      !save() ||
+      doc?.id !== id ||
+      localStorage.getItem(prefix + id) !== savedRecords.get(id)
+    )
+      throw Error("Личный файл изменился. Подтяните правки ещё раз.");
+    const updated = {
+      ...doc,
+      ...next,
+      collaboration: { ...doc.collaboration, syncedRevision: cloud.revision },
+    };
+    if (backup) {
+      updated.versions = [
+        {
+          id: crypto.randomUUID(),
+          name: "До обновления из общего документа",
+          state: "На согласовании",
+          date: Date.now(),
+          body: local.body,
+          style: local.style,
+        },
+        ...(doc.versions || []),
+      ];
+    }
+    writeRecord(updated);
+    doc = updated;
+    if (!sameSnapshot(local, next)) {
+      render();
+      nav();
+    }
+  }
+
+  if (merged) {
+    apply(merged);
+    return sameSnapshot(local, merged)
+      ? "Личный файл уже актуален."
+      : "Правки добавлены в личный файл.";
+  }
+
+  const comparison = dialog(
+    "Сравнить личный и общий документ",
+    (base
+      ? "<p>Изменения пересекаются. Сверьте оба текста перед заменой.</p>"
+      : "<p>Общая версия, от которой разошлись правки, больше не хранится. Сверьте оба текста перед заменой.</p>") +
+      '<label>Личный файл<textarea class="prompt" rows="8" readonly></textarea></label>' +
+      '<label>Общий документ<textarea class="prompt" rows="8" readonly></textarea></label>' +
+      "<p>Текущий текст и оформление личного файла будут сохранены в разделе «Версии».</p>" +
+      '<button class="primary" data-apply>Применить общую версию</button><p role="status"></p>',
+  );
+  const [mine, theirs] = comparison.querySelectorAll("textarea");
+  mine.value = local.body;
+  theirs.value = remote.body;
+  comparison.querySelector("[data-apply]").onclick = () => {
+    try {
+      apply({ ...remote, style: { ...local.style, ...remote.style } }, true);
+      modal.close();
+      notice("Правки добавлены в личный файл.");
+    } catch (error) {
+      comparison.querySelector('[role="status"]').textContent = error.message;
+    }
+  };
+  return "";
 }
 
 function openLiveReview(share, { advanced = false } = {}) {
@@ -2859,17 +2983,50 @@ function openLiveReview(share, { advanced = false } = {}) {
       stopReview = null;
       clearShareHash("document");
     },
-  });
+  }).stop;
 }
 
-function toggleLiveComments() {
+function liveTextSelection() {
+  if (host.hidden || tableEdit || inlineGraph) return null;
+  if (!editor)
+    return selectedTextAnchor(host, workflowSections(parts, doc.body));
+  const { ta, start } = editor;
+  if (ta.selectionStart === ta.selectionEnd) return null;
+  liveBlock();
+  const newline = doc.body.includes("\r\n") ? "\r\n" : "\n";
+  const offset = (index) =>
+    start + ta.value.slice(0, index).replace(/\n/g, newline).length;
+  return sourceTextAnchor(
+    parse(),
+    doc.body,
+    offset(ta.selectionStart),
+    offset(ta.selectionEnd),
+  );
+}
+
+function liveFocusedBlock() {
+  if (host.hidden) return null;
+  if (!editor) return blockAnchor(parts, doc.body, selected);
+  const start = editor.start;
+  liveBlock();
+  const current = parse();
+  return blockAnchor(
+    current,
+    doc.body,
+    current.findIndex((part) => part.start === start),
+  );
+}
+
+function toggleLiveComments(target) {
   const session = liveEdit;
   if (!session) return;
   if (modal.open && stopComments) {
+    if (target) return composeLiveComment(target);
     modal.close();
     closeComments();
     return;
   }
+  target ??= liveTextSelection();
   const container = dialog("Комментарии", "");
   modal.classList.add("comments-dialog");
   const trigger = $("[data-action=collaboration-discussion]");
@@ -2877,17 +3034,15 @@ function toggleLiveComments() {
   const showCanvas = () => {
     if (host.hidden) setMode("read");
   };
-  const stop = showReview({
+  const { stop, commentAt } = showReview({
     share: session.share,
     parse,
     request: collaborationRequest,
     labels: roleLabels,
     dock: {
       container,
-      selection: () =>
-        host.hidden || editor || tableEdit || inlineGraph
-          ? null
-          : selectedTextAnchor(host, workflowSections(parts, doc.body)),
+      selection: liveTextSelection,
+      block: liveFocusedBlock,
       locate(anchor, scroll) {
         if (scroll) showCanvas();
         if (host.hidden) return false;
@@ -2915,11 +3070,20 @@ function toggleLiveComments() {
         leaveLiveEditing((share) => openLiveReview(share, { advanced: true })),
     },
   });
+  composeLiveComment = commentAt;
+  if (target) commentAt(target);
   stopComments = () => {
     stop();
     trigger.setAttribute("aria-expanded", "false");
   };
 }
+
+$("[data-action=collaboration-discussion]").addEventListener(
+  "pointerdown",
+  (event) => {
+    if (liveEdit) event.preventDefault();
+  },
+);
 
 const livePeoplePanel = $("#live-people");
 const livePeopleButton = $("[data-action=collaboration-people]");

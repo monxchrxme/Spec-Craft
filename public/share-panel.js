@@ -23,7 +23,7 @@ function button(text, handler, className) {
   return node;
 }
 
-export function sharePanel({ panel, share, publish, open }) {
+export function sharePanel({ panel, share, publish, open, pull }) {
   const form = element("form", undefined, "share-form");
   const picker = element("select");
   picker.id = "share-role";
@@ -56,10 +56,22 @@ export function sharePanel({ panel, share, publish, open }) {
         perform(async () => open(await ensure())),
       )
     : null;
+  const pullButton = pull
+    ? button("Подтянуть правки из общего документа", () =>
+        perform(async () => {
+          status.textContent = "Проверяем правки…";
+          status.textContent = await pull(share);
+        }),
+      )
+    : null;
   if (openButton)
     panel.append(element("p", "Ссылка открывает общую копию документа."));
   panel.append(form, currentLink, status);
   if (openButton) panel.append(openButton);
+  if (pullButton) {
+    pullButton.disabled = !share?.published;
+    panel.append(pullButton);
+  }
   panel.append(management);
   let pending,
     renderedInvitations,
@@ -155,7 +167,9 @@ export function sharePanel({ panel, share, publish, open }) {
   async function perform(operation) {
     if (busy) return;
     busy = true;
-    const controls = [copy, picker, create, openButton].filter(Boolean);
+    const controls = [copy, picker, create, openButton, pullButton].filter(
+      Boolean,
+    );
     controls.forEach((control) => (control.disabled = true));
     status.textContent = "";
     try {
@@ -165,6 +179,7 @@ export function sharePanel({ panel, share, publish, open }) {
     } finally {
       busy = false;
       controls.forEach((control) => (control.disabled = false));
+      if (pullButton) pullButton.disabled = !share?.published;
     }
   }
 

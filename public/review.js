@@ -193,12 +193,22 @@ export function showReview({
       status.textContent =
         "Выделите фразу в одном блоке в режиме чтения или редактора.";
   });
-  atSelection.onpointerdown = (event) => event.preventDefault();
-  filter.hidden = atSelection.hidden = true;
+  const atBlock = button("Комментировать блок", () => {
+    const target = dock.block();
+    if (target) commentAt(target);
+    else status.textContent = "Выберите блок в документе.";
+  });
+  for (const control of [atSelection, atBlock])
+    control.onpointerdown = (event) => event.preventDefault();
+  filter.hidden = atSelection.hidden = atBlock.hidden = true;
   if (live) {
     filter.append(element("summary", "Место и фильтр"), picker, refreshButton);
     form.prepend(context);
-    if (dock) commentsPane.append(atSelection);
+    if (dock) {
+      const shortcuts = element("div", undefined, "workflow-tools");
+      shortcuts.append(atSelection, atBlock);
+      commentsPane.append(shortcuts);
+    }
     commentsPane.append(filter, form, replyForm);
     if (dock) commentsPane.append(status);
     else panel.append(status);
@@ -234,7 +244,8 @@ export function showReview({
     timer,
     busy = false,
     revision = 0,
-    replying = null;
+    replying = null,
+    queuedTarget = null;
   const markers = new Map(),
     drafts = new Map(),
     pending = new Map(),
@@ -298,6 +309,11 @@ export function showReview({
   const canComment = () =>
     !live || ["owner", "editor", "commenter"].includes(data?.role);
   function commentAt(target) {
+    if (!data) {
+      queuedTarget = target;
+      return;
+    }
+    if (!canComment()) return;
     const key = "anchor:" + crypto.randomUUID();
     inlineTargets.set(key, { ...target, key });
     updatePicker();
@@ -607,7 +623,7 @@ export function showReview({
       role.textContent = labels[data.role];
       editButton.hidden = !["owner", "editor"].includes(data.role);
       panel.hidden = !canComment();
-      filter.hidden = atSelection.hidden = !canComment();
+      filter.hidden = atSelection.hidden = atBlock.hidden = !canComment();
       name.hidden = isAuthor();
       name.required = !isAuthor();
     }
@@ -616,6 +632,11 @@ export function showReview({
     updatePicker();
     if (closeLink) closeLink.hidden = data.closed;
     select(active);
+    if (queuedTarget) {
+      const target = queuedTarget;
+      queuedTarget = null;
+      commentAt(target);
+    }
     workflow?.update(data);
   }
   function updatePicker() {
@@ -666,7 +687,7 @@ export function showReview({
         list.replaceChildren();
         picker.hidden = form.hidden = true;
         replyForm.hidden = editButton.hidden = true;
-        atSelection.hidden = filter.hidden = true;
+        atSelection.hidden = atBlock.hidden = filter.hidden = true;
         panel.hidden = false;
         role.hidden = true;
         workflow?.stop();
@@ -769,5 +790,5 @@ export function showReview({
   };
   refresh(true);
   timer = setInterval(() => refresh(), live ? 5000 : 30_000);
-  return stop;
+  return { stop, commentAt };
 }

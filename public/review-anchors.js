@@ -4,6 +4,9 @@ import { fence } from "./documents.js";
 import { normalize } from "./graph.js";
 
 const clean = (s) => s.trim().replace(/\s+/g, " ");
+const normalizedSource = (part) => part.text.replace(/\r\n/g, "\n");
+const blockSignature = (part) =>
+  part ? fingerprint(part.t.type + "\n" + normalizedSource(part)) : "";
 const graphOf = (part) => {
   if (part?.t.type !== "fence" || part.t.info.trim() !== "studio-diagram")
     return null;
@@ -185,20 +188,69 @@ export function selectedTextAnchor(paper, sections) {
   const text = readText(paper.children[index]);
   const offset = selectionOffset(paper.children[index], range, text);
   if (text.value.slice(offset, offset + quote.length) !== quote) return null;
+  return textAnchor(
+    "text",
+    text.value,
+    offset,
+    offset + quote.length,
+    index,
+    sections,
+  );
+}
+
+function textAnchor(kind, value, offset, end, index, sections) {
+  const quote = value.slice(offset, end);
+  if (!quote.trim() || quote.length > 700) return null;
   return {
     anchor: {
-      kind: "text",
+      kind,
       quote,
       offset,
       block: index,
       section: sectionAt(sections, index),
-      prefix: text.value.slice(Math.max(0, offset - 60), offset),
-      suffix: text.value.slice(
-        offset + quote.length,
-        offset + quote.length + 60,
-      ),
+      prefix: value.slice(Math.max(0, offset - 60), offset),
+      suffix: value.slice(end, end + 60),
     },
     label: "Текст · «" + clean(quote).slice(0, 145) + "»",
+    index,
+  };
+}
+
+export function sourceTextAnchor(parts, body, start, end) {
+  const index = parts.findIndex(
+    (part) => start >= part.start && end <= part.end,
+  );
+  if (index < 0 || start === end) return null;
+  const part = parts[index];
+  const offset = (position) =>
+    body.slice(part.start, position).replace(/\r\n/g, "\n").length;
+  return textAnchor(
+    "source",
+    normalizedSource(part),
+    offset(start),
+    offset(end),
+    index,
+    workflowSections(parts, body),
+  );
+}
+
+export function blockAnchor(parts, body, index) {
+  const part = parts[index];
+  if (!part) return null;
+  const label =
+    part.t.type === "fence"
+      ? graphOf(part)?.title || part.t.info.trim() || "Код"
+      : part.text.split(/\r?\n/, 1)[0].replace(/^#{1,6}\s+/, "");
+  return {
+    anchor: {
+      kind: "block",
+      block: index,
+      section: sectionAt(workflowSections(parts, body), index),
+      signature: blockSignature(part),
+      before: blockSignature(parts[index - 1]),
+      after: blockSignature(parts[index + 1]),
+    },
+    label: "Блок · " + clean(label).slice(0, 145),
     index,
   };
 }
@@ -244,6 +296,39 @@ export function resolveAnchor(paper, parts, sections, anchor) {
   const scope = candidates.filter(
     ({ index }) => sectionAt(sections, index) === anchor.section,
   );
+  if (anchor.kind === "block" || anchor.kind === "source") {
+    const blockMatches = (list) =>
+      list.flatMap(({ block: element, index }) => {
+        const part = parts[index];
+        if (!part) return [];
+        if (anchor.kind === "source")
+          return quoteMatches(normalizedSource(part), anchor).map((match) => ({
+            ...match,
+            element,
+            index,
+          }));
+        if (blockSignature(part) !== anchor.signature) return [];
+        const score =
+          Number(blockSignature(parts[index - 1]) === anchor.before) +
+          Number(blockSignature(parts[index + 1]) === anchor.after);
+        return [{ element, index, score }];
+      });
+    const local = blockMatches(scope);
+    const [match, other] = (
+      local.length ? local : blockMatches(candidates)
+    ).sort((a, b) => b.score - a.score);
+    if (!match || match.score === other?.score) return null;
+    if (anchor.kind === "source") {
+      const text = readText(match.element);
+      const visible = quoteMatches(text.value, anchor);
+      if (visible.length === 1)
+        return (
+          textRange({ ...match, ...visible[0], text }, anchor.quote.length) ||
+          match
+        );
+    }
+    return match;
+  }
   if (anchor.kind === "cell") {
     function cells(list, exactTable = true) {
       return list.flatMap(({ block, index }) =>
@@ -310,8 +395,12 @@ export function resolveAnchor(paper, parts, sections, anchor) {
   );
   const match = entries[0];
   if (!match || match.score === entries[1]?.score) return null;
+  return textRange(match, anchor.quote.length);
+}
+
+function textRange(match, length) {
   const start = match.text.runs.findLast((run) => run.start <= match.offset);
-  const endOffset = match.offset + anchor.quote.length;
+  const endOffset = match.offset + length;
   const end = match.text.runs.find(
     (run) => run.start + run.node.data.length >= endOffset,
   );
