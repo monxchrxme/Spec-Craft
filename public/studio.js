@@ -809,7 +809,6 @@ function deleteBlockButton(index, label, className) {
   button.title = label;
   button.setAttribute("aria-label", label);
   button.innerHTML = icon("trash-2");
-  if (className === "table-remove") button.append(label);
   button.onmousedown = (event) => event.preventDefault();
   button.onclick = (event) => {
     event.stopPropagation();
@@ -1556,6 +1555,7 @@ function buildTable(box, p, i) {
     enableTableResize(table, false);
     return;
   }
+  scroller.classList.add("table-scroll-editable");
   const data = tableRows(p),
     cells = [...table.rows];
   let activeCol = 0,
@@ -1721,10 +1721,39 @@ function buildTable(box, p, i) {
           }
         }
       };
+      function deleteEmptyRow(event) {
+        if (
+          event.defaultPrevented ||
+          event.isComposing ||
+          (event.type === "beforeinput" && !event.cancelable) ||
+          r === 0 ||
+          tableEdit?.cell !== cell ||
+          !document.getSelection()?.isCollapsed ||
+          cell.innerText.trim() ||
+          data.rows[r].some(
+            (value, column) =>
+              column !== c && editableCellText(value, md).trim(),
+          )
+        )
+          return;
+        event.preventDefault();
+        if (event.repeat) return;
+        cell.blur();
+        removeRow(r);
+        const previous = update(r - 1, c);
+        if (previous) placeCellCaret(previous, 0);
+      }
+      cell.addEventListener("beforeinput", (event) => {
+        if (event.inputType === "deleteContentBackward") deleteEmptyRow(event);
+      });
       cell.onkeydown = (event) => {
         if (event.target !== cell) return;
         if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey)
           return;
+        if (event.key === "Backspace") {
+          deleteEmptyRow(event);
+          return;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           cell.blur();
@@ -1754,8 +1783,17 @@ function buildTable(box, p, i) {
   actions.className = "table-tools";
   function update(row, column) {
     const next = replaceTable(i, data);
-    focusTableCell(next.querySelector("table").rows[row]?.cells[column]);
+    const cell = next.querySelector("table").rows[row]?.cells[column];
+    focusTableCell(cell);
+    return cell;
   }
+  function removeRow(row) {
+    if (row < 1 || row >= data.rows.length) return;
+    data.rows.splice(row, 1);
+    return [Math.min(row, data.rows.length - 1), activeCol];
+  }
+  const structure = document.createElement("div");
+  structure.className = "table-tool-group";
   for (const [name, act] of [
     [
       "+ Строка",
@@ -1780,14 +1818,7 @@ function buildTable(box, p, i) {
         return [Math.min(activeRow, data.rows.length - 1), activeCol + 1];
       },
     ],
-    [
-      "− Строка",
-      () => {
-        if (activeRow < 1 || activeRow >= data.rows.length) return;
-        data.rows.splice(activeRow, 1);
-        return [Math.min(activeRow, data.rows.length - 1), activeCol];
-      },
-    ],
+    ["− Строка", () => removeRow(activeRow)],
     [
       "− Столбец",
       () => {
@@ -1809,7 +1840,7 @@ function buildTable(box, p, i) {
       const target = act();
       if (target) update(...target);
     };
-    actions.append(b);
+    structure.append(b);
   }
   const reset = document.createElement("button");
   reset.textContent = "Сбросить ширину";
@@ -1830,9 +1861,12 @@ function buildTable(box, p, i) {
   const alignLabel = document.createElement("label");
   alignLabel.className = "table-alignment";
   alignLabel.append("Выравнивание столбца ", alignment);
+  const formatting = document.createElement("div");
+  formatting.className = "table-tool-group";
+  formatting.append(alignLabel, reset);
   actions.append(
-    alignLabel,
-    reset,
+    structure,
+    formatting,
     deleteBlockButton(i, "Удалить таблицу", "table-remove"),
   );
   box.append(actions);

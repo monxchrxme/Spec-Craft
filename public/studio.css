@@ -553,11 +553,50 @@ table[data-auto-column-widths] :is(th, td) {
   cursor: col-resize;
   user-select: none;
 }
-.table-scroll:has(th[data-table-column]) {
-  padding-block-start: 15px;
+.table-scroll-editable {
+  --table-rule: color-mix(in srgb, var(--line) 70%, transparent);
+  --table-corner: 8px;
 }
-.table-scroll:has(tr[data-table-row]) {
-  padding-inline-start: 15px;
+.table-scroll-editable:has(th[data-table-column]) {
+  padding-block-start: 29px;
+}
+.table-scroll-editable:has(tr[data-table-row]) {
+  padding-inline-start: 31px;
+}
+.table-scroll-editable table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.paper .table-scroll-editable :is(th, td) {
+  border: 0;
+  border-inline-end: 1px solid var(--table-rule);
+  border-block-end: 1px solid var(--line);
+}
+.paper .table-scroll-editable thead th {
+  border-block-start: 1px solid var(--line);
+}
+.paper .table-scroll-editable :is(th, td):first-child {
+  border-inline-start: 1px solid var(--line);
+}
+.paper .table-scroll-editable :is(th, td):last-child {
+  border-inline-end-color: var(--line);
+}
+.table-scroll-editable thead th:first-child {
+  border-start-start-radius: var(--table-corner);
+}
+.table-scroll-editable thead th:last-child {
+  border-start-end-radius: var(--table-corner);
+}
+.table-scroll-editable table:not(:has(tbody)) thead th:first-child,
+.table-scroll-editable tbody:last-child tr:last-child td:first-child {
+  border-end-start-radius: var(--table-corner);
+}
+.table-scroll-editable table:not(:has(tbody)) thead th:last-child,
+.table-scroll-editable tbody:last-child tr:last-child td:last-child {
+  border-end-end-radius: var(--table-corner);
+}
+.table-scroll-editable tbody tr:hover > td {
+  background: color-mix(in srgb, var(--inset, #f7f7fb) 42%, transparent);
 }
 .table-scroll :is(th[data-table-column], tr[data-table-row] > td:first-child) {
   position: relative;
@@ -565,30 +604,40 @@ table[data-auto-column-widths] :is(th, td) {
 .table-order-grip {
   position: absolute;
   z-index: 2;
-  display: block;
-  width: 16px;
-  height: 15px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
   padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
   cursor: grab;
   color: var(--muted);
+  opacity: 0.7;
   touch-action: none;
 }
-.table-order-grip::before {
-  display: block;
-  width: 10px;
-  height: 9px;
-  margin: auto;
-  content: "";
-  background: radial-gradient(circle, currentColor 1px, transparent 1.2px) 0 0 /
-    4px 4px;
+.table-order-grip svg {
+  width: 15px;
+  height: 15px;
+  pointer-events: none;
+}
+.table-order-grip:is(:hover, :focus-visible) {
+  border-color: var(--line);
+  color: var(--accent);
+  opacity: 1;
+}
+.table-order-grip:focus-visible {
+  outline-offset: 1px;
 }
 .table-column-grip {
-  top: -15px;
-  left: calc(50% - 8px);
+  top: -27px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 .table-row-grip {
-  left: -15px;
-  top: calc(50% - 7px);
+  left: -28px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 .table-scroll th[data-table-column].drop-before {
   box-shadow: inset 3px 0 var(--accent);
@@ -606,7 +655,6 @@ table[data-auto-column-widths] :is(th, td) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-inline: 6px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -615,9 +663,31 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .table-tools {
   display: flex;
-  gap: 5px;
-  margin: 6px 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 8px 0;
   flex-wrap: wrap;
+}
+.table-tool-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.table-tool-group:first-child {
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.table-tool-group button {
+  min-height: 28px;
+  padding: 4px 7px;
+}
+.table-tools .table-remove {
+  width: 30px;
+  height: 30px;
+  padding: 0;
 }
 .table-tools button,
 .add-end {

@@ -42,6 +42,11 @@ export function tableOrderControls(table, scroller, viewport, reorder) {
           ? "Alt+ArrowUp Alt+ArrowDown"
           : "Alt+ArrowLeft Alt+ArrowRight",
       );
+      const symbol = document.createElement("i");
+      symbol.dataset.lucide =
+        axis === "row" ? "grip-vertical" : "grip-horizontal";
+      symbol.setAttribute("aria-hidden", "true");
+      grip.append(symbol);
       cell.append(grip);
       grips.set(cell, grip);
     });
