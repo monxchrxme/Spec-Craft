@@ -551,7 +551,7 @@ function styles() {
   const p = $(".paper"),
     s = doc.style || {};
   paintDocumentStyle(p, s);
-  source.spellcheck = !!s.spellcheck;
+  $("#workspace").spellcheck = s.spellcheck === true;
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
@@ -1178,7 +1178,6 @@ function editBlock(i, selectAll = false) {
   selected = i;
   const ta = document.createElement("textarea");
   ta.className = "source-edit";
-  ta.spellcheck = !!doc.style?.spellcheck;
   ta.setAttribute("aria-label", "Редактировать блок Markdown");
   ta.value = p.text;
   const embeddedImage = /data:image\/[a-z]+;base64,/i.test(ta.value);
