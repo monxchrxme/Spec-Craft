@@ -28,33 +28,50 @@ export function setTableWidthMarker(markdown, widths) {
   );
 }
 
+export function automaticColumnWidths(rows) {
+  const lengths = rows[0].map(() => 6);
+  for (const row of rows)
+    row.forEach((value, index) => {
+      lengths[index] = Math.max(lengths[index], Math.min(65, value.length));
+    });
+  return lengths.map((length) => Math.round(Math.sqrt(length) * 100));
+}
+
 export function tableWidths(md) {
   md.core.ruler.before("inline", "table_widths", ({ tokens }) => {
     for (let i = 0; i < tokens.length; i++) {
       if (tokens[i].type !== "table_open") continue;
-      const headers = [];
-      let index = i + 1;
+      const rows = [];
       for (
-        ;
-        index < tokens.length && tokens[index].type !== "thead_close";
-        index++
-      )
-        if (tokens[index].type === "inline") headers.push(tokens[index]);
-      const first = headers[0];
-      const marker = widthMarker.exec(first?.content || "");
-      const widths = readColumnWidths(marker?.[1], headers.length);
+        let j = i + 1;
+        j < tokens.length && tokens[j].type !== "table_close";
+        j++
+      ) {
+        if (tokens[j].type === "tr_open") rows.push([]);
+        if (tokens[j].type === "inline") rows.at(-1).push(tokens[j]);
+      }
+      const first = rows[0]?.[0];
+      if (!first) continue;
+      const marker = widthMarker.exec(first.content);
+      const widths = readColumnWidths(marker?.[1], rows[0].length);
       if (marker) first.content = first.content.slice(0, marker.index);
-      if (!widths) continue;
-      tokens[i].attrSet(widthAttribute, widths.join(","));
+      if (widths) tokens[i].attrSet(widthAttribute, widths.join(","));
+      tokens[i].attrSet(
+        "data-auto-column-widths",
+        automaticColumnWidths(
+          rows.map((row) => row.map((cell) => cell.content)),
+        ).join(","),
+      );
     }
   });
   md.renderer.rules.table_open = (tokens, index, options, env, self) => {
     const opening = self.renderToken(tokens, index, options);
-    const widths = tokens[index]
-      .attrGet(widthAttribute)
-      ?.split(",")
-      .map(Number);
-    return opening + (widths ? columnsMarkup(widths) : "");
+    const token = tokens[index];
+    const weights =
+      token.attrGet(widthAttribute) || token.attrGet("data-auto-column-widths");
+    return (
+      opening + (weights ? columnsMarkup(weights.split(",").map(Number)) : "")
+    );
   };
 }
 
@@ -74,21 +91,24 @@ function columnsMarkup(widths) {
 
 export function applyTableWidths(table, widths) {
   table.querySelector("colgroup")?.remove();
-  if (widths) {
-    table.dataset.columnWidths = widths.join(",");
-    table.insertAdjacentHTML("afterbegin", columnsMarkup(widths));
-  } else delete table.dataset.columnWidths;
+  if (widths) table.dataset.columnWidths = widths.join(",");
+  else delete table.dataset.columnWidths;
+  const weights =
+    widths || table.dataset.autoColumnWidths.split(",").map(Number);
+  table.insertAdjacentHTML("afterbegin", columnsMarkup(weights));
   sizeTable(table);
 }
 
 function sizeTable(table) {
   const widths = readColumnWidths(
-    table.dataset.columnWidths,
+    table.dataset.columnWidths || table.dataset.autoColumnWidths,
     table.tHead.rows[0].cells.length,
   );
   if (widths)
     table.style.minWidth =
-      (minColumn * totalWidth(widths)) / Math.min(...widths) + "px";
+      ((table.dataset.columnWidths ? minColumn : 120) * totalWidth(widths)) /
+        Math.min(...widths) +
+      "px";
   else table.style.removeProperty("min-width");
 }
 

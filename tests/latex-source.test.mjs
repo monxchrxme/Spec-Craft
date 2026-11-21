@@ -11,6 +11,11 @@ import {
   portableBlocks,
 } from "../public/portable-blocks.js";
 import { setTableWidthMarker, tableWidths } from "../public/table-widths.js";
+import {
+  cellLineBreaks,
+  cellSourceOffset,
+  editableCellText,
+} from "../public/table-editing.js";
 import { reorderMarkdown } from "../public/block-order.js";
 import { latex } from "../public/math.js";
 
@@ -24,7 +29,12 @@ runInNewContext(
   ),
   scope,
 );
-const md = scope.markdownit().use(latex).use(portableBlocks).use(tableWidths);
+const md = scope
+  .markdownit()
+  .use(latex)
+  .use(portableBlocks)
+  .use(tableWidths)
+  .use(cellLineBreaks);
 const parts = (body) => documentParts(md, body);
 const tex = (body) => latexProjection(body, parts(body));
 test("old TOC exceptions stay with the same section after moving duplicate headings and renaming", () => {
@@ -77,7 +87,8 @@ test("old TOC exceptions stay with the same section after moving duplicate headi
 });
 
 test("table width metadata survives LaTeX edits and leaves the header clean", () => {
-  const plain = "| ID\\|копия | Название |\r\n| --- | --- |\r\n| КЛП | Токен |";
+  const plain =
+    "| ID\\|копия | Название |\r\n| --- | --- |\r\n| КЛП | Токен<br/>Следующая строка |";
   const sized = setTableWidthMarker(plain, [125, 375]);
   assert.equal(setTableWidthMarker(sized, null), plain);
   assert.equal(parts(sized)[0].t.attrGet("data-column-widths"), "125,375");
@@ -86,7 +97,12 @@ test("table width metadata survives LaTeX edits and leaves the header clean", ()
   const view = tex(sized);
   const updated = view.apply(view.text.replace("Токен", "Вектор"));
   assert.equal(parts(updated)[0].t.attrGet("data-column-widths"), "125,375");
-  assert.match(updated, /Вектор/);
+  assert.match(updated, /Вектор<br>Следующая строка/);
+  assert.equal(
+    editableCellText("Один<br/>Два `<br>` \\<br>", md),
+    "Один\nДва `<br>` \\<br>",
+  );
+  assert.equal(cellSourceOffset("Начало и конец", "**Начало** и конец", 2), 4);
 });
 
 test("editing one TeX section preserves unedited Markdown, CRLF, definitions and opaque diagrams", () => {

@@ -502,8 +502,10 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   border: 1px solid var(--line);
   padding: 8px 10px;
   min-width: 50px;
+  vertical-align: top;
 }
 .paper th {
+  text-align: left;
   background: var(--inset, #f7f7fb);
 }
 .paper th:focus,
@@ -511,14 +513,18 @@ pre code :is(.hljs-variable, .hljs-deletion) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+.table-cell-editing {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .table-scroll {
   overflow: auto;
 }
-table[data-column-widths] {
+table[data-auto-column-widths] {
   width: 100%;
   table-layout: fixed;
 }
-table[data-column-widths] :is(th, td) {
+table[data-auto-column-widths] :is(th, td) {
   overflow-wrap: anywhere;
 }
 .table-scroll th[data-column-resize] {
@@ -1827,7 +1833,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
     min-width: 7.5rem;
     height: calc(1lh + 16px);
   }
-  #blocks .table-scroll table[data-column-widths] :is(th, td) {
+  #blocks .table-scroll table[data-auto-column-widths] :is(th, td) {
     min-width: 0;
   }
 }

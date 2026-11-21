@@ -75,12 +75,20 @@ import { highlightCode } from "./code-highlight.js";
 import { enablePanelResize } from "./panel-width.js";
 import {
   applyTableWidths,
+  automaticColumnWidths,
   enableTableResize,
   readColumnWidths,
   setTableWidthMarker,
   tableWidthMarker,
   tableWidths,
 } from "./table-widths.js";
+import {
+  cellLineBreaks,
+  cellSourceOffset,
+  editableCellText,
+  placeCellCaret,
+  tableCellPoint,
+} from "./table-editing.js";
 const $ = (s) => document.querySelector(s),
   modal = $("#modal"),
   host = $("#blocks"),
@@ -102,6 +110,7 @@ const md = window
   .use(imageSizes)
   .use(pdfRules)
   .use(tableWidths)
+  .use(cellLineBreaks)
   .use(portableBlocks);
 const prefix = "buro:doc:",
   sessionKey = "buro:active",
@@ -1505,13 +1514,18 @@ function finishCell(keepFocus = false) {
   if (!tableEdit) return;
   const e = tableEdit;
   if (!keepFocus) tableEdit = null;
-  e.rows.rows[e.r][e.c] = e.cell.textContent.replace(/[\r\n]+/g, " ");
-  if (e.rows.rows[e.r][e.c] !== e.original) {
+  const text = e.cell.innerText;
+  if (text !== e.original) {
     const p = parts[e.i];
+    e.rows.rows[e.r][e.c] = text.replace(/\r\n?|\n/g, "<br>");
     patch(p.start, p.end, tableText(e.rows));
-    e.original = e.rows.rows[e.r][e.c];
+    e.original = text;
     parts = parse();
   }
+}
+function focusTableCell(cell) {
+  cell?.focus({ preventScroll: true });
+  cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 function buildTable(box, p, i) {
   box.innerHTML =
@@ -1535,15 +1549,67 @@ function buildTable(box, p, i) {
         "aria-label",
         "Строка " + (r + 1) + ", столбец " + (c + 1),
       );
+      let pointerCaret;
+      cell.addEventListener("pointerdown", (event) => {
+        pointerCaret = undefined;
+        if (
+          event.button !== 0 ||
+          tableEdit?.cell === cell ||
+          event.metaKey ||
+          event.ctrlKey
+        )
+          return;
+        if (
+          cell.hasAttribute("data-column-resize") &&
+          Math.abs(event.clientX - cell.getBoundingClientRect().right) <= 7
+        )
+          return;
+        const offset = tableCellPoint(cell, event.clientX, event.clientY);
+        if (offset !== null) {
+          const raw = editableCellText(data.rows[r][c] || "", md);
+          pointerCaret = cellSourceOffset(cell.textContent, raw, offset);
+        }
+      });
       cell.onfocus = () => {
+        if (editor || inlineBibliography) {
+          const state = prepareBlockChange(i);
+          const replacement =
+            state &&
+            host.children[state.origin].querySelector("table")?.rows[r]?.cells[
+              c
+            ];
+          if (replacement) {
+            replacement.focus({ preventScroll: true });
+            if (pointerCaret !== undefined)
+              placeCellCaret(replacement, pointerCaret);
+          }
+          return;
+        }
         closeGraph();
         finishCell();
         selected = i;
         activeCol = c;
         activeRow = r;
-        cell.textContent = data.rows[r][c] || "";
-        tableEdit = { cell, r, c, rows: data, i, original: cell.textContent };
+        const raw = editableCellText(data.rows[r][c] || "", md);
+        if (
+          cell.childNodes.length !== 1 ||
+          cell.firstChild.nodeType !== Node.TEXT_NODE ||
+          cell.textContent !== raw
+        )
+          cell.textContent = raw;
+        cell.classList.add("table-cell-editing");
+        tableEdit = { cell, r, c, rows: data, i, original: raw };
+        placeCellCaret(cell, pointerCaret ?? raw.length);
       };
+      cell.addEventListener("click", () => {
+        if (
+          pointerCaret !== undefined &&
+          tableEdit?.cell === cell &&
+          document.getSelection()?.isCollapsed
+        )
+          placeCellCaret(cell, pointerCaret);
+        pointerCaret = undefined;
+      });
       cell.onpaste = (e) => {
         const text = e.clipboardData?.getData("text/plain") || "";
         if (!text.includes("\t")) return;
@@ -1572,26 +1638,41 @@ function buildTable(box, p, i) {
       cell.onblur = () => {
         if (tableEdit?.cell === cell) {
           finishCell();
+          cell.classList.remove("table-cell-editing");
           cell.innerHTML = md.renderInline(data.rows[r][c]);
           void paintMath(cell);
+          const next = automaticColumnWidths(data.rows).join(",");
+          if (next !== table.dataset.autoColumnWidths) {
+            table.dataset.autoColumnWidths = next;
+            if (!data.widths) applyTableWidths(table, null);
+          }
         }
       };
-      cell.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
+      cell.onkeydown = (event) => {
+        if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey)
+          return;
+        if (event.key === "Escape") {
+          event.preventDefault();
           cell.blur();
+          return;
         }
-        if (
-          e.key === "Tab" &&
-          !e.shiftKey &&
-          r === cells.length - 1 &&
-          c === row.cells.length - 1
-        ) {
-          e.preventDefault();
+        const tab = event.key === "Tab";
+        if (!tab && (event.key !== "Enter" || event.shiftKey)) return;
+        const columns = row.cells.length;
+        const index = tab
+          ? r * columns + c + (event.shiftKey ? -1 : 1)
+          : (r + 1) * columns + c;
+        if (index < 0) return;
+        event.preventDefault();
+        const nextRow = Math.floor(index / columns);
+        const nextColumn = index % columns;
+        if (nextRow >= cells.length) {
           cell.blur();
           data.rows.push(data.rows[0].map(() => ""));
-          update(data.rows.length - 1, 0);
+          update(nextRow, nextColumn);
+          return;
         }
+        focusTableCell(cells[nextRow].cells[nextColumn]);
       };
     }),
   );
@@ -1608,8 +1689,7 @@ function buildTable(box, p, i) {
     next.querySelector(".table-scroll").scrollLeft = left;
     viewport.scrollTop = top;
     const cell = next.querySelector("table").rows[row]?.cells[column];
-    cell?.focus({ preventScroll: true });
-    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    focusTableCell(cell);
     icons();
   }
   for (const [name, act] of [

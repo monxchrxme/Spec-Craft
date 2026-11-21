@@ -29,10 +29,11 @@ const escapeTex = (text) =>
         "~": "\\textasciitilde{}",
       })[c] || "\\" + c,
   );
-function inlineTex(tokens) {
+function inlineTex(tokens, tableCell = false) {
   let value = "";
   for (const t of tokens) {
     if (t.type === "text") value += escapeTex(t.content);
+    else if (t.type === "hardbreak" && tableCell) value += "\\newline{}";
     else if (t.type === "softbreak") value += "\n";
     else if (t.type === "link_open")
       value += "\\href{" + escapeTex(t.attrGet("href")) + "}{";
@@ -47,7 +48,7 @@ function inlineTex(tokens) {
   }
   return value;
 }
-function inlineMarkdown(tex) {
+function inlineMarkdown(tex, tableCell = false) {
   let pos = 0;
   function read(nested) {
     let result = "";
@@ -64,6 +65,11 @@ function inlineMarkdown(tex) {
       }
       if (character !== "\\") {
         result += /[*\[\]`~]/.test(character) ? "\\" + character : character;
+        continue;
+      }
+      if (tableCell && tex.startsWith("newline{}", pos)) {
+        result += "<br>";
+        pos += "newline{}".length;
         continue;
       }
       const special =
@@ -170,7 +176,7 @@ function convert(tex, library, assets) {
             row
               .split(/(?<!\\)&/)
               .map((cell) =>
-                inlineMarkdown(cell.trim()).replaceAll("|", "\\|"),
+                inlineMarkdown(cell.trim(), true).replaceAll("|", "\\|"),
               ),
           );
         if (!rows.length || rows.some((row) => row.length !== env[2].length))
@@ -303,7 +309,7 @@ function partTex(p, index, assets) {
   ) {
     const content = p.tokens
       .filter((t) => t.type === "inline")
-      .map((t) => inlineTex(t.children));
+      .map((token) => inlineTex(token.children, t.type === "table_open"));
     if (content.every((s) => s !== null && !s.includes("\n"))) {
       if (t.type === "table_open") {
         const columns = p.tokens.filter((t) => t.type === "th_open");

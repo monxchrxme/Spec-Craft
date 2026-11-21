@@ -274,25 +274,21 @@ async function markdownBlocks(html, settings) {
     if (tag === "table") {
       const rows = Array.from(el.rows);
       const weights =
-        readColumnWidths(el.dataset.columnWidths, rows[0].cells.length) ||
-        Array.from(rows[0].cells, (_, i) =>
-          Math.sqrt(
-            Math.max(
-              6,
-              ...rows.map((row) =>
-                Math.min(65, row.cells[i]?.textContent.length || 0),
-              ),
-            ),
-          ),
-        );
-      const total = weights.reduce((a, b) => a + b, 0);
-      if (!total) return { text: "" };
+        readColumnWidths(
+          el.dataset.columnWidths || el.dataset.autoColumnWidths,
+          rows[0].cells.length,
+        ) || Array.from(rows[0].cells, () => 1);
+      const total = weights.reduce((sum, width) => sum + width, 0);
       const headerRows = el.tHead?.rows.length || 0;
-      const sidePadding = Math.min(4, pageWidth / (weights.length * 10));
-      const border = Math.min(0.55, pageWidth / (weights.length * 20));
-      const gridWidth =
-        pageWidth - (sidePadding * 2 + border) * weights.length - border;
-      const columnWidths = weights.map((w) => (gridWidth * w) / total);
+      // Match the outer column proportions, including padding and borders.
+      const narrowest = (pageWidth * Math.min(...weights)) / total;
+      const border = Math.min(0.75, narrowest * 0.1);
+      const sidePadding = Math.min(7.5, narrowest * 0.2);
+      const verticalPadding = 6;
+      const columnWidths = weights.map(
+        (width) =>
+          ((pageWidth - border) * width) / total - 2 * sidePadding - border,
+      );
       const body = [];
       let headerHeight = 0;
       let unsafeHeight = false;
@@ -323,7 +319,7 @@ async function markdownBlocks(html, settings) {
             measured,
             bold: header,
             alignment: cell.style.textAlign || "left",
-            fillColor: header ? "#efedf7" : null,
+            fillColor: header ? "#f7f7fb" : null,
           });
         }
         const rowHeight = Math.max(
@@ -335,7 +331,7 @@ async function markdownBlocks(html, settings) {
           ...cells.map((cell) => cell.measured.chunks.length),
         );
         if (isHeader && chunkCount > 1) repeatHeaderRows = 0;
-        if (isHeader) headerHeight += rowHeight + 9;
+        if (isHeader) headerHeight += rowHeight + verticalPadding * 2 + border;
         if (
           rowHeight > budget ||
           (isHeader && (chunkCount > 1 || headerHeight > pageHeight * 0.6))
@@ -399,16 +395,16 @@ async function markdownBlocks(html, settings) {
           dontBreakRows: !unsafeHeight,
         },
         layout: {
-          hLineWidth: () => 0.55,
+          hLineWidth: () => 0.75,
           vLineWidth: () => border,
-          hLineColor: () => "#cbc8d3",
-          vLineColor: () => "#cbc8d3",
-          paddingTop: () => 4,
-          paddingBottom: () => 4,
+          hLineColor: () => "#e1e3eb",
+          vLineColor: () => "#e1e3eb",
+          paddingTop: () => verticalPadding,
+          paddingBottom: () => verticalPadding,
           paddingLeft: () => sidePadding,
           paddingRight: () => sidePadding,
         },
-        fontSize: size * 0.92,
+        fontSize: size * 0.9,
         margin: [0, 3, 0, gap],
       };
     }
@@ -782,7 +778,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     align: style.align === "justify" ? "justify" : "left",
     accent: style.accent || "#6353bb",
     tabSize: Number(style.tabSize) || 4,
-    measureTable: tableMeasurer(fontFiles, font, size * 0.92, leading),
+    measureTable: tableMeasurer(fontFiles, font, size * 0.9, leading),
   };
   settings.headingDestinations = new Map(
     settings.index.headings.flatMap((heading) => {
