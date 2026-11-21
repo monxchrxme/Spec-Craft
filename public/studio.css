@@ -1511,6 +1511,9 @@ select {
 #modal[open] {
   --inspector-default-width: clamp(270px, 27vw, 410px);
 }
+#modal.share-dialog[open] {
+  scrollbar-gutter: stable;
+}
 .graph-dock > header {
   padding: 19px 16px;
   border-bottom: 1px solid var(--line);
@@ -2223,6 +2226,11 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 .share-form p {
   min-height: 2lh;
 }
+.share-panel .share-status {
+  min-height: 2lh;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .share-panel > button {
   justify-self: start;
   color: var(--accent);
@@ -2237,6 +2245,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 }
 .share-management > button {
   color: var(--accent);
+  margin-bottom: 8px;
 }
 .share-invitation small {
   color: var(--muted);

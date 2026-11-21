@@ -2517,6 +2517,9 @@ function exportDialog() {
       '<label>Профиль PDF <select name="pdfProfile"><option value="screen">PDF для экрана</option><option value="a4">Строго A4</option></select></label>' +
       '<label class="style-check"><input type="checkbox" name="pdfNumbers">Номера страниц</label>' +
       option("md", "Скачать Markdown (.md)", "file-text") +
+      (liveEdit
+        ? option("personal-copy", "Сохранить личную копию", "copy")
+        : "") +
       option("print", "Печать", "printer") +
       '<p role="status" hidden></p>',
   );
@@ -2533,6 +2536,13 @@ function exportDialog() {
     const target = e.target.closest("[data-id]");
     if (!target) return;
     const action = target.dataset.id;
+    if (action === "personal-copy") {
+      modal.close();
+      await leaveLiveEditing(() => clearShareHash("document"), {
+        personalCopy: true,
+      });
+      return;
+    }
     if (action === "preview" || action === "md") {
       modal.close();
       if (action === "preview") setMode("pdf");
@@ -2787,6 +2797,7 @@ function identifyDiagrams(markdown) {
 
 function sharingDialog() {
   const panel = dialog("Поделиться документом", "");
+  modal.classList.add("share-dialog");
   panel.classList.add("share-panel");
   if (liveEdit) {
     if (liveEdit.role === "owner")
@@ -2910,6 +2921,17 @@ function toggleLiveComments() {
   };
 }
 
+const livePeoplePanel = $("#live-people");
+const livePeopleButton = $("[data-action=collaboration-people]");
+
+function hideLivePeople() {
+  if (livePeoplePanel.contains(document.activeElement))
+    document.activeElement.blur();
+  livePeoplePanel.hidden = true;
+  livePeopleButton.setAttribute("aria-expanded", "false");
+  if (liveEdit) liveEdit.updatePeople = null;
+}
+
 function updateLiveControls() {
   for (const action of [
     "collaboration-discussion",
@@ -2919,29 +2941,37 @@ function updateLiveControls() {
     $("[data-action=" + action + "]").hidden = !liveEdit;
   $("[data-action=share]").hidden = !!liveEdit && liveEdit.role !== "owner";
   $("[data-action=collaboration-conflict]").hidden = true;
-  $("#live-people").hidden = true;
-  $("[data-action=collaboration-people]").setAttribute(
-    "aria-expanded",
-    "false",
-  );
-  $("[data-action=collaboration-people] span").textContent = "";
+  hideLivePeople();
+  livePeopleButton.querySelector("span").textContent = "";
   document.body.classList.toggle("live-editing", !!liveEdit);
 }
 
 function toggleLivePeople() {
-  const panel = $("#live-people"),
-    session = liveEdit;
+  const session = liveEdit;
   if (!session) return;
-  panel.hidden = !panel.hidden;
-  $("[data-action=collaboration-people]").setAttribute(
-    "aria-expanded",
-    String(!panel.hidden),
+  if (!livePeoplePanel.hidden) return hideLivePeople();
+  session.updatePeople = presencePanel(
+    livePeoplePanel,
+    session.presence,
+    session.role,
   );
-  if (!panel.hidden) {
-    session.updatePeople = presencePanel(panel, session.presence, session.role);
-    void session.presence.pulse();
-  }
+  livePeoplePanel.hidden = false;
+  livePeopleButton.setAttribute("aria-expanded", "true");
+  void session.presence.pulse();
 }
+
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (
+      !livePeoplePanel.hidden &&
+      !livePeoplePanel.contains(event.target) &&
+      !livePeopleButton.contains(event.target)
+    )
+      hideLivePeople();
+  },
+  true,
+);
 
 function startLiveEditing(share, initial) {
   if (!["owner", "editor"].includes(initial.role)) return;
@@ -3003,8 +3033,8 @@ function startLiveEditing(share, initial) {
       );
     },
     update: (people) => {
-      $("[data-action=collaboration-people] span").textContent =
-        people.length || "";
+      if (liveEdit !== session) return;
+      livePeopleButton.querySelector("span").textContent = people.length || "";
       session.updatePeople?.(people);
     },
   });
@@ -3012,14 +3042,16 @@ function startLiveEditing(share, initial) {
   session.client.queue();
 }
 
-async function leaveLiveEditing(next) {
+async function leaveLiveEditing(next, { personalCopy = false } = {}) {
   const session = liveEdit;
   if (!session || session.leaving) return;
   session.leaving = true;
   source.blur();
   flush();
+  const saved = await session.client.flush();
   if (
-    !(await session.client.flush()) &&
+    !saved &&
+    !personalCopy &&
     !confirm(
       "Часть правок ещё не отправлена. Оставить их в черновике этой вкладки и выйти?",
     )
@@ -3027,14 +3059,33 @@ async function leaveLiveEditing(next) {
     session.leaving = false;
     return;
   }
+  let copy;
+  if (personalCopy) {
+    flush();
+    const { body, kind, name, style } = snapshotOf(doc);
+    copy = { ...newDoc(copyName(name), body, kind), style };
+    try {
+      writeRecord(copy);
+    } catch {
+      session.leaving = false;
+      notice("Не удалось сохранить личную копию на устройстве.");
+      return;
+    }
+  }
   session.client.stop();
   session.presence.stop();
   history.delete(doc.id);
   liveEdit = null;
   updateLiveControls();
-  mode = session.mode;
-  activate(docs.get(session.previous) || availableDocs()[0]);
-  viewport.scrollTop = session.scroll;
+  mode = copy ? "edit" : session.mode;
+  activate(copy || docs.get(session.previous) || availableDocs()[0]);
+  if (copy)
+    notice(
+      saved
+        ? "Личная копия сохранена."
+        : "Личная копия сохранена. Неотправленные правки остались в черновике общего документа.",
+    );
+  else viewport.scrollTop = session.scroll;
   next?.(session.share);
 }
 
@@ -3376,6 +3427,12 @@ $("#file-input").onchange = async (e) => {
 };
 document.addEventListener("keydown", (e) => {
   if (stopReview) return;
+  if (e.key === "Escape" && !livePeoplePanel.hidden) {
+    e.preventDefault();
+    hideLivePeople();
+    livePeopleButton.focus({ preventScroll: true });
+    return;
+  }
   if (e.key === "Escape" && activeTableOrder?.cancel()) {
     e.preventDefault();
     return;

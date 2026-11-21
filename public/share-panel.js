@@ -39,9 +39,10 @@ export function sharePanel({ panel, share, publish, open }) {
   const currentLink = element("input");
   currentLink.readOnly = true;
   currentLink.setAttribute("aria-label", "Ссылка на общий документ");
-  currentLink.hidden = true;
+  currentLink.placeholder = "Ссылка на общий документ";
+  currentLink.disabled = true;
   currentLink.onclick = () => currentLink.select();
-  const status = element("p", undefined, "review-status");
+  const status = element("p", undefined, "share-status");
   status.setAttribute("role", "status");
   const management = element("details", undefined, "share-management");
   const disclosure = element("summary", "Управление ссылками");
@@ -49,43 +50,35 @@ export function sharePanel({ panel, share, publish, open }) {
   const create = button("Создать отдельную ссылку", () =>
     perform(() => copyInvitation(picker.value, true)),
   );
-  management.append(disclosure, list, create);
+  management.append(disclosure, create, list);
   const openButton = open
     ? button("Открыть общий редактор", () =>
         perform(async () => open(await ensure())),
       )
     : null;
-  const explanation = open
-    ? element(
-        "p",
-        share?.published
-          ? "Коллеги работают в общей копии."
-          : "При первом открытии общего редактора или копировании ссылки будет создана общая копия.",
-      )
-    : null;
-  if (openButton) panel.append(explanation);
+  if (openButton)
+    panel.append(element("p", "Ссылка открывает общую копию документа."));
   panel.append(form, currentLink, status);
   if (openButton) panel.append(openButton);
   panel.append(management);
   let pending,
+    renderedInvitations,
     busy = false;
 
   async function ensure() {
     if (!share?.published) share = await publish();
-    if (explanation)
-      explanation.textContent = "Коллеги работают в общей копии.";
     return share;
   }
 
   async function showLink(key) {
     currentLink.value = collaborationUrl(share.id, key);
-    currentLink.hidden = false;
+    currentLink.disabled = false;
     try {
       await navigator.clipboard.writeText(currentLink.value);
       status.textContent = "Ссылка скопирована.";
     } catch {
       if (panel.isConnected && panel.closest("dialog")?.open) {
-        currentLink.focus();
+        currentLink.focus({ preventScroll: true });
         currentLink.select();
       }
       status.textContent = "Скопируйте ссылку из поля.";
@@ -93,6 +86,9 @@ export function sharePanel({ panel, share, publish, open }) {
   }
 
   function links(invitations) {
+    const ids = invitations.map((invitation) => invitation.id).join(",");
+    if (ids === renderedInvitations) return;
+    renderedInvitations = ids;
     disclosure.textContent =
       "Управление ссылками" +
       (invitations.length ? " · " + invitations.length : "");
@@ -131,7 +127,7 @@ export function sharePanel({ panel, share, publish, open }) {
 
   function hideLink() {
     currentLink.value = "";
-    currentLink.hidden = true;
+    currentLink.disabled = true;
   }
 
   async function copyInvitation(role, separate = false) {
