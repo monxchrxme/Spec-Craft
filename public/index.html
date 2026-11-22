@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#24243a" />
     <title>SpecCraft</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <script src="theme.js"></script>
     <link rel="stylesheet" href="studio.css" />
     <script defer src="vendor/lucide.min.js"></script>
@@ -68,37 +69,65 @@
             <i data-lucide="panel-top-close" aria-hidden="true"></i>
             <span>Скрыть верхнюю панель</span>
           </button>
-          <section class="documents-wrap">
-            <div class="side-heading">
-              <h2>Документы</h2>
-              <button
-                data-action="new"
-                title="Новый документ"
-                aria-label="Новый документ"
-              >
-                <i data-lucide="plus"></i>
-              </button>
-            </div>
-            <div id="files"></div>
-            <button class="import" data-action="open">
-              <i data-lucide="folder-open"></i>Открыть файл
-            </button>
-          </section>
-          <section class="outline-wrap">
-            <div class="side-heading">
-              <h2>Структура</h2>
-              <button
-                id="outline-toggle-all"
-                type="button"
-                aria-label="Свернуть все подразделы"
-                aria-controls="outline"
-                disabled
-              >
-                <i data-lucide="list-tree"></i>
-              </button>
-            </div>
-            <div id="outline"></div>
-          </section>
+          <div class="sidebar-panes">
+            <section class="documents-wrap" aria-labelledby="documents-title">
+              <div class="side-heading">
+                <h2 id="documents-title">Документы</h2>
+                <div class="side-actions">
+                  <button type="button" id="files-search-toggle" title="Поиск по файлам"
+                    aria-label="Поиск по файлам" aria-controls="files-search" aria-expanded="false">
+                    <i data-lucide="search" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" data-action="open" title="Открыть файл" aria-label="Открыть файл">
+                    <i data-lucide="folder-open" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" data-action="new" title="Новый документ" aria-label="Новый документ">
+                    <i data-lucide="plus" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+              <input id="files-search" class="side-search" type="search" placeholder="Имя файла"
+                aria-label="Поиск по файлам" autocomplete="off" hidden />
+              <div class="side-scroll" id="files-scroll">
+                <div id="files"></div>
+                <p id="files-empty" class="side-empty" role="status" hidden>Файлы не найдены.</p>
+                <button class="import" type="button" data-action="open">
+                  <i data-lucide="folder-open" aria-hidden="true"></i>Открыть файл
+                </button>
+              </div>
+            </section>
+            <div class="sidebar-section-resizer" id="sidebar-section-resizer"
+              role="separator" aria-orientation="horizontal" aria-controls="outline-section"
+              aria-label="Высота структуры" title="Потяните для изменения высоты" tabindex="0"></div>
+            <section class="outline-wrap" id="outline-section" aria-labelledby="outline-title">
+              <div class="side-heading">
+                <h2 id="outline-title">
+                  <button type="button" class="outline-section-toggle" id="outline-section-toggle"
+                    aria-controls="outline-content" aria-expanded="true">
+                    <i data-lucide="chevron-right" aria-hidden="true"></i>Структура
+                  </button>
+                </h2>
+                <div class="side-actions" id="outline-actions">
+                  <button type="button" id="outline-search-toggle" title="Поиск по структуре"
+                    aria-label="Поиск по структуре" aria-controls="outline-search" aria-expanded="false">
+                    <i data-lucide="search" aria-hidden="true"></i>
+                  </button>
+                  <button id="outline-toggle-all" type="button" aria-label="Свернуть все подразделы"
+                    aria-controls="outline" disabled>
+                    <i data-lucide="list-tree" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+              <div id="outline-content">
+                <input id="outline-search" class="side-search" type="search" placeholder="Заголовок раздела"
+                  aria-label="Поиск по структуре" autocomplete="off" hidden />
+                <div class="side-scroll" id="outline-scroll">
+                  <div id="outline"></div>
+                  <p id="outline-empty" class="side-empty" role="status" hidden></p>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
         <div class="sidebar-tools">
           <button

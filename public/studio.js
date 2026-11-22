@@ -82,6 +82,10 @@ import {
 import { highlightCode } from "./code-highlight.js";
 import { enablePanelResize } from "./panel-width.js";
 import {
+  enableOutlineResize,
+  enableSidebarSearch,
+} from "./sidebar-navigation.js";
+import {
   applyTableWidths,
   automaticColumnWidths,
   enableTableResize,
@@ -104,7 +108,9 @@ const $ = (s) => document.querySelector(s),
   host = $("#blocks"),
   source = $("#source"),
   viewport = $("#scroll"),
-  toolbar = $("#workspace-toolbar");
+  toolbar = $("#workspace-toolbar"),
+  fileSearch = $("#files-search"),
+  outlineSearch = $("#outline-search");
 const md = window
   .markdownit({
     html: false,
@@ -279,6 +285,16 @@ function updateDocumentLabel() {
   button.hidden = mode === "read";
   $(".doc-label-stroke").hidden = !label;
 }
+const sidebarQuery = (input) => input.value.trim().toLowerCase();
+function filterFiles() {
+  const query = sidebarQuery(fileSearch);
+  let hasMatch = false;
+  for (const row of $("#files").children) {
+    row.hidden = !row.firstElementChild.title.toLowerCase().includes(query);
+    if (!row.hidden) hasMatch = true;
+  }
+  $("#files-empty").hidden = !query || hasMatch;
+}
 function nav() {
   const files = $("#files");
   files.replaceChildren();
@@ -301,6 +317,7 @@ function nav() {
     row.append(b, menu);
     files.append(row);
   }
+  filterFiles();
   $("#filename").textContent = doc?.name || "";
   updateDocumentLabel();
   $("#trash-count").textContent =
@@ -346,11 +363,13 @@ function foldedSections(id) {
 function outline() {
   const panel = $("#outline");
   panel.replaceChildren();
-  const id = doc.id;
-  const folded = foldedSections(id);
+  const id = doc?.id;
+  const folded = id ? foldedSections(id) : new Set();
   const headings = outlineHierarchy(parts);
   const entries = new Map();
   const toggleAll = $("#outline-toggle-all");
+  const searchToggle = $("#outline-search-toggle");
+  const empty = $("#outline-empty");
   const branches = headings.filter((heading) => heading.hasChildren);
   const canCollapse = () =>
     branches.some((heading) => !heading.parent && !folded.has(heading.key));
@@ -371,7 +390,28 @@ function outline() {
     saveFolds();
   };
   function applyFolds() {
-    toggleAll.disabled = !branches.length;
+    const query = sidebarQuery(outlineSearch);
+    const matches = new Set();
+    if (query) {
+      for (const heading of headings) {
+        if (!heading.title.toLowerCase().includes(query)) continue;
+        for (
+          let entry = heading;
+          entry && !matches.has(entry);
+          entry = entry.parent
+        )
+          matches.add(entry);
+      }
+    }
+    panel.classList.toggle("is-filtering", Boolean(query));
+    toggleAll.disabled = Boolean(query) || !branches.length;
+    searchToggle.disabled = outlineSearch.hidden && !headings.length;
+    empty.hidden = query ? matches.size > 0 : headings.length > 0;
+    empty.textContent = query
+      ? "Разделы не найдены."
+      : doc
+        ? "В документе нет заголовков."
+        : "Нет открытого документа.";
     toggleAll.title = canCollapse()
       ? "Свернуть все подразделы"
       : "Развернуть все подразделы";
@@ -379,9 +419,11 @@ function outline() {
     for (const heading of headings) {
       const { row, toggle } = entries.get(heading);
       const parent = heading.parent;
-      row.hidden = Boolean(
-        parent && (entries.get(parent).row.hidden || folded.has(parent.key)),
-      );
+      row.hidden = query
+        ? !matches.has(heading)
+        : Boolean(
+            parent && (entries.get(parent).row.hidden || folded.has(parent.key)),
+          );
       if (!toggle) continue;
       const expanded = !folded.has(heading.key);
       const label =
@@ -444,6 +486,10 @@ function outline() {
     entries.set(heading, { row, toggle });
     panel.append(row);
   }
+  outlineSearch.oninput = () => {
+    $("#outline-scroll").scrollTop = 0;
+    applyFolds();
+  };
   applyFolds();
 }
 function highlight(i) {
@@ -532,10 +578,11 @@ const blockSorting = dragOrder({
 });
 const outlineSorting = dragOrder({
   container: $("#outline"),
-  scroller: $(".sidebar-navigation"),
+  scroller: $("#outline-scroll"),
   item: ".outline-row:not([hidden]) > .outline-item",
   handle: ".outline-grip",
-  prepare: prepareBlockChange,
+  prepare: (index) =>
+    sidebarQuery(outlineSearch) ? null : prepareBlockChange(index),
   targets: (index) =>
     parts.flatMap((part, i) =>
       part.t.type === "heading_open" && part.t.tag === parts[index].t.tag
@@ -759,8 +806,7 @@ function render() {
     host.replaceChildren();
     sourcePane.show(false);
     source.value = "";
-    $("#outline").replaceChildren();
-    $("#outline-toggle-all").disabled = true;
+    outline();
     $("#wordcount").textContent = "";
     return;
   }
@@ -3703,6 +3749,20 @@ document.addEventListener("visibilitychange", () => {
     if (tableEdit) finishCell(true);
     save();
   } else liveEdit?.client?.queue();
+});
+enableSidebarSearch($("#files-search-toggle"), fileSearch);
+enableSidebarSearch($("#outline-search-toggle"), outlineSearch);
+fileSearch.oninput = () => {
+  $("#files-scroll").scrollTop = 0;
+  filterFiles();
+};
+enableOutlineResize({
+  panes: $(".sidebar-panes"),
+  outline: $("#outline-section"),
+  handle: $("#sidebar-section-resizer"),
+  toggle: $("#outline-section-toggle"),
+  content: $("#outline-content"),
+  actions: $("#outline-actions"),
 });
 nav();
 render();
