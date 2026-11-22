@@ -3762,7 +3762,11 @@ fileSearch.oninput = () => {
   $("#files-scroll").scrollTop = 0;
   filterFiles();
 };
-enableSidebarPanes($(".sidebar-panes"), $("#sidebar-section-resizer"));
+enableSidebarPanes(
+  $(".sidebar-panes"),
+  $("#sidebar-section-resizer"),
+  $("#sidebar-tool-list"),
+);
 nav();
 render();
 enablePanelResize(

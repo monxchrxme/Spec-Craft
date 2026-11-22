@@ -146,6 +146,7 @@ button.primary:hover:enabled {
   margin-top: auto;
 }
 .sidebar {
+  position: relative;
   width: var(--sidebar-width);
   min-width: var(--sidebar-min-width);
   max-width: var(--sidebar-max-width);
@@ -973,10 +974,7 @@ table[data-auto-column-widths] :is(th, td) {
   flex: none;
 }
 .sidebar-tools {
-  display: flex;
-  flex-direction: column;
   flex: none;
-  max-height: 50%;
 }
 .sidebar-panes:has(> .documents-wrap.is-collapsed) > .outline-wrap > .side-heading,
 .outline-wrap.is-collapsed > .side-heading,
@@ -1210,8 +1208,15 @@ footer {
   }
 }
 .side-utilities {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: var(--workspace-row-height);
+  z-index: 2;
   min-height: 0;
+  max-height: min(calc(50% - var(--workspace-row-height)), var(--tools-room, 100%));
   padding: 4px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--sidebar, #f8f9fb);
   overflow: auto;
   overscroll-behavior: contain;
   display: grid;
