@@ -82,7 +82,7 @@ import {
 import { highlightCode } from "./code-highlight.js";
 import { enablePanelResize } from "./panel-width.js";
 import {
-  enableOutlineResize,
+  enableSidebarPanes,
   enableSidebarSearch,
   highlightSidebarMatches,
   sidebarSearchPattern,
@@ -3762,14 +3762,7 @@ fileSearch.oninput = () => {
   $("#files-scroll").scrollTop = 0;
   filterFiles();
 };
-enableOutlineResize({
-  panes: $(".sidebar-panes"),
-  outline: $("#outline-section"),
-  handle: $("#sidebar-section-resizer"),
-  toggle: $("#outline-section-toggle"),
-  content: $("#outline-content"),
-  actions: $("#outline-actions"),
-});
+enableSidebarPanes($(".sidebar-panes"), $("#sidebar-section-resizer"));
 nav();
 render();
 enablePanelResize(

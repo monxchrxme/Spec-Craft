@@ -72,7 +72,12 @@
           <div class="sidebar-panes">
             <section class="documents-wrap" aria-labelledby="documents-title">
               <div class="side-heading">
-                <h2 id="documents-title">Документы</h2>
+                <h2 id="documents-title">
+                  <button type="button" class="sidebar-section-toggle" id="documents-section-toggle"
+                    aria-controls="documents-content" aria-expanded="true">
+                    <i data-lucide="chevron-right" aria-hidden="true"></i>Документы
+                  </button>
+                </h2>
                 <div class="side-actions">
                   <button type="button" id="files-search-toggle" title="Поиск по файлам"
                     aria-label="Поиск по файлам" aria-controls="files-search" aria-expanded="false">
@@ -86,14 +91,16 @@
                   </button>
                 </div>
               </div>
-              <input id="files-search" class="side-search" type="search" placeholder="Имя файла"
-                aria-label="Поиск по файлам" autocomplete="off" hidden />
-              <div class="side-scroll" id="files-scroll">
-                <div id="files"></div>
-                <p id="files-empty" class="side-empty" role="status" hidden>Файлы не найдены.</p>
-                <button class="import" type="button" data-action="open">
-                  <i data-lucide="folder-open" aria-hidden="true"></i>Открыть файл
-                </button>
+              <div class="sidebar-section-content" id="documents-content">
+                <input id="files-search" class="side-search" type="search" placeholder="Имя файла"
+                  aria-label="Поиск по файлам" autocomplete="off" hidden />
+                <div class="side-scroll" id="files-scroll">
+                  <div id="files"></div>
+                  <p id="files-empty" class="side-empty" role="status" hidden>Файлы не найдены.</p>
+                  <button class="import" type="button" data-action="open">
+                    <i data-lucide="folder-open" aria-hidden="true"></i>Открыть файл
+                  </button>
+                </div>
               </div>
             </section>
             <div class="sidebar-section-resizer" id="sidebar-section-resizer"
@@ -107,7 +114,7 @@
                     <i data-lucide="chevron-right" aria-hidden="true"></i>Структура
                   </button>
                 </h2>
-                <div class="side-actions" id="outline-actions">
+                <div class="side-actions">
                   <button type="button" id="outline-search-toggle" title="Поиск по структуре"
                     aria-label="Поиск по структуре" aria-controls="outline-search" aria-expanded="false">
                     <i data-lucide="search" aria-hidden="true"></i>
@@ -118,7 +125,7 @@
                   </button>
                 </div>
               </div>
-              <div id="outline-content">
+              <div class="sidebar-section-content" id="outline-content">
                 <input id="outline-search" class="side-search" type="search" placeholder="Заголовок раздела"
                   aria-label="Поиск по структуре" autocomplete="off" hidden />
                 <div class="side-scroll" id="outline-scroll">

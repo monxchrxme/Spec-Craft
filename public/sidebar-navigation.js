@@ -48,29 +48,51 @@ export function enableSidebarSearch(toggle, input, results) {
   };
 }
 
-export function enableOutlineResize({
-  panes,
-  outline,
-  handle,
-  toggle,
-  content,
-  actions,
-}) {
+function remember(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // The current layout still works without browser storage.
+  }
+}
+
+function enableSectionCollapse(toggle, storageKey) {
+  const section = toggle.closest("section");
+  const content = document.getElementById(toggle.getAttribute("aria-controls"));
+
+  function setCollapsed(collapsed) {
+    section.classList.toggle("is-collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    content.hidden = collapsed;
+  }
+
+  try {
+    setCollapsed(localStorage.getItem(storageKey) === "true");
+  } catch {
+    // Both sections start expanded if browser storage is unavailable.
+  }
+  toggle.onclick = () => {
+    const collapsed = !content.hidden;
+    setCollapsed(collapsed);
+    remember(storageKey, collapsed);
+  };
+}
+
+export function enableSidebarPanes(panes, handle) {
+  enableSectionCollapse(
+    panes.querySelector("#documents-section-toggle"),
+    "buro:documents-collapsed",
+  );
+  enableSectionCollapse(
+    panes.querySelector("#outline-section-toggle"),
+    "buro:outline-collapsed",
+  );
   const shareKey = "buro:outline-share";
-  const collapsedKey = "buro:outline-collapsed";
   const min = 25;
   const max = 75;
   const defaultShare = 45;
   let share = defaultShare;
   let drag;
-
-  function remember(key, value) {
-    try {
-      localStorage.setItem(key, String(value));
-    } catch {
-      // The current layout still works without browser storage.
-    }
-  }
 
   function setShare(next) {
     share = Math.max(min, Math.min(max, Math.round(next)));
@@ -79,28 +101,16 @@ export function enableOutlineResize({
     handle.setAttribute("aria-valuetext", share + "%");
   }
 
-  function setCollapsed(collapsed) {
-    outline.classList.toggle("is-collapsed", collapsed);
-    toggle.setAttribute("aria-expanded", String(!collapsed));
-    content.hidden = actions.hidden = handle.hidden = collapsed;
-  }
-
   handle.setAttribute("aria-valuemin", min);
   handle.setAttribute("aria-valuemax", max);
   try {
     const saved = Number(localStorage.getItem(shareKey));
     if (saved >= min && saved <= max) share = saved;
-    setCollapsed(localStorage.getItem(collapsedKey) === "true");
   } catch {
     // The default layout applies without browser storage.
   }
   setShare(share);
 
-  toggle.onclick = () => {
-    const collapsed = !content.hidden;
-    setCollapsed(collapsed);
-    remember(collapsedKey, collapsed);
-  };
   handle.onpointerdown = (event) => {
     if (event.button !== 0 || drag) return;
     drag = {

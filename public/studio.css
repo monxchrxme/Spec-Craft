@@ -196,14 +196,14 @@ button.primary:hover:enabled {
 }
 .sidebar-panes,
 .sidebar-panes section,
-#outline-content {
+.sidebar-section-content {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 .sidebar-panes,
 .documents-wrap,
-#outline-content,
+.sidebar-section-content,
 .side-scroll {
   flex: 1 1 0;
 }
@@ -241,6 +241,13 @@ button.primary:hover:enabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.documents-wrap .side-heading {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.documents-wrap .side-actions {
+  margin-inline-start: auto;
 }
 .side-actions {
   display: flex;
@@ -304,9 +311,22 @@ button.primary:hover:enabled {
 .outline-wrap {
   flex: 0 0 clamp(25%, var(--outline-share, 45%), 75%);
 }
+.documents-wrap.is-collapsed {
+  flex: none;
+}
+.sidebar-panes:has(> .documents-wrap.is-collapsed) > .outline-wrap:not(.is-collapsed) {
+  flex: 1 1 0;
+  border-top: 1px solid var(--line);
+}
 .outline-wrap.is-collapsed {
   flex-basis: auto;
+  margin-top: auto;
   border-top: 1px solid var(--line);
+}
+.sidebar-panes:has(> .is-collapsed) > .sidebar-section-resizer,
+.outline-wrap.is-collapsed .side-actions,
+.documents-wrap.is-collapsed #files-search-toggle {
+  display: none;
 }
 .side-heading .sidebar-section-toggle {
   gap: 5px;
@@ -2296,9 +2316,6 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 }
 .live-editing .sidebar .outline-wrap:not(.is-collapsed) {
   flex: 1 1 0;
-}
-.live-editing .sidebar .outline-wrap.is-collapsed {
-  margin-top: auto;
 }
 #workspace [data-action="collaboration-conflict"] {
   color: var(--accent);
