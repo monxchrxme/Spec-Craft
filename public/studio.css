@@ -214,6 +214,7 @@ button.primary:hover:enabled {
   padding: 2px 8px 6px;
 }
 .side-heading {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -250,6 +251,8 @@ button.primary:hover:enabled {
   margin-inline-start: auto;
 }
 .side-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: none;
 }
@@ -331,6 +334,14 @@ button.primary:hover:enabled {
 .side-heading .sidebar-section-toggle {
   gap: 5px;
   padding: 4px 5px;
+}
+.sidebar-section-toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.sidebar-section-toggle:hover:enabled {
+  background: none;
 }
 .sidebar-section-toggle svg {
   width: 14px;
@@ -2304,6 +2315,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   color: var(--accent);
 }
 
+.live-editing .rail [data-action="open"],
 .live-editing .sidebar :is(.documents-wrap, .sidebar-section-resizer),
 .live-editing
   .side-utilities
