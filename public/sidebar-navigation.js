@@ -1,4 +1,30 @@
-export function enableSidebarSearch(toggle, input) {
+export function sidebarSearchPattern(input) {
+  const query = input.value.trim().replace(/[.*+?^$(){}|[\]\\]/g, "\\$&");
+  return query ? new RegExp(query, "giu") : null;
+}
+
+export function highlightSidebarMatches(label, text, pattern) {
+  const matches = pattern ? [...text.matchAll(pattern)] : [];
+  if (!matches.length) {
+    label.textContent = text;
+    return false;
+  }
+
+  const fragment = document.createDocumentFragment();
+  let end = 0;
+  for (const { 0: match, index } of matches) {
+    const mark = document.createElement("mark");
+    mark.className = "sidebar-search-match";
+    mark.textContent = match;
+    fragment.append(text.slice(end, index), mark);
+    end = index + match.length;
+  }
+  fragment.append(text.slice(end));
+  label.replaceChildren(fragment);
+  return true;
+}
+
+export function enableSidebarSearch(toggle, input, results) {
   function show(visible) {
     input.hidden = !visible;
     toggle.setAttribute("aria-expanded", String(visible));
@@ -13,10 +39,12 @@ export function enableSidebarSearch(toggle, input) {
 
   toggle.onclick = () => show(input.hidden);
   input.onkeydown = (event) => {
-    if (event.key !== "Escape" || event.isComposing) return;
+    if (event.isComposing || !["Escape", "Enter"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    show(false);
+    if (event.key === "Escape") show(false);
+    else
+      results.querySelector(".sidebar-search-match")?.closest("button")?.click();
   };
 }
 

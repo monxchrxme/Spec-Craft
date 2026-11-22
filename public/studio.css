@@ -224,12 +224,16 @@ button.primary:hover:enabled {
   color: var(--muted);
 }
 .side-heading h2,
-.sidebar-tools-toggle,
+.sidebar-section-toggle,
 .doc-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.15px;
   font-weight: 650;
+}
+.side-heading h2,
+.sidebar-section-toggle {
+  letter-spacing: 0.8px;
 }
 .side-heading h2 {
   margin: 0;
@@ -237,7 +241,6 @@ button.primary:hover:enabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.8px;
 }
 .side-actions {
   display: flex;
@@ -281,6 +284,15 @@ button.primary:hover:enabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.file-name:has(.sidebar-search-match) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.sidebar-search-match {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 3px;
+  color: inherit;
+}
 .file[aria-current="true"] {
   background: var(--selection, #eae6f8);
   color: var(--active-ink, #52449c);
@@ -296,19 +308,19 @@ button.primary:hover:enabled {
   flex-basis: auto;
   border-top: 1px solid var(--line);
 }
-.side-heading .outline-section-toggle {
-  gap: 4px;
-  padding-inline-start: 0;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+.side-heading .sidebar-section-toggle {
+  gap: 5px;
+  padding: 4px 5px;
 }
-.outline-section-toggle svg {
+.sidebar-section-toggle svg {
   width: 14px;
   height: 14px;
 }
-.outline-section-toggle[aria-expanded="true"] svg {
+.sidebar-section-toggle[aria-expanded="true"] svg {
   transform: rotate(90deg);
+}
+.sidebar-section-toggle:focus-visible {
+  outline-offset: -1px;
 }
 .sidebar-section-resizer {
   position: relative;
@@ -938,24 +950,9 @@ table[data-auto-column-widths] :is(th, td) {
   max-height: 50%;
   border-top: 1px solid var(--line);
 }
-.sidebar-tools-toggle {
-  flex: none;
-  justify-content: flex-start;
-  height: calc(var(--status-height) - 1px);
-  padding: 0 16px;
-  border-radius: 0;
-  text-align: left;
-  color: var(--muted);
-}
-.sidebar-tools-toggle svg {
-  width: 14px;
-  height: 14px;
-}
-.sidebar-tools-toggle[aria-expanded="true"] svg {
-  transform: rotate(90deg);
-}
-.sidebar-tools-toggle:focus-visible {
-  outline-offset: -3px;
+.outline-wrap .side-heading,
+.sidebar-tools .side-heading {
+  min-height: calc(var(--status-height) - 1px);
 }
 
 #scroll:has(#pdf-preview:not([hidden])) {

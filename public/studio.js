@@ -84,6 +84,8 @@ import { enablePanelResize } from "./panel-width.js";
 import {
   enableOutlineResize,
   enableSidebarSearch,
+  highlightSidebarMatches,
+  sidebarSearchPattern,
 } from "./sidebar-navigation.js";
 import {
   applyTableWidths,
@@ -285,15 +287,20 @@ function updateDocumentLabel() {
   button.hidden = mode === "read";
   $(".doc-label-stroke").hidden = !label;
 }
-const sidebarQuery = (input) => input.value.trim().toLowerCase();
 function filterFiles() {
-  const query = sidebarQuery(fileSearch);
+  const pattern = sidebarSearchPattern(fileSearch);
   let hasMatch = false;
   for (const row of $("#files").children) {
-    row.hidden = !row.firstElementChild.title.toLowerCase().includes(query);
+    const file = row.firstElementChild;
+    const match = highlightSidebarMatches(
+      file.lastElementChild,
+      file.title,
+      pattern,
+    );
+    row.hidden = Boolean(pattern) && !match;
     if (!row.hidden) hasMatch = true;
   }
-  $("#files-empty").hidden = !query || hasMatch;
+  $("#files-empty").hidden = !pattern || hasMatch;
 }
 function nav() {
   const files = $("#files");
@@ -303,7 +310,6 @@ function nav() {
     b.className = "file";
     b.setAttribute("aria-current", String(d.id === doc?.id));
     b.innerHTML = icon("file-text") + '<span class="file-name"></span>';
-    b.lastChild.textContent = d.name;
     b.title = d.name;
     b.onclick = () => switchDoc(d);
     const row = document.createElement("div");
@@ -390,24 +396,23 @@ function outline() {
     saveFolds();
   };
   function applyFolds() {
-    const query = sidebarQuery(outlineSearch);
+    const pattern = sidebarSearchPattern(outlineSearch);
     const matches = new Set();
-    if (query) {
-      for (const heading of headings) {
-        if (!heading.title.toLowerCase().includes(query)) continue;
-        for (
-          let entry = heading;
-          entry && !matches.has(entry);
-          entry = entry.parent
-        )
-          matches.add(entry);
-      }
+    for (const heading of headings) {
+      const { label } = entries.get(heading);
+      if (!highlightSidebarMatches(label, heading.title, pattern)) continue;
+      for (
+        let entry = heading;
+        entry && !matches.has(entry);
+        entry = entry.parent
+      )
+        matches.add(entry);
     }
-    panel.classList.toggle("is-filtering", Boolean(query));
-    toggleAll.disabled = Boolean(query) || !branches.length;
+    panel.classList.toggle("is-filtering", Boolean(pattern));
+    toggleAll.disabled = Boolean(pattern) || !branches.length;
     searchToggle.disabled = outlineSearch.hidden && !headings.length;
-    empty.hidden = query ? matches.size > 0 : headings.length > 0;
-    empty.textContent = query
+    empty.hidden = pattern ? matches.size > 0 : headings.length > 0;
+    empty.textContent = pattern
       ? "Разделы не найдены."
       : doc
         ? "В документе нет заголовков."
@@ -419,7 +424,7 @@ function outline() {
     for (const heading of headings) {
       const { row, toggle } = entries.get(heading);
       const parent = heading.parent;
-      row.hidden = query
+      row.hidden = pattern
         ? !matches.has(heading)
         : Boolean(
             parent && (entries.get(parent).row.hidden || folded.has(parent.key)),
@@ -441,7 +446,7 @@ function outline() {
     );
   }
   for (const heading of headings) {
-    const { index, title, key } = heading;
+    const { index, key } = heading;
     const row = document.createElement("div");
     row.className = "outline-row";
     row.style.setProperty(
@@ -466,7 +471,8 @@ function outline() {
     b.type = "button";
     b.className = "outline-item";
     b.dataset.idx = index;
-    b.textContent = title;
+    const label = document.createElement("span");
+    b.append(label);
     if (mode === "edit") b.append(sortGrip("Перетащить раздел", false));
     b.onclick = (event) => {
       if (event.target.closest("[data-order-grip]")) return;
@@ -483,7 +489,7 @@ function outline() {
       highlight(index);
     };
     row.append(b);
-    entries.set(heading, { row, toggle });
+    entries.set(heading, { row, toggle, label });
     panel.append(row);
   }
   outlineSearch.oninput = () => {
@@ -582,7 +588,7 @@ const outlineSorting = dragOrder({
   item: ".outline-row:not([hidden]) > .outline-item",
   handle: ".outline-grip",
   prepare: (index) =>
-    sidebarQuery(outlineSearch) ? null : prepareBlockChange(index),
+    outlineSearch.value.trim() ? null : prepareBlockChange(index),
   targets: (index) =>
     parts.flatMap((part, i) =>
       part.t.type === "heading_open" && part.t.tag === parts[index].t.tag
@@ -3750,8 +3756,8 @@ document.addEventListener("visibilitychange", () => {
     save();
   } else liveEdit?.client?.queue();
 });
-enableSidebarSearch($("#files-search-toggle"), fileSearch);
-enableSidebarSearch($("#outline-search-toggle"), outlineSearch);
+enableSidebarSearch($("#files-search-toggle"), fileSearch, $("#files"));
+enableSidebarSearch($("#outline-search-toggle"), outlineSearch, $("#outline"));
 fileSearch.oninput = () => {
   $("#files-scroll").scrollTop = 0;
   filterFiles();

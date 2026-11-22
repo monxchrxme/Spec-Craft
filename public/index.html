@@ -102,7 +102,7 @@
             <section class="outline-wrap" id="outline-section" aria-labelledby="outline-title">
               <div class="side-heading">
                 <h2 id="outline-title">
-                  <button type="button" class="outline-section-toggle" id="outline-section-toggle"
+                  <button type="button" class="sidebar-section-toggle" id="outline-section-toggle"
                     aria-controls="outline-content" aria-expanded="true">
                     <i data-lucide="chevron-right" aria-hidden="true"></i>Структура
                   </button>
@@ -130,15 +130,17 @@
           </div>
         </div>
         <div class="sidebar-tools">
-          <button
-            class="sidebar-tools-toggle"
-            type="button"
-            data-action="toggle-sidebar-tools"
-            aria-expanded="false"
-            aria-controls="sidebar-tool-list"
-          >
-            <i data-lucide="chevron-right" aria-hidden="true"></i>Инструменты
-          </button>
+          <div class="side-heading">
+            <button
+              class="sidebar-section-toggle"
+              type="button"
+              data-action="toggle-sidebar-tools"
+              aria-expanded="false"
+              aria-controls="sidebar-tool-list"
+            >
+              <i data-lucide="chevron-right" aria-hidden="true"></i>Инструменты
+            </button>
+          </div>
           <div class="side-utilities" id="sidebar-tool-list" hidden>
             <button data-action="templates">
               <i data-lucide="layout-template"></i>Шаблоны
