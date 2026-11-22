@@ -315,13 +315,16 @@ button.primary:hover:enabled {
 }
 .outline-wrap {
   flex: 0 0 clamp(25%, var(--outline-share, 45%), 75%);
-  margin-top: auto;
 }
 .documents-wrap.is-collapsed {
   flex: none;
 }
+.sidebar-panes:has(> .documents-wrap.is-collapsed) > .outline-wrap:not(.is-collapsed) {
+  flex: 1 1 0;
+}
 .outline-wrap.is-collapsed {
   flex-basis: auto;
+  margin-top: auto;
 }
 .sidebar-panes:has(> .is-collapsed) > .sidebar-section-resizer,
 .outline-wrap.is-collapsed .side-actions,
