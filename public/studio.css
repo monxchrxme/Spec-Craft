@@ -5,6 +5,7 @@
   --accent: #6253bb;
   --lavender: #eeeafb;
   --canvas: #f2f3f7;
+  --focus-outline: #646464;
   --doc-accent: #6353bb;
   color: var(--ink);
   font-family:
@@ -48,8 +49,9 @@ a:focus-visible,
 select:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
+summary:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #8271cd;
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
 }
 button,
@@ -257,6 +259,10 @@ button.primary:hover:enabled {
   background: var(--surface, white);
   padding: 4px 6px;
   font-size: 13px;
+}
+.side-search:focus {
+  outline: none;
+  border-color: var(--focus-outline);
 }
 .side-empty {
   margin: 5px 4px;
@@ -594,7 +600,7 @@ pre code :is(.hljs-variable, .hljs-deletion) {
 }
 .paper th:focus,
 .paper td:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-outline);
   outline-offset: -2px;
 }
 .table-cell-editing {
@@ -3180,7 +3186,7 @@ g.workflow-anchored {
   background: var(--rail-hover, #49465f);
 }
 .rail-theme:focus-within {
-  outline: 2px solid var(--brand-bg, #bcb1f2);
+  outline: 2px solid #b8b8b8;
 }
 .theme-field {
   padding: 7px 10px;
@@ -3196,6 +3202,7 @@ g.workflow-anchored {
 @media screen {
   :root[data-theme="dark"] {
     --ink: #e8e9f1;
+    --focus-outline: #b8b8b8;
     --muted: #adb1c2;
     --line: #474b59;
     --accent: #bdabff;
@@ -3218,6 +3225,7 @@ g.workflow-anchored {
   }
   :root[data-theme="gruvbox-material"] {
     --ink: #dfc9a7;
+    --focus-outline: #b8b8b8;
     --muted: #bdae93;
     --line: #595b52;
     --accent: #d8a657;
