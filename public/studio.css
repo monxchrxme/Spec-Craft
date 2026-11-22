@@ -985,6 +985,13 @@ table[data-auto-column-widths] :is(th, td) {
   max-height: min(50%, calc(var(--tools-room, 100%) + var(--workspace-row-height)));
   background: var(--sidebar, #f8f9fb);
 }
+.sidebar:has(.outline-wrap.is-collapsed) {
+  padding-block-end: 0;
+}
+.sidebar:has(.outline-wrap.is-collapsed) > .sidebar-tools {
+  position: static;
+  flex: none;
+}
 .sidebar-panes:has(> .documents-wrap.is-collapsed) > .outline-wrap > .side-heading,
 .outline-wrap.is-collapsed > .side-heading,
 .sidebar-tools > .side-heading,
