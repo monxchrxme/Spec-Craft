@@ -152,6 +152,7 @@ button.primary:hover:enabled {
   max-width: var(--sidebar-max-width);
   background: var(--sidebar, #f8f9fb);
   border-right: 1px solid var(--line);
+  padding-block-end: var(--workspace-row-height);
   display: flex;
   flex-direction: column;
   flex: none;
@@ -974,7 +975,15 @@ table[data-auto-column-widths] :is(th, td) {
   flex: none;
 }
 .sidebar-tools {
-  flex: none;
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: var(--workspace-row-height);
+  max-height: min(50%, calc(var(--tools-room, 100%) + var(--workspace-row-height)));
+  background: var(--sidebar, #f8f9fb);
 }
 .sidebar-panes:has(> .documents-wrap.is-collapsed) > .outline-wrap > .side-heading,
 .outline-wrap.is-collapsed > .side-heading,
@@ -1208,15 +1217,8 @@ footer {
   }
 }
 .side-utilities {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-end: var(--workspace-row-height);
-  z-index: 2;
   min-height: 0;
-  max-height: min(calc(50% - var(--workspace-row-height)), var(--tools-room, 100%));
   padding: 4px 12px;
-  border-top: 1px solid var(--line);
-  background: var(--sidebar, #f8f9fb);
   overflow: auto;
   overscroll-behavior: contain;
   display: grid;

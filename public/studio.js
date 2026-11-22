@@ -3765,7 +3765,7 @@ fileSearch.oninput = () => {
 enableSidebarPanes(
   $(".sidebar-panes"),
   $("#sidebar-section-resizer"),
-  $("#sidebar-tool-list"),
+  $(".sidebar-tools"),
 );
 nav();
 render();

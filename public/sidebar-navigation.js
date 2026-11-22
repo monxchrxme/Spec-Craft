@@ -78,7 +78,7 @@ function enableSectionCollapse(toggle, storageKey) {
   };
 }
 
-export function enableSidebarPanes(panes, handle, toolsMenu) {
+export function enableSidebarPanes(panes, handle, toolsPanel) {
   enableSectionCollapse(
     panes.querySelector("#documents-section-toggle"),
     "buro:documents-collapsed",
@@ -116,7 +116,7 @@ export function enableSidebarPanes(panes, handle, toolsMenu) {
     const room = handle.offsetHeight
       ? outline.getBoundingClientRect().height + "px"
       : "100%";
-    toolsMenu.style.setProperty("--tools-room", room);
+    toolsPanel.style.setProperty("--tools-room", room);
   });
   keepDividerClear.observe(outline);
   keepDividerClear.observe(handle);
