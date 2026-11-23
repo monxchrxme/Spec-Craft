@@ -106,8 +106,16 @@ export function workspaceFileActions(section, { open, rename, move }) {
     else edit(button.closest("[data-folder]").dataset.folder, true);
   });
   section.addEventListener("click", (event) => {
-    const row = event.target.closest(".file")?.closest("[data-document-row]");
-    if (row) select(row, event);
+    const clicked = event.target;
+    const row = clicked.closest(".file")?.closest("[data-document-row]");
+    if (row) return select(row, event);
+    if (selected.size < 2 || !clicked.closest("#files-scroll") ||
+        clicked.closest("button, .file-rename")) return;
+    const current = section.querySelector('.file[aria-current="true"]');
+    anchor = current?.closest("[data-document-row]")?.dataset.documentRow;
+    selected.clear();
+    if (anchor) selected.add(anchor);
+    paint();
   });
 
   function highlight(next) {

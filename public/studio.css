@@ -915,6 +915,7 @@ table[data-auto-column-widths] :is(th, td) {
 .drawing-card {
   width: 100%;
   margin: 0 auto;
+  container-type: inline-size;
   --drawing-height: var(--manual-diagram-height, min(60dvh, 620px));
 }
 .drawing-card.diagram-expanded:not([data-manual-height]) {
@@ -983,32 +984,67 @@ table[data-auto-column-widths] :is(th, td) {
   z-index: 2;
   background: var(--surface, white);
 }
-.drawing-card header label,
-.drawing-edit-actions {
-  font-size: 12px;
+.drawing-card > .diagram-title {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  padding: 4px 8px;
+}
+.drawing-card > .diagram-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawing-actions,
+.drawing-edit-actions,
+.drawing-actions label:not([hidden]) {
+  display: flex;
   align-items: center;
   gap: 4px;
 }
-.drawing-card header label:not([hidden]),
-.drawing-edit-actions {
-  display: inline-flex;
+.drawing-actions {
+  justify-content: flex-end;
+  font-size: 12px;
+}
+.drawing-actions button {
+  min-height: 28px;
+  padding: 4px 6px;
+  gap: 4px;
 }
 .drawing-edit-actions {
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .drawing-crop-hint {
-  flex: 1 0 100%;
-  order: 1;
+  grid-column: 1 / -1;
   color: var(--muted);
   font-size: 12px;
   font-weight: 400;
 }
-.drawing-card header select {
-  max-width: 150px;
+.drawing-actions select {
+  max-width: 130px;
+}
+@container (max-width: 620px) {
+  .drawing-actions > button > span,
+  .drawing-actions label > span {
+    display: none;
+  }
+  .drawing-actions select {
+    max-width: 110px;
+  }
+}
+@container (max-width: 340px) {
+  .drawing-editing > .diagram-title {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .drawing-editing .drawing-actions {
+    flex-wrap: wrap;
+    grid-column: 1 / -1;
+  }
 }
 .drawing-editing [data-drawing-crop],
-.drawing-editing .diagram-remove,
 .drawing-editing .drawing-zoom,
+.block:has(> .drawing-editing) > .block-remove,
 .drawing-fullscreen :is([data-drawing-expand], .diagram-height-grip) {
   display: none !important;
 }
@@ -1093,6 +1129,9 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .diagram-title {
   flex-wrap: wrap;
+}
+.diagram-card:is([data-align], .inline-graph) > .diagram-title {
+  padding-inline-end: 8px;
 }
 .diagram-title strong {
   flex: 1 1 120px;
@@ -2326,8 +2365,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
     min-width: 0;
   }
 }
-.block-remove,
-.diagram-remove {
+.block-remove {
   width: 28px;
   height: 28px;
   padding: 0;
@@ -2345,8 +2383,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   opacity: 1;
 }
 .table-tools .table-remove,
-.block-remove:hover,
-.diagram-remove:hover {
+.block-remove:hover {
   color: var(--danger, #8b2841);
 }
 @media (hover: none), (max-width: 760px) {

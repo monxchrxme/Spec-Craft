@@ -23,7 +23,7 @@ export function graphEditor(
   onDone,
   initialNode,
   trace,
-  { expanded = false, zoom: initialZoom } = {},
+  { expanded = false, zoom: initialZoom, removeButton } = {},
 ) {
   let graph = normalize(raw),
     node = null,
@@ -820,8 +820,7 @@ export function graphEditor(
     command("layout").setAttribute("aria-expanded", String(enabled));
     props.inert = enabled;
     for (const control of editingControls) control.disabled = enabled;
-    const remove = panel.querySelector(".diagram-remove");
-    if (remove) remove.disabled = enabled;
+    if (removeButton) removeButton.disabled = enabled;
   }
   function showLayout() {
     const { candidates, index, original, scope, error, exhausted } =

@@ -37,10 +37,12 @@ export function excalidrawBlocks(md) {
     if (!isExcalidraw(token)) return original(tokens, index, options, env, self);
     return `<figure class="diagram-card drawing-card" data-excalidraw>
       <header class="diagram-title"><i data-lucide="pencil-ruler" aria-hidden="true"></i><strong>Excalidraw</strong>
-        <label data-drawing-crop hidden>Обрезка <select aria-label="Обрезка рисунка"></select></label>
-        <button type="button" data-excalidraw-edit hidden>Изменить</button>
-        <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
-        <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
+        <div class="drawing-actions">
+          <label data-drawing-crop hidden><span>Обрезка</span><select aria-label="Обрезка рисунка"></select></label>
+          <button type="button" data-excalidraw-edit hidden aria-label="Изменить" title="Изменить рисунок"><i data-lucide="pencil" aria-hidden="true"></i><span>Изменить</span></button>
+          <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
+          <button type="button" data-drawing-fullscreen hidden aria-pressed="false" aria-label="На всю вкладку" title="На всю вкладку"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
+        </div>
       </header>
       <div class="diagram-zoom drawing-zoom" role="group" aria-label="Масштаб рисунка Excalidraw" hidden>
         <button type="button" class="zoom-out" aria-label="Уменьшить рисунок">−</button>
@@ -155,7 +157,10 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
   card.setExpanded = (value) => {
     card.classList.toggle("diagram-expanded", value);
     expand.setAttribute("aria-expanded", String(value));
-    expand.lastElementChild.textContent = value ? "Свернуть" : "Развернуть";
+    const label = value ? "Свернуть" : "Развернуть";
+    expand.lastElementChild.textContent = label;
+    expand.setAttribute("aria-label", label);
+    expand.title = label;
   };
   expand.onclick = () => {
     card.setExpanded(!card.classList.contains("diagram-expanded"));
@@ -232,7 +237,10 @@ export function editDrawing(card, scene, { save, cancel, crop = false, fullscree
     else block?.style.removeProperty("--drawing-fullscreen-height");
     card.classList.toggle("drawing-fullscreen", active);
     fullscreenButton.setAttribute("aria-pressed", String(active));
-    fullscreenButton.lastElementChild.textContent = active ? "Вернуться к документу" : "На всю вкладку";
+    const label = active ? "Вернуться к документу" : "На всю вкладку";
+    fullscreenButton.lastElementChild.textContent = label;
+    fullscreenButton.setAttribute("aria-label", label);
+    fullscreenButton.title = label;
   }
   function exitFullscreen() {
     if (!card.classList.contains("drawing-fullscreen")) return false;

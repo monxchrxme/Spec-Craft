@@ -1226,7 +1226,8 @@ function buildBlock(p, i, expanded) {
         if (modal.open) modal.close();
         const target = host.children[i],
           panel = document.createElement("section");
-        target.replaceChildren(panel);
+        const removeButton = deleteBlockButton(i, "Удалить схему", "block-remove");
+        target.replaceChildren(panel, removeButton);
         const dock = $("#graph-dock");
         dock.hidden = false;
         const session = { index: i, panel, expanded: openedWide };
@@ -1256,7 +1257,7 @@ function buildBlock(p, i, expanded) {
               else panels.links(id);
             },
           },
-          { expanded: openedWide, zoom: position?.zoom },
+          { expanded: openedWide, zoom: position?.zoom, removeButton },
         );
         setGraphExpanded(session, openedWide);
         panel.querySelector("[data-view-expand]").onclick = () => {
@@ -1265,9 +1266,6 @@ function buildBlock(p, i, expanded) {
           );
           updateExpandButton();
         };
-        panel
-          .querySelector("header")
-          .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
         icons();
         updateExpandButton();
         if (typeof initialNode !== "string") {
@@ -1297,11 +1295,9 @@ function buildBlock(p, i, expanded) {
               }
             : undefined,
       });
-      if (mode === "edit")
-        card
-          .querySelector("header")
-          .append(deleteBlockButton(i, "Удалить схему", "diagram-remove"));
       box.append(card);
+      if (mode === "edit")
+        box.append(deleteBlockButton(i, "Удалить схему", "block-remove"));
       return box;
     } catch (err) {
       box.textContent = "Ошибка схемы · " + err.message;
@@ -1323,9 +1319,8 @@ function buildBlock(p, i, expanded) {
     } catch {
       // Invalid scene JSON still appears in the Markdown editor.
     }
-    if (mode === "edit") card.querySelector("header").append(
-      deleteBlockButton(i, "Удалить рисунок", "diagram-remove"),
-    );
+    if (mode === "edit")
+      box.append(deleteBlockButton(i, "Удалить рисунок", "block-remove"));
     return box;
   }
   if (mode === "edit") {
