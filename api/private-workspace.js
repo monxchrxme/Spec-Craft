@@ -60,7 +60,13 @@ export function privateWorkspaceHandler(store = blobs) {
     const send = (status, value) => res.status(status).json(value);
     const action = req.query.action;
     if (req.method === "GET" && action === "google") return googleStart(req, res);
-    if (req.method === "GET" && action === "google-callback") return googleFinish(req, res);
+    if (req.method === "GET" && action === "google-callback")
+      return googleFinish(req, res, {
+        async initialize(id) {
+          const path = root({ id }) + "current.json";
+          return !await store.has(path) && Boolean(await store.write(path, "{}"));
+        },
+      });
     if (req.method !== "GET" && req.method !== "POST") {
       res.setHeader("Allow", "GET, POST");
       return send(405, { error: "Метод не поддерживается." });

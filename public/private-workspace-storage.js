@@ -1,6 +1,26 @@
 import { readFolders, folderStorageKey } from "./workspace-folders.js";
 
 export const activeWorkspaceKey = "speccraft:private-workspace";
+const sourceKey = (id) => "speccraft:private-source:" + id;
+const sourcesInThisTab = new Set();
+
+export function rememberWorkspaceSource(id) {
+  sourcesInThisTab.add(id);
+  try {
+    localStorage.setItem(sourceKey(id), "true");
+  } catch {
+    // Keep showing the newly created key if browser storage is full.
+  }
+}
+
+export function isWorkspaceSource(id) {
+  if (sourcesInThisTab.has(id)) return true;
+  try {
+    return localStorage.getItem(sourceKey(id)) === "true";
+  } catch {
+    return false;
+  }
+}
 
 export function workspaceKeys(id) {
   const prefix = id ? "speccraft:private:" + id + ":" : "buro:";

@@ -100,7 +100,7 @@ import {
 } from "./sidebar-navigation.js";
 import { mergeFolders, readFolders } from "./workspace-folders.js";
 import {
-  activeWorkspace, activeWorkspaceKey, readWorkspace, workspaceKeys, writeWorkspace,
+  activeWorkspace, activeWorkspaceKey, isWorkspaceSource, readWorkspace, workspaceKeys, writeWorkspace,
 } from "./private-workspace-storage.js";
 import { privateRequest, personalSync } from "./private-sync.js";
 import { addLocalWorkspace } from "./private-workspace-model.js";
@@ -3919,6 +3919,8 @@ function privateWorkspaceDialog(message) {
     if (!save()) throw Error("Сначала сохраните текущие правки.");
   };
   const addFromBrowser = (id) => {
+    if (!isWorkspaceSource(id))
+      throw Error("Локальные документы можно добавить в браузере, в котором создано пространство.");
     const target = workspaceKeys(id);
     const current = readWorkspace(target);
     const { workspace, documentsAdded, foldersAdded } =

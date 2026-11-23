@@ -1,4 +1,5 @@
 import { privateRequest } from "./private-sync.js";
+import { isWorkspaceSource, rememberWorkspaceSource } from "./private-workspace-storage.js";
 
 const element = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -56,9 +57,11 @@ export async function privateSyncPanel(panel, { active, status, details, connect
   }
   function show(account, google, key, includeByDefault = false) {
     if (!panel.isConnected) return;
+    if (account?.source) rememberWorkspaceSource(account.id);
+    const source = account && isWorkspaceSource(account.id);
     delete feedback.dataset.privateStatus;
     const intro = element("p", account && active === account.id
-      ? "Документы и папки этого пространства доступны на подключённых устройствах."
+      ? "Здесь открыты документы личного пространства. Локальный список этого браузера доступен после выхода."
       : "Храните личные документы и папки на подключённых устройствах.");
     panel.replaceChildren(intro, feedback);
     if (account && active === account.id) {
@@ -70,9 +73,9 @@ export async function privateSyncPanel(panel, { active, status, details, connect
         element("p", "Код пространства " + account.id.slice(0, 8).toUpperCase()),
         count,
         control("Синхронизировать сейчас", sync),
-        control("Добавить локальные документы и папки", addLocal),
-        control("Выйти из личного пространства", () => leave(account.id)),
       );
+      if (source) panel.append(control("Добавить локальные документы и папки", addLocal));
+      panel.append(control("Выйти из личного пространства", () => leave(account.id)));
       if (account.method === "key")
         panel.append(control("Показать приватный ключ", async () => {
           const { key } = await privateRequest("show-key", {}, account.id);
@@ -84,9 +87,12 @@ export async function privateSyncPanel(panel, { active, status, details, connect
       const include = element("input");
       include.type = "checkbox";
       include.checked = includeByDefault;
-      label.append(include, "Добавить локальные документы и папки с этого устройства");
-      panel.append(label,
-        control("Открыть личное пространство", () => connect(account.id, include.checked), true),
+      if (source) {
+        label.append(include, "Добавить локальные документы и папки с этого устройства");
+        panel.append(label);
+      }
+      panel.append(
+        control("Открыть личное пространство", () => connect(account.id, source && include.checked), true),
         control("Выйти", () => leave(account.id)));
       if (account.method === "key" && !key)
         panel.append(control("Показать приватный ключ", async () => {
@@ -117,6 +123,7 @@ export async function privateSyncPanel(panel, { active, status, details, connect
       };
       panel.append(form, control("Создать приватный ключ", async () => {
         const { key, account } = await privateRequest("key-create", {});
+        rememberWorkspaceSource(account.id);
         show(account, google, key, true);
       }));
       if (google) {

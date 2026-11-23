@@ -84,7 +84,7 @@ test("private workspaces require a matching session and use conditional publicat
   })).code, 403);
 });
 
-test("Google sign-in uses a state cookie and rejects a callback with different state", async (t) => {
+test("Google sign-in validates callback state and signs the source browser into a new workspace", async (t) => {
   const env = {
     GOOGLE_CLIENT_ID: "test-client.apps.googleusercontent.com",
     GOOGLE_CLIENT_SECRET: "test-only-secret",
@@ -130,6 +130,7 @@ test("Google sign-in uses a state cookie and rejects a callback with different s
     end() {},
   }, {
     keys,
+    initialize: async () => true,
     async exchange(endpoint, { body }) {
       assert.equal(endpoint, "https://oauth2.googleapis.com/token");
       const challenge = createHash("sha256").update(body.get("code_verifier")).digest("base64url");
@@ -141,6 +142,9 @@ test("Google sign-in uses a state cookie and rejects a callback with different s
   const signedSession = headers.get("Set-Cookie").at(-1).split(";")[0];
   const account = privateAccount({ headers: { host: "speccraft.example", cookie: signedSession } });
   assert.equal(account.method, "google");
+  assert.equal(account.source, true);
+  const alteredSession = signedSession.replace(/\.source$/, "");
+  assert.equal(privateAccount({ headers: { host: "speccraft.example", cookie: alteredSession } }), null);
 });
 
 test("workspace merging preserves simultaneous edits and normalizes folder placement", async () => {
