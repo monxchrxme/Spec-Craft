@@ -913,7 +913,7 @@ table[data-auto-column-widths] :is(th, td) {
   cursor: pointer;
 }
 .drawing-card {
-  width: var(--drawing-width, 100%);
+  width: 100%;
   margin: 0 auto;
   --drawing-height: var(--manual-diagram-height, min(60dvh, 620px));
 }
@@ -1003,18 +1003,13 @@ table[data-auto-column-widths] :is(th, td) {
   font-size: 12px;
   font-weight: 400;
 }
-.drawing-card header input {
-  width: 8ch;
-  padding-inline: 5px;
-}
 .drawing-card header select {
   max-width: 150px;
 }
 .drawing-editing [data-drawing-crop],
 .drawing-editing .diagram-remove,
 .drawing-editing .drawing-zoom,
-.drawing-card.diagram-expanded [data-drawing-width],
-.drawing-fullscreen :is([data-drawing-width], [data-drawing-expand], .diagram-height-grip) {
+.drawing-fullscreen :is([data-drawing-expand], .diagram-height-grip) {
   display: none !important;
 }
 .block:has(> .drawing-fullscreen) {

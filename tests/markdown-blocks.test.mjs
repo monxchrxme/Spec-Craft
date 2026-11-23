@@ -68,18 +68,18 @@ test("Excalidraw preserves scene assets and escapes drawing text in Markdown ren
   assert.match(md.render(markdown), /&lt;\/code&gt;&lt;strong&gt;/);
 });
 
-test("Excalidraw keeps default block width and falls back to automatic cropping when a frame is removed", () => {
+test("Excalidraw ignores legacy width and falls back to automatic cropping when a frame is removed", () => {
   const scene = { type: "excalidraw", elements: [] };
-  assert.deepEqual(drawingPresentation(scene), { width: 100, height: 0, crop: "" });
+  assert.deepEqual(drawingPresentation(scene), { height: 0, crop: "" });
   const frame = { type: "frame", id: "detail", width: 180, height: 120 };
   const existing = {
     ...scene,
     elements: [frame],
     specCraft: { width: 75, height: 360, crop: "detail" },
   };
-  assert.deepEqual(drawingPresentation(existing), { width: 75, height: 360, crop: "detail" });
+  assert.deepEqual(drawingPresentation(existing), { height: 360, crop: "detail" });
   assert.deepEqual(drawingPresentation({ ...existing, elements: [{ ...frame, isDeleted: true }] }),
-    { width: 75, height: 360, crop: "" });
+    { height: 360, crop: "" });
 });
 
 test("diagram previews pan the same distance with all three mouse buttons", () => {

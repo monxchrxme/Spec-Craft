@@ -22,13 +22,9 @@ function drawingFrames(scene) {
     !element.isDeleted && element.width > 0 && element.height > 0);
 }
 
-const drawingWidth = (value) =>
-  Number.isFinite(value) ? Math.max(30, Math.min(100, Math.round(value))) : 100;
-
 export function drawingPresentation(scene) {
-  const { width, height, crop } = scene.specCraft || {};
+  const { height, crop } = scene.specCraft || {};
   return {
-    width: drawingWidth(width),
     height: Number.isFinite(height) ? diagramHeight(height) : 0,
     crop: drawingFrames(scene).some((frame) => frame.id === crop) ? crop : "",
   };
@@ -42,7 +38,6 @@ export function excalidrawBlocks(md) {
     return `<figure class="diagram-card drawing-card" data-excalidraw>
       <header class="diagram-title"><i data-lucide="pencil-ruler" aria-hidden="true"></i><strong>Excalidraw</strong>
         <label data-drawing-crop hidden>Обрезка <select aria-label="Обрезка рисунка"></select></label>
-        <label data-drawing-width hidden>Ширина <input aria-label="Ширина рисунка, %" type="number" min="30" max="100" step="1"> %</label>
         <button type="button" data-excalidraw-edit hidden>Изменить</button>
         <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
         <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
@@ -168,7 +163,6 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
     card.scrollIntoView({ block: "nearest" });
   };
   card.setExpanded(expanded);
-  card.style.setProperty("--drawing-width", layout.width + "%");
   setDiagramHeight(card, layout.height);
   if (!edit) return;
   const editButton = card.querySelector("[data-excalidraw-edit]");
@@ -197,25 +191,6 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
     if (!change({ crop: select.value })) select.value = layout.crop;
   };
   crop.hidden = false;
-
-  const width = card.querySelector("[data-drawing-width]");
-  const input = width.querySelector("input");
-  width.hidden = false;
-  input.value = layout.width;
-  const applyWidth = () => {
-    const value = drawingWidth(input.valueAsNumber);
-    if (value !== layout.width && change({ width: value })) {
-      layout.width = value;
-      card.style.setProperty("--drawing-width", value + "%");
-    }
-    input.value = layout.width;
-  };
-  input.onchange = applyWidth;
-  input.onkeydown = (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    applyWidth();
-  };
   addHeightHandle(card, card.querySelector(".drawing-stage"), layout.height,
     (height) => change({ height }));
 }
