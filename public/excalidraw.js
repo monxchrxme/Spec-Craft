@@ -1,4 +1,5 @@
 import { addHeightHandle, diagramHeight, setDiagramHeight } from "./diagram-height.js";
+import { enableDiagramPan } from "./diagram-pan.js";
 
 const images = new Map();
 
@@ -46,8 +47,14 @@ export function excalidrawBlocks(md) {
         <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
         <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
       </header>
+      <div class="diagram-zoom drawing-zoom" role="group" aria-label="Масштаб рисунка Excalidraw" hidden>
+        <button type="button" class="zoom-out" aria-label="Уменьшить рисунок">−</button>
+        <button type="button" class="zoom-reset" aria-label="Масштаб рисунка 100%" title="Масштаб 100%"></button>
+        <button type="button" class="zoom-in" aria-label="Увеличить рисунок">+</button>
+        <button type="button" class="zoom-fit" aria-pressed="true">Вписать целиком</button>
+      </div>
       <div class="drawing-stage">
-        <img alt="Рисунок Excalidraw" hidden>
+        <img alt="Рисунок Excalidraw" draggable="false" hidden>
         <p role="status">Загрузка рисунка…</p>
       </div>
       <code data-excalidraw-source hidden>${md.utils.escapeHtml(token.content)}</code>
@@ -84,6 +91,43 @@ export async function drawingPrintImage(graphic, width, height) {
   return canvas.toDataURL("image/png");
 }
 
+function enableDrawingZoom(card, image, originalWidth) {
+  const surface = image.parentElement;
+  const controls = card.querySelector(".drawing-zoom");
+  const minus = controls.querySelector(".zoom-out");
+  const plus = controls.querySelector(".zoom-in");
+  const reset = controls.querySelector(".zoom-reset");
+  const fit = controls.querySelector(".zoom-fit");
+  const currentScale = () => image.getBoundingClientRect().width / originalWidth;
+
+  function scale(value) {
+    const before = image.getBoundingClientRect();
+    const viewport = surface.getBoundingClientRect();
+    const x = (viewport.left + surface.clientWidth / 2 - before.left) / before.width;
+    const y = (viewport.top + surface.clientHeight / 2 - before.top) / before.height;
+    const fitting = value === null;
+    const zoom = fitting ? 1 : Math.min(4, Math.max(0.1, value));
+    card.classList.toggle("drawing-fit", fitting);
+    image.style.width = fitting ? "" : originalWidth * zoom + "px";
+    reset.textContent = fitting ? "1:1" : Math.round(zoom * 100) + "%";
+    fit.setAttribute("aria-pressed", String(fitting));
+    minus.disabled = !fitting && zoom <= 0.1;
+    plus.disabled = !fitting && zoom >= 4;
+    const after = image.getBoundingClientRect();
+    surface.scrollLeft = fitting || !before.width ? 0 : x * after.width - surface.clientWidth / 2;
+    surface.scrollTop = fitting || !before.height ? 0 : y * after.height - surface.clientHeight / 2;
+  }
+  minus.onclick = () => scale(currentScale() / 1.25);
+  plus.onclick = () => scale(currentScale() * 1.25);
+  reset.onclick = () => scale(1);
+  fit.onclick = () => scale(null);
+  surface.tabIndex = 0;
+  surface.setAttribute("aria-label", "Просмотр рисунка Excalidraw");
+  enableDiagramPan(surface);
+  controls.hidden = false;
+  scale(null);
+}
+
 export function paintDrawings(root) {
   for (const card of root.querySelectorAll("[data-excalidraw]:not([data-painted])")) {
     card.dataset.painted = "true";
@@ -102,6 +146,7 @@ export function paintDrawings(root) {
         image.src = graphic.url;
         image.hidden = false;
         status.hidden = true;
+        enableDrawingZoom(card, image, graphic.width);
       })
       .catch(() => { status.textContent = "Не удалось показать рисунок Excalidraw."; });
   }
@@ -177,6 +222,8 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
 
 export function editDrawing(card, scene, { save, cancel, crop = false, fullscreen = false }) {
   const stage = card.querySelector(".drawing-stage");
+  stage.removeAttribute("tabindex");
+  stage.removeAttribute("aria-label");
   const edit = card.querySelector("[data-excalidraw-edit]");
   const actions = document.createElement("div");
   actions.className = "drawing-edit-actions";

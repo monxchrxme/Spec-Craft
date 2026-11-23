@@ -13,7 +13,8 @@ import { documentParts } from "../public/document-parts.js";
 import { latexProjection } from "../public/latex-source.js";
 import { setTaskChecked, taskLists } from "../public/task-lists.js";
 import { mergeFolders, readFolders } from "../public/workspace-folders.js";
-import { enableMermaidPan, isMermaid, mermaidMarkdown } from "../public/mermaid.js";
+import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
+import { enableDiagramPan } from "../public/diagram-pan.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
@@ -81,21 +82,28 @@ test("Excalidraw keeps default block width and falls back to automatic cropping 
     { width: 75, height: 360, crop: "" });
 });
 
-test("Mermaid pans with either mouse button and suppresses its native context menu", () => {
-  for (const button of [1, 2]) {
+test("diagram previews pan the same distance with all three mouse buttons", () => {
+  for (const button of [0, 1, 2]) {
     let captured;
     let prevented = 0;
+    const image = {};
     const surface = {
       scrollLeft: 100, scrollTop: 40,
+      firstElementChild: image,
       setPointerCapture: (id) => { captured = id; },
       setAttribute() {},
       removeAttribute() {},
     };
     const pointer = {
       pointerType: "mouse", pointerId: 3, button, clientX: 200, clientY: 90,
+      target: image,
       preventDefault: () => { prevented++; },
     };
-    enableMermaidPan(surface);
+    enableDiagramPan(surface);
+    if (button === 0) {
+      surface.onpointerdown({ ...pointer, target: surface });
+      assert.equal(captured, undefined);
+    }
     surface.onpointerdown(pointer);
     surface.onpointermove({ ...pointer, clientX: 150, clientY: 30 });
     assert.equal(captured, 3);
@@ -105,7 +113,8 @@ test("Mermaid pans with either mouse button and suppresses its native context me
     surface.onpointermove({ ...pointer, clientX: 20, clientY: 10 });
     assert.equal(surface.scrollLeft, 150);
     surface.oncontextmenu(pointer);
-    assert.equal(prevented, 2);
+    surface.onauxclick(pointer);
+    assert.equal(prevented, button === 1 ? 3 : 2);
   }
 });
 

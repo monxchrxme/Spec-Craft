@@ -941,8 +941,13 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .drawing-stage > img {
   display: block;
+  flex: none;
   width: auto;
   height: auto;
+  max-width: none;
+  margin: auto;
+}
+.drawing-fit .drawing-stage > img {
   max-width: 100%;
   max-height: var(--drawing-height);
   object-fit: contain;
@@ -951,7 +956,14 @@ table[data-auto-column-widths] :is(th, td) {
   display: none;
 }
 .drawing-stage:has(> img:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  cursor: grab;
   background-color: white;
+}
+.drawing-stage[data-panning] {
+  cursor: grabbing;
 }
 .drawing-stage > p {
   margin: 0;
@@ -1000,6 +1012,7 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .drawing-editing [data-drawing-crop],
 .drawing-editing .diagram-remove,
+.drawing-editing .drawing-zoom,
 .drawing-card.diagram-expanded [data-drawing-width],
 .drawing-fullscreen :is([data-drawing-width], [data-drawing-expand], .diagram-height-grip) {
   display: none !important;
