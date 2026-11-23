@@ -43,6 +43,10 @@
       elk: { preset: "modelOrder", forceNodeModelOrder: true },
     },
   };
+  const midnightBackground = "#ffffff";
+  const midnightInk = "#82b4ff";
+  const midnightEdgeInk = "#24508d";
+  const midnightEdgeBackground = "#dbeafe";
   const themes = {
     neutral: { theme: "neutral", look: "classic" },
     blue: {
@@ -57,7 +61,60 @@
         edgeLabelBackground: "#f0f6ff",
       },
     },
+    midnight: {
+      theme: "base",
+      look: "classic",
+      darkMode: true,
+      fontFamily: "system-ui, sans-serif",
+      themeVariables: {
+        darkMode: true,
+        background: midnightBackground,
+        primaryColor: "#0a203e",
+        primaryTextColor: midnightInk,
+        primaryBorderColor: "#304767",
+        secondaryColor: "#18283d",
+        secondaryTextColor: midnightInk,
+        tertiaryColor: "#18212d",
+        tertiaryTextColor: midnightInk,
+        textColor: midnightEdgeInk,
+        lineColor: "#667381",
+        edgeLabelBackground: midnightEdgeBackground,
+      },
+      themeCSS: `
+        .node > rect:is([rx="0"], :not([rx])) { rx: 12px; ry: 12px; }
+        .node .label tspan[font-weight="normal"],
+        .edgeLabel tspan[font-weight="normal"] { font-weight: 600; }
+        .flowchart-link { stroke-linecap: round; stroke-linejoin: round; }
+        .edgeLabel rect.background {
+          fill: ${midnightEdgeBackground};
+          stroke: ${midnightEdgeInk};
+          stroke-width: 1px;
+          opacity: 1;
+        }
+        .edgeLabel text { fill: ${midnightEdgeInk}; }
+      `,
+    },
   };
+  function padMidnightLabels(svg) {
+    const labels = svg.querySelectorAll(
+      ".edgeLabel rect.background[width][height]",
+    );
+    for (const rect of labels) {
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      const width = Number(rect.getAttribute("width"));
+      const height = Number(rect.getAttribute("height"));
+      if (
+        !(width > 0 && height > 0 && [x, y, width, height].every(Number.isFinite))
+      )
+        continue;
+      rect.setAttribute("x", x - 8);
+      rect.setAttribute("y", y - 2);
+      rect.setAttribute("width", width + 16);
+      rect.setAttribute("height", height + 4);
+      rect.setAttribute("rx", (height + 4) / 2);
+    }
+  }
   const stage = document.querySelector("main");
   let queue = Promise.resolve();
   window.addEventListener("message", (event) => {
@@ -87,6 +144,7 @@
             ...safeConfig.secure,
             ...(preset.layout ? ["layout", "elk", "state"] : []),
             ...(palette.theme ? ["theme", "themeVariables", "look"] : []),
+            ...(theme === "midnight" ? ["darkMode"] : []),
           ],
         });
         const output = await engine.render("specmermaid-" + id, source, stage);
@@ -104,6 +162,17 @@
           ?.trim()
           .split(/[\s,]+/)
           .map(Number);
+        if (
+          theme === "midnight" &&
+          viewBox?.length === 4 &&
+          viewBox.every(Number.isFinite)
+        ) {
+          viewBox[0] -= 10;
+          viewBox[1] -= 10;
+          viewBox[2] += 20;
+          viewBox[3] += 20;
+          svg.setAttribute("viewBox", viewBox.join(" "));
+        }
         const width = Math.ceil(
           viewBox?.[2] || Number.parseFloat(svg.getAttribute("width")),
         );
@@ -124,6 +193,19 @@
         svg.style.backgroundColor = /^#[\da-f]{3,8}$/i.test(background)
           ? background
           : "#ffffff";
+        if (theme === "midnight") {
+          padMidnightLabels(svg);
+          const backdrop = svg.ownerDocument.createElementNS(
+            svg.namespaceURI,
+            "rect",
+          );
+          backdrop.setAttribute("x", viewBox?.[0] || 0);
+          backdrop.setAttribute("y", viewBox?.[1] || 0);
+          backdrop.setAttribute("width", viewBox?.[2] || width);
+          backdrop.setAttribute("height", viewBox?.[3] || height);
+          backdrop.setAttribute("fill", midnightBackground);
+          svg.prepend(backdrop);
+        }
         svg.querySelectorAll("script").forEach((element) => element.remove());
         for (const link of svg.querySelectorAll("a"))
           link.replaceWith(...link.childNodes);

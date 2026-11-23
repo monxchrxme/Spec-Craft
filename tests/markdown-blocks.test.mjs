@@ -316,6 +316,28 @@ test("Mermaid view settings preserve front matter and nested state directions", 
   );
 });
 
+test("the dark blue Mermaid theme round-trips alongside layout and height", () => {
+  const source = "---\nconfig:\n  layout: elk\n---\nflowchart TD\nA --> B\n";
+  const styled = setMermaidPresentation(source, "elk", "vertical", {
+    theme: "midnight",
+    height: 420,
+  });
+  assert.match(styled, /speccraft-render: elk vertical midnight 420/);
+  assert.equal(mermaidPresentation(styled).height, 420);
+  assert.deepEqual(configureMermaid(styled), {
+    source: source.replace("flowchart TD", "flowchart TB"),
+    layout: "elk",
+    theme: "midnight",
+  });
+  assert.equal(
+    setMermaidPresentation(styled, "source", "source", {
+      theme: "source",
+      height: 0,
+    }),
+    source,
+  );
+});
+
 test("older Mermaid ELK Stress settings open as ordered ELK and retain appearance and height", () => {
   const source = "stateDiagram-v2\n  direction LR\n  A --> B\n";
   const styled = setMermaidPresentation(source, "elk", "vertical", {

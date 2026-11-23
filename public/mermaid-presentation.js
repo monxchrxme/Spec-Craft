@@ -13,10 +13,11 @@ export const mermaidDirections = {
 export const mermaidThemes = {
   source: "Как в коде",
   blue: "Синяя",
+  midnight: "Тёмно-синяя",
   neutral: "Монохромная",
 };
 const marker =
-  /^%%[ \t]+speccraft-render:[ \t]+(source|compact|elk|free)[ \t]+(source|horizontal|vertical)(?:[ \t]+(source|blue|neutral)[ \t]+(\d{1,4}))?[ \t]*(?:\r?\n|$)/m;
+  /^%%[ \t]+speccraft-render:[ \t]+(source|compact|elk|free)[ \t]+(source|horizontal|vertical)(?:[ \t]+(source|blue|midnight|neutral)[ \t]+(\d{1,4}))?[ \t]*(?:\r?\n|$)/m;
 const frontmatter = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export function mermaidPresentation(source) {
