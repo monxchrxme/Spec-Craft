@@ -120,7 +120,7 @@ function enableDrawingZoom(card, image, originalWidth) {
   fit.onclick = () => scale(null);
   surface.tabIndex = 0;
   surface.setAttribute("aria-label", "Просмотр рисунка Excalidraw");
-  enableDiagramPan(surface);
+  enableDiagramPan(surface, { rightButton: true });
   controls.hidden = false;
   scale(null);
 }

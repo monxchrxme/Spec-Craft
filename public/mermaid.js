@@ -38,7 +38,7 @@ export function mermaidBlocks(md) {
     if (!isMermaid(token)) return original(tokens, index, options, env, self);
     const { height } = mermaidPresentation(token.content);
     return `<figure class="diagram-card mermaid-figure" data-mermaid${height ? ` data-manual-height style="--manual-diagram-height:${height}px"` : ""}>
-      <header class="diagram-title"><strong>Mermaid</strong>
+      <header class="diagram-title"><i data-lucide="git-fork" aria-hidden="true"></i><strong>Mermaid</strong>
         <button type="button" data-mermaid-edit hidden>Изменить код</button>
         <label class="mermaid-option" data-mermaid-layout title="Как размещаются фигуры и стрелки" hidden>Раскладка <select aria-label="Раскладка Mermaid"></select></label>
         <label class="mermaid-option" data-mermaid-direction title="«Как в коде» следует исходнику. Другой вариант меняет направление при отрисовке." hidden>Направление <select aria-label="Направление Mermaid"></select></label>
@@ -240,7 +240,8 @@ export function updateMermaidCard(card, source, repaint) {
 }
 
 function requestPaint(card, preview) {
-  if (!paintings.has(card)) enableDiagramPan(card.querySelector(".mermaid-window"));
+  if (!paintings.has(card))
+    enableDiagramPan(card.querySelector(".mermaid-window"), { rightButton: true });
   const request = {};
   paintings.set(card, request);
   request.promise = paint(card, preview, request);
@@ -256,6 +257,12 @@ export function paintMermaid(root, preview = false) {
 }
 
 async function paint(card, preview, request) {
+  const icon = card.querySelector(".diagram-title > i[data-lucide='git-fork']");
+  if (icon && window.lucide) {
+    const svg = window.lucide.createElement(window.lucide.GitFork);
+    svg.setAttribute("aria-hidden", "true");
+    icon.replaceWith(svg);
+  }
   const state = card.querySelector(".mermaid-status");
   const surface = card.querySelector(".mermaid-window");
   const details = card.querySelector(".mermaid-source");

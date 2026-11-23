@@ -1,13 +1,14 @@
-export function enableDiagramPan(surface) {
+export function enableDiagramPan(surface, { rightButton = false } = {}) {
   let drag;
-  surface.oncontextmenu = (event) => event.preventDefault();
-  surface.onauxclick = (event) => {
-    if (event.button === 1) event.preventDefault();
-  };
+  if (rightButton) surface.oncontextmenu = (event) => event.preventDefault();
   surface.onpointerdown = (event) => {
-    if (event.pointerType !== "mouse" || ![0, 1, 2].includes(event.button)) return;
-    if (event.button === 0 && event.target !== surface.firstElementChild) return;
-    event.preventDefault();
+    if (event.pointerType !== "mouse" || drag) return;
+    // A middle click uses the browser's native scrolling.
+    if (event.button === 2 && rightButton) event.preventDefault();
+    else if (
+      event.button !== 0 ||
+      (event.target !== surface && !surface.firstElementChild?.contains(event.target))
+    ) return;
     drag = {
       id: event.pointerId,
       x: event.clientX,
@@ -23,7 +24,8 @@ export function enableDiagramPan(surface) {
     surface.scrollLeft = drag.left + drag.x - event.clientX;
     surface.scrollTop = drag.top + drag.y - event.clientY;
   };
-  surface.onlostpointercapture = () => {
+  surface.onlostpointercapture = (event) => {
+    if (drag?.id !== event.pointerId) return;
     drag = null;
     surface.removeAttribute("data-panning");
   };

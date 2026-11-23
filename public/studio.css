@@ -960,6 +960,7 @@ table[data-auto-column-widths] :is(th, td) {
   flex-direction: column;
   overflow: auto;
   cursor: grab;
+  user-select: none;
   background-color: white;
 }
 .drawing-stage[data-panning] {
@@ -1159,8 +1160,7 @@ table[data-auto-column-widths] :is(th, td) {
   cursor: grab;
   user-select: none;
 }
-.diagram-window:active,
-.mermaid-window[data-panning] {
+.diagram-window[data-panning] {
   cursor: grabbing;
 }
 .diagram-window > svg {

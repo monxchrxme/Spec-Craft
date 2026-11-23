@@ -82,39 +82,48 @@ test("Excalidraw ignores legacy width and falls back to automatic cropping when 
     { height: 360, crop: "" });
 });
 
-test("diagram previews pan the same distance with all three mouse buttons", () => {
-  for (const button of [0, 1, 2]) {
+test("diagram previews drag with the left button and leave middle clicks to the browser", () => {
+  for (const rightButton of [false, true]) {
     let captured;
     let prevented = 0;
-    const image = {};
+    const target = {};
     const surface = {
       scrollLeft: 100, scrollTop: 40,
-      firstElementChild: image,
+      firstElementChild: { contains: (node) => node === target },
       setPointerCapture: (id) => { captured = id; },
       setAttribute() {},
       removeAttribute() {},
     };
     const pointer = {
-      pointerType: "mouse", pointerId: 3, button, clientX: 200, clientY: 90,
-      target: image,
+      pointerType: "mouse", pointerId: 3, clientX: 200, clientY: 90,
+      target,
       preventDefault: () => { prevented++; },
     };
-    enableDiagramPan(surface);
-    if (button === 0) {
-      surface.onpointerdown({ ...pointer, target: surface });
-      assert.equal(captured, undefined);
+    enableDiagramPan(surface, { rightButton });
+    surface.onpointerdown({ ...pointer, button: 1 });
+    assert.equal(captured, undefined);
+    assert.equal(prevented, 0);
+    assert.equal(surface.onauxclick, undefined);
+
+    const drag = (button, origin) => {
+      surface.scrollLeft = 100;
+      surface.scrollTop = 40;
+      surface.onpointerdown({ ...pointer, button, target: origin });
+      assert.equal(captured, 3);
+      surface.onpointermove({ ...pointer, clientX: 150, clientY: 30 });
+      assert.deepEqual([surface.scrollLeft, surface.scrollTop], [150, 100]);
+      surface.onlostpointercapture(pointer);
+      surface.onpointermove({ ...pointer, clientX: 20, clientY: 10 });
+      assert.equal(surface.scrollLeft, 150);
+    };
+    drag(0, target);
+    drag(0, surface);
+    assert.equal(prevented, 0);
+    if (rightButton) {
+      drag(2, surface);
+      surface.oncontextmenu(pointer);
+      assert.equal(prevented, 2);
     }
-    surface.onpointerdown(pointer);
-    surface.onpointermove({ ...pointer, clientX: 150, clientY: 30 });
-    assert.equal(captured, 3);
-    assert.equal(surface.scrollLeft, 150);
-    assert.equal(surface.scrollTop, 100);
-    surface.onlostpointercapture();
-    surface.onpointermove({ ...pointer, clientX: 20, clientY: 10 });
-    assert.equal(surface.scrollLeft, 150);
-    surface.oncontextmenu(pointer);
-    surface.onauxclick(pointer);
-    assert.equal(prevented, button === 1 ? 3 : 2);
   }
 });
 

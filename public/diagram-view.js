@@ -2,6 +2,7 @@
 // keeps its original coordinates and scale.
 import { draw, frameLayout, styleFrame } from "./graph.js";
 import { addHeightHandle, setDiagramHeight } from "./diagram-height.js";
+import { enableDiagramPan } from "./diagram-pan.js";
 
 function viewportGeometry(frame) {
   const svg = frame?.querySelector("svg");
@@ -143,26 +144,7 @@ export function diagramView(
   plus.onclick = () => scale(currentScale() * 1.25);
   reset.onclick = () => scale(1);
   fit.onclick = () => scale("fit");
-  let pan = null;
-  frame.onpointerdown = (e) => {
-    if (e.pointerType !== "mouse" || e.button !== 0 || !svg.contains(e.target))
-      return;
-    pan = {
-      x: e.clientX,
-      y: e.clientY,
-      left: frame.scrollLeft,
-      top: frame.scrollTop,
-    };
-    frame.setPointerCapture(e.pointerId);
-  };
-  frame.onpointermove = (e) => {
-    if (!pan) return;
-    frame.scrollLeft = pan.left + pan.x - e.clientX;
-    frame.scrollTop = pan.top + pan.y - e.clientY;
-  };
-  frame.onlostpointercapture = () => {
-    pan = null;
-  };
+  enableDiagramPan(frame);
   const fitMode = layout.fit;
   scale(fitMode === "contain" ? "fit" : fitMode === "width" ? "width" : 1);
   return card;
