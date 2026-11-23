@@ -44,7 +44,7 @@ export function excalidrawBlocks(md) {
         <label data-drawing-width hidden>Ширина <input aria-label="Ширина рисунка, %" type="number" min="30" max="100" step="1"> %</label>
         <button type="button" data-excalidraw-edit hidden>Изменить</button>
         <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
-        <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На весь экран</span></button>
+        <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
       </header>
       <div class="drawing-stage">
         <img alt="Рисунок Excalidraw" hidden>
@@ -210,29 +210,15 @@ export function editDrawing(card, scene, { save, cancel, crop = false, fullscree
     else block?.style.removeProperty("--drawing-fullscreen-height");
     card.classList.toggle("drawing-fullscreen", active);
     fullscreenButton.setAttribute("aria-pressed", String(active));
-    fullscreenButton.lastElementChild.textContent = active ? "Выйти из полноэкранного режима" : "На весь экран";
-  }
-  function enterFullscreen() {
-    setFullscreen(true);
-    // Keep the same mounted canvas when the browser only allows page fullscreen.
-    if (document.fullscreenEnabled && card.requestFullscreen) {
-      void card.requestFullscreen().then(() => {
-        if (document.fullscreenElement === card && !card.classList.contains("drawing-fullscreen"))
-          return document.exitFullscreen();
-      }).catch(() => {});
-    }
+    fullscreenButton.lastElementChild.textContent = active ? "Вернуться к документу" : "На всю вкладку";
   }
   function exitFullscreen() {
     if (!card.classList.contains("drawing-fullscreen")) return false;
-    if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {});
     setFullscreen(false);
     return true;
   }
-  card.onfullscreenchange = (event) => {
-    if (event.target === card && document.fullscreenElement !== card) setFullscreen(false);
-  };
   fullscreenButton.onclick = () => {
-    if (!exitFullscreen()) enterFullscreen();
+    if (!exitFullscreen()) setFullscreen(true);
   };
 
   function startCrop() {
@@ -246,12 +232,12 @@ export function editDrawing(card, scene, { save, cancel, crop = false, fullscree
   frame.onload = () => {
     try {
       frame.contentDocument.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && document.fullscreenElement !== card && exitFullscreen()) {
+        if (event.key === "Escape" && exitFullscreen()) {
           event.preventDefault();
-          event.stopPropagation();
+          event.stopImmediatePropagation();
           fullscreenButton.focus({ preventScroll: true });
         }
-      });
+      }, { capture: true });
       frame.contentWindow.openSpecCraftDrawing(scene, (drawingApi) => {
         if (stopped) return;
         clearTimeout(timer);
@@ -274,7 +260,7 @@ export function editDrawing(card, scene, { save, cancel, crop = false, fullscree
   actions.querySelector("[data-cancel]").onclick = cancel;
   frame.src = new URL("./excalidraw-frame.html", import.meta.url).href;
   stage.replaceChildren(frame, status);
-  if (fullscreen) enterFullscreen();
+  if (fullscreen) setFullscreen(true);
   return {
     exitFullscreen,
     snapshot(layout, requireCrop = false) {
