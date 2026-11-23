@@ -1508,6 +1508,11 @@ footer {
 #save:empty {
   display: none;
 }
+#private-save {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 #wordcount {
   margin-inline-start: auto;
 }

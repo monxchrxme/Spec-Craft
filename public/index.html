@@ -51,6 +51,12 @@
           <i data-lucide="layout-template"></i></button
         ><button
           class="rail-bottom"
+          type="button"
+          data-action="private-sync"
+          aria-label="Личная синхронизация"
+          title="Личная синхронизация"
+        ><i data-lucide="user-round" aria-hidden="true"></i></button
+        ><button
           data-action="style"
           title="Оформление документа"
           aria-label="Оформление документа"
@@ -177,6 +183,9 @@
             </label>
             <button data-action="transfer">
               <i data-lucide="folder-sync"></i>Перенос данных
+            </button>
+            <button data-action="private-sync">
+              <i data-lucide="user-round"></i>Личная синхронизация
             </button>
             <button data-action="ai">
               <i data-lucide="sparkles"></i>Для ИИ
@@ -507,6 +516,7 @@
         </div>
         <footer>
           <span id="save" role="status"></span>
+          <span id="private-save" hidden></span>
           <button data-action="collaboration-conflict" hidden>
             Сравнить правки
           </button>

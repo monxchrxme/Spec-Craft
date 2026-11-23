@@ -98,7 +98,13 @@ import {
   highlightSidebarMatches,
   sidebarSearchPattern,
 } from "./sidebar-navigation.js";
-import { folderStorageKey, mergeFolders, readFolders } from "./workspace-folders.js";
+import { mergeFolders, readFolders } from "./workspace-folders.js";
+import {
+  activeWorkspace, activeWorkspaceKey, readWorkspace, workspaceKeys, writeWorkspace,
+} from "./private-workspace-storage.js";
+import { privateRequest, personalSync } from "./private-sync.js";
+import { emptyWorkspace, mergeWorkspace, workspaceSummary } from "./private-workspace-model.js";
+import { privateSyncPanel } from "./private-sync-panel.js";
 import { workspaceFileActions } from "./workspace-file-actions.js";
 import {
   applyTableWidths,
@@ -145,8 +151,11 @@ const md = window
   .use(tableWidths)
   .use(cellLineBreaks)
   .use(portableBlocks);
-const prefix = "buro:doc:",
-  sessionKey = "buro:active",
+const workspaceId = activeWorkspace();
+const storageKeys = workspaceKeys(workspaceId);
+const prefix = storageKeys.docs,
+  folderStorageKey = storageKeys.folders,
+  sessionKey = storageKeys.active,
   toolbarKey = "buro:topbar-collapsed",
   mobileLayout = matchMedia("(max-width: 760px)"),
   icons = () => window.lucide?.createIcons();
@@ -180,7 +189,8 @@ let doc,
   feedbackTimer,
   loaded = true,
   expandAll = false,
-  liveEdit = null;
+  liveEdit = null,
+  privateSync;
 function notice(s) {
   clearTimeout(feedbackTimer);
   $("#notice").textContent = s;
@@ -205,9 +215,9 @@ function readDocument(id, raw) {
   }
   return null;
 }
-let firstVisit = true;
+let firstVisit = !workspaceId;
 try {
-  firstVisit = localStorage.getItem(sessionKey) === null;
+  firstVisit = !workspaceId && localStorage.getItem(sessionKey) === null;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k?.startsWith(prefix)) continue;
@@ -238,6 +248,7 @@ function writeRecord(d) {
   Object.assign(d, record);
   savedRecords.set(d.id, raw);
   docs.set(d.id, d);
+  privateSync?.queue();
 }
 function save() {
   clearTimeout(timer);
@@ -2506,6 +2517,7 @@ function updateFile(id, mutate) {
       docs.delete(id);
       savedRecords.delete(id);
       history.delete(id);
+      privateSync?.queue();
     }
     return true;
   } catch {
@@ -2519,6 +2531,7 @@ function changeFolders(change) {
     const next = change(current);
     localStorage.setItem(folderStorageKey, JSON.stringify(next));
     folders = next;
+    privateSync?.queue();
     nav();
     return true;
   } catch (error) {
@@ -3479,6 +3492,7 @@ function updateLiveControls() {
   $("[data-action=collaboration-conflict]").hidden = true;
   hideLivePeople();
   livePeopleButton.querySelector("span").textContent = "";
+  privateSave.hidden = !workspaceId || !!liveEdit;
   document.body.classList.toggle("live-editing", !!liveEdit);
 }
 
@@ -3807,6 +3821,7 @@ function transferDialog() {
       if (restoredFolders.folders.length > folders.length) {
         localStorage.setItem(folderStorageKey, JSON.stringify(restoredFolders.folders));
         folders = restoredFolders.folders;
+        privateSync?.queue();
       }
       for (const importedRecord of bundle.documents) {
         const record = {
@@ -3854,6 +3869,89 @@ function transferDialog() {
     event.target.value = "";
   };
 }
+
+let privateStatus = "";
+const privateSave = $("#private-save");
+
+function updatePrivateStatus(message) {
+  privateStatus = message;
+  privateSave.textContent = message;
+  privateSave.title = message;
+  privateSave.hidden = !workspaceId || !!liveEdit;
+  const status = modal.querySelector("[data-private-status]");
+  if (status) status.textContent = message;
+}
+
+function replacePrivateWorkspace(before, after) {
+  if (JSON.stringify(readWorkspace(storageKeys)) !== JSON.stringify(before)) return false;
+  writeWorkspace(storageKeys, after);
+  const active = doc?.id;
+  const changed = new Map(after.documents.map((item) => [item.id, item]));
+  for (const id of docs.keys()) {
+    const next = changed.get(id);
+    if (JSON.stringify(next) !== savedRecords.get(id)) history.delete(id);
+  }
+  docs.clear();
+  savedRecords.clear();
+  for (const record of after.documents) {
+    docs.set(record.id, record);
+    savedRecords.set(record.id, localStorage.getItem(prefix + record.id));
+  }
+  folders = after.folders;
+  const next = docs.get(active);
+  doc = next && !next.trashed ? next : availableDocs()[0];
+  nav();
+  render();
+  return true;
+}
+
+function privateWorkspaceDialog(message) {
+  const panel = dialog("Личная синхронизация", "");
+  if (liveEdit) {
+    panel.textContent = "Чтобы сменить личное пространство, выйдите из общего документа.";
+    return;
+  }
+  const saveFirst = () => {
+    flush();
+    if (!save()) throw Error("Сначала сохраните текущие правки.");
+  };
+  void privateSyncPanel(panel, {
+    active: workspaceId,
+    status: () => privateStatus,
+    message,
+    async connect(id, include) {
+      saveFirst();
+      if (include && id !== workspaceId) {
+        const target = workspaceKeys(id);
+        const mine = readWorkspace(target);
+        const guest = readWorkspace(workspaceKeys(""));
+        const [mySummary, guestSummary] = await Promise.all([workspaceSummary(mine), workspaceSummary(guest)]);
+        if (JSON.stringify(readWorkspace(target)) !== JSON.stringify(mine))
+          throw Error("Данные изменились в другой вкладке. Повторите подключение.");
+        const merged = mergeWorkspace({ documents: {}, folders: [] }, mine, guest, mySummary, guestSummary);
+        writeWorkspace(target, merged.workspace);
+      }
+      localStorage.setItem(activeWorkspaceKey, id);
+      location.reload();
+    },
+    async sync() {
+      saveFirst();
+      await privateSync?.flush();
+    },
+    async leave(id) {
+      saveFirst();
+      if (id && id === workspaceId && !await privateSync?.flush())
+        throw Error("Дождитесь синхронизации перед выходом. Правки пока находятся в этом браузере.");
+      if (id) await privateRequest("logout", {}, id);
+      if (workspaceId) {
+        localStorage.removeItem(activeWorkspaceKey);
+        location.reload();
+      } else {
+        modal.close();
+      }
+    },
+  });
+}
 function setToolbarCollapsed(collapsed) {
   const scrollTop = viewport.scrollTop;
   toolbar.hidden = collapsed;
@@ -3895,6 +3993,7 @@ const panelActions = {
   "collaboration-conflict": compareLiveEdits,
   "edit-doc-label": editDocumentLabel,
   transfer: transferDialog,
+  "private-sync": () => privateWorkspaceDialog(),
   trace: () => panels.trace(),
   links: () => {
     flush();
@@ -4113,6 +4212,13 @@ function syncFile(id) {
   else nav();
 }
 window.addEventListener("storage", (event) => {
+  if (event.key === activeWorkspaceKey && activeWorkspace() !== workspaceId) {
+    if (liveEdit) return;
+    flush();
+    save();
+    location.reload();
+    return;
+  }
   if (event.key?.startsWith(prefix)) syncFile(event.key.slice(prefix.length));
   if (event.key === folderStorageKey) {
     try {
@@ -4122,6 +4228,7 @@ window.addEventListener("storage", (event) => {
       notice("Не удалось прочитать папки из другой вкладки.");
     }
   }
+  if (event.key?.startsWith(prefix) || event.key === folderStorageKey) privateSync?.queue();
 });
 window.addEventListener("pagehide", () => {
   finishDrawing(true, false);
@@ -4169,5 +4276,37 @@ try {
 }
 save();
 if (!loaded) notice("Не удалось восстановить часть локальных данных");
+
+if (workspaceId) {
+  privateSync = personalSync({
+    workspace: workspaceId,
+    read: () => readWorkspace(storageKeys),
+    apply: replacePrivateWorkspace,
+    canApply: () => !liveEdit && !editor && !tableEdit && !inlineGraph && !inlineDrawing &&
+      !inlineBibliography && (!modal.open || openPanelKey === "private-sync") &&
+      document.activeElement !== source,
+    status: updatePrivateStatus,
+  });
+  updatePrivateStatus("Проверяем личное пространство…");
+  privateSync.queue();
+  window.addEventListener("online", privateSync.queue);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) privateSync.queue();
+  });
+  setInterval(() => {
+    if (!document.hidden) privateSync.queue();
+  }, 30_000);
+}
+const privateRedirect = new URLSearchParams(location.search).get("private-sync");
+if (privateRedirect) {
+  const url = new URL(location.href);
+  url.searchParams.delete("private-sync");
+  window.history.replaceState(null, "", url);
+  togglePanel("private-sync", () => privateWorkspaceDialog(
+    privateRedirect === "google" ? "Вход через Google выполнен." :
+      privateRedirect === "google-unavailable" ? "Google OAuth ещё не настроен на этом сайте." :
+        "Вход через Google не завершён. Попробуйте снова.",
+  ));
+}
 
 syncReviewLink();
