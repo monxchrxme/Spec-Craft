@@ -7,15 +7,22 @@ window.EXCALIDRAW_ASSET_PATH = new URL("./", import.meta.url).href;
 
 export function mountDrawing(element, scene, ready) {
   const root = createRoot(element);
+  let api;
+  let initialized = false;
   root.render(createElement(Excalidraw, {
     langCode: "ru-RU",
     initialData: { ...scene, scrollToContent: true },
-    excalidrawAPI: (api) => ready({
-      snapshot: () => serializeAsJSON(
-        api.getSceneElements(), api.getAppState(), api.getFiles(), "local",
-      ),
-      frameTool: () => api.setActiveTool({ type: "frame" }),
-    }),
+    excalidrawAPI: (instance) => { api = instance; },
+    onChange: () => {
+      if (!api || initialized) return;
+      initialized = true;
+      queueMicrotask(() => ready({
+        snapshot: () => serializeAsJSON(
+          api.getSceneElements(), api.getAppState(), api.getFiles(), "local",
+        ),
+        frameTool: () => api.setActiveTool({ type: "frame" }),
+      }));
+    },
   }));
 }
 

@@ -984,6 +984,13 @@ table[data-auto-column-widths] :is(th, td) {
 .drawing-edit-actions {
   flex-wrap: wrap;
 }
+.drawing-crop-hint {
+  flex: 1 0 100%;
+  order: 1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
 .drawing-card header input {
   width: 8ch;
   padding-inline: 5px;
@@ -993,8 +1000,34 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .drawing-editing [data-drawing-crop],
 .drawing-editing .diagram-remove,
-.drawing-card.diagram-expanded [data-drawing-width] {
+.drawing-card.diagram-expanded [data-drawing-width],
+.drawing-fullscreen :is([data-drawing-width], [data-drawing-expand], .diagram-height-grip) {
   display: none !important;
+}
+.block:has(> .drawing-fullscreen) {
+  min-height: var(--drawing-fullscreen-height);
+}
+.drawing-card.drawing-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface, white);
+}
+.drawing-fullscreen > header {
+  flex: none;
+}
+.drawing-card.drawing-fullscreen .drawing-stage {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  height: auto;
 }
 .diagram-card {
   border: 1px solid var(--line);

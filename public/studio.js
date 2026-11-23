@@ -1020,7 +1020,7 @@ function editMermaidCode(index, selectExample = false) {
   const end = Math.max(start, ta.value.lastIndexOf("\n"));
   ta.setSelectionRange(start, selectExample ? end : start);
 }
-function openDrawing(index) {
+function openDrawing(index, { crop = false, fullscreen = false } = {}) {
   const state = prepareBlockChange(index);
   const token = state && parts[state.origin].t;
   if (!isExcalidraw(token)) return;
@@ -1032,6 +1032,8 @@ function openDrawing(index) {
     const layout = drawingPresentation(scene);
     const top = blockTop(box);
     const editor = editDrawing(card, scene, {
+      crop,
+      fullscreen,
       save: () => finishDrawing(true, true, true),
       cancel: () => finishDrawing(false),
     });
@@ -1047,7 +1049,8 @@ function finishDrawing(commit = true, restore = true, keepOpenOnError = false) {
   if (commit) {
     try {
       const previous = JSON.stringify({ ...scene, specCraft: drawingPresentation(scene) });
-      const next = editor.snapshot(layout);
+      const next = editor.snapshot(layout, keepOpenOnError);
+      if (!next) return;
       if (JSON.stringify(next) !== previous) {
         if (patchStructuredBlock(state, drawingFence(next))) save();
         else if (keepOpenOnError) return;
@@ -1059,8 +1062,8 @@ function finishDrawing(commit = true, restore = true, keepOpenOnError = false) {
   }
   inlineDrawing = null;
   const expanded = isExpanded(card);
-  if (restore && card.isConnected) replaceStructuredView(state.origin, expanded);
   editor.stop();
+  if (restore && card.isConnected) replaceStructuredView(state.origin, expanded);
 }
 function changeDrawing(index, card, change) {
   if (inlineDrawing?.card === card) {
@@ -1314,7 +1317,7 @@ function buildBlock(p, i, expanded) {
       drawingControls(card, {
         expanded,
         onExpand: updateExpandButton,
-        edit: mode === "edit" ? () => openDrawing(i) : undefined,
+        edit: mode === "edit" ? (options) => openDrawing(i, options) : undefined,
         change: (change) => changeDrawing(i, card, change),
       });
     } catch {
@@ -3975,7 +3978,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (inlineDrawing && e.key === "Escape") {
-    finishDrawing();
+    if (!inlineDrawing.editor.exitFullscreen()) finishDrawing();
     e.preventDefault();
     return;
   }

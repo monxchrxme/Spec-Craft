@@ -44,6 +44,7 @@ export function excalidrawBlocks(md) {
         <label data-drawing-width hidden>Ширина <input aria-label="Ширина рисунка, %" type="number" min="30" max="100" step="1"> %</label>
         <button type="button" data-excalidraw-edit hidden>Изменить</button>
         <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
+        <button type="button" data-drawing-fullscreen hidden aria-pressed="false"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На весь экран</span></button>
       </header>
       <div class="drawing-stage">
         <img alt="Рисунок Excalidraw" hidden>
@@ -127,7 +128,10 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
   if (!edit) return;
   const editButton = card.querySelector("[data-excalidraw-edit]");
   editButton.hidden = false;
-  editButton.onclick = edit;
+  editButton.onclick = () => edit();
+  const fullscreen = card.querySelector("[data-drawing-fullscreen]");
+  fullscreen.hidden = false;
+  fullscreen.onclick = () => edit({ fullscreen: true });
 
   const crop = card.querySelector("[data-drawing-crop]");
   const select = crop.querySelector("select");
@@ -136,9 +140,15 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
     const name = typeof frame.name === "string" && frame.name.trim();
     select.add(new Option(name || "Рамка " + (index + 1), frame.id));
   });
+  const chooseArea = new Option("Выбрать область…", ":choose-area");
+  select.add(chooseArea);
   select.value = layout.crop;
-  select.title = "Для ручной обрезки добавьте рамку на холсте и выберите её здесь.";
   select.onchange = () => {
+    if (select.selectedOptions[0] === chooseArea) {
+      select.value = layout.crop;
+      edit({ crop: true });
+      return;
+    }
     if (!change({ crop: select.value })) select.value = layout.crop;
   };
   crop.hidden = false;
@@ -165,7 +175,7 @@ export function drawingControls(card, { expanded, onExpand, edit, change }) {
     (height) => change({ height }));
 }
 
-export function editDrawing(card, scene, { save, cancel }) {
+export function editDrawing(card, scene, { save, cancel, crop = false, fullscreen = false }) {
   const stage = card.querySelector(".drawing-stage");
   const edit = card.querySelector("[data-excalidraw-edit]");
   const actions = document.createElement("div");
@@ -174,6 +184,11 @@ export function editDrawing(card, scene, { save, cancel }) {
     <button type="button" data-cancel>Отмена</button>
     <button type="button" class="primary" data-save disabled>Сохранить рисунок</button>`;
   edit.after(actions);
+  const hint = document.createElement("span");
+  hint.className = "drawing-crop-hint";
+  hint.setAttribute("role", "status");
+  hint.hidden = true;
+  card.querySelector("header").append(hint);
   edit.hidden = true;
   card.classList.add("drawing-editing");
   const frame = document.createElement("iframe");
@@ -186,14 +201,65 @@ export function editDrawing(card, scene, { save, cancel }) {
   const timer = setTimeout(() => { status.textContent = "Не удалось загрузить Excalidraw."; }, 15_000);
   let api, initial;
   let selectNewFrame = false;
+  let stopped = false;
+  const fullscreenButton = card.querySelector("[data-drawing-fullscreen]");
+
+  function setFullscreen(active) {
+    const block = card.parentElement;
+    if (active) block.style.setProperty("--drawing-fullscreen-height", card.offsetHeight + "px");
+    else block?.style.removeProperty("--drawing-fullscreen-height");
+    card.classList.toggle("drawing-fullscreen", active);
+    fullscreenButton.setAttribute("aria-pressed", String(active));
+    fullscreenButton.lastElementChild.textContent = active ? "Выйти из полноэкранного режима" : "На весь экран";
+  }
+  function enterFullscreen() {
+    setFullscreen(true);
+    // Keep the same mounted canvas when the browser only allows page fullscreen.
+    if (document.fullscreenEnabled && card.requestFullscreen) {
+      void card.requestFullscreen().then(() => {
+        if (document.fullscreenElement === card && !card.classList.contains("drawing-fullscreen"))
+          return document.exitFullscreen();
+      }).catch(() => {});
+    }
+  }
+  function exitFullscreen() {
+    if (!card.classList.contains("drawing-fullscreen")) return false;
+    if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {});
+    setFullscreen(false);
+    return true;
+  }
+  card.onfullscreenchange = (event) => {
+    if (event.target === card && document.fullscreenElement !== card) setFullscreen(false);
+  };
+  fullscreenButton.onclick = () => {
+    if (!exitFullscreen()) enterFullscreen();
+  };
+
+  function startCrop() {
+    selectNewFrame = true;
+    api.frameTool();
+    cropButton.setAttribute("aria-pressed", "true");
+    saveButton.textContent = "Применить обрезку";
+    hint.textContent = "Протяните рамку вокруг нужной области.";
+    hint.hidden = false;
+  }
   frame.onload = () => {
     try {
+      frame.contentDocument.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && document.fullscreenElement !== card && exitFullscreen()) {
+          event.preventDefault();
+          event.stopPropagation();
+          fullscreenButton.focus({ preventScroll: true });
+        }
+      });
       frame.contentWindow.openSpecCraftDrawing(scene, (drawingApi) => {
+        if (stopped) return;
         clearTimeout(timer);
         api = drawingApi;
         initial = api.snapshot();
         status.hidden = true;
         cropButton.disabled = saveButton.disabled = false;
+        if (crop) startCrop();
       });
     } catch {
       clearTimeout(timer);
@@ -201,29 +267,37 @@ export function editDrawing(card, scene, { save, cancel }) {
     }
   };
   cropButton.onclick = () => {
-    selectNewFrame = true;
-    api.frameTool();
+    startCrop();
     frame.contentWindow.focus();
   };
   saveButton.onclick = save;
   actions.querySelector("[data-cancel]").onclick = cancel;
   frame.src = new URL("./excalidraw-frame.html", import.meta.url).href;
   stage.replaceChildren(frame, status);
+  if (fullscreen) enterFullscreen();
   return {
-    snapshot(layout) {
+    exitFullscreen,
+    snapshot(layout, requireCrop = false) {
       const raw = api?.snapshot();
       const next = raw && raw !== initial ? readDrawing(raw) : { ...scene };
       const nextLayout = { ...layout };
       if (selectNewFrame) {
         const previous = new Set(drawingFrames(scene).map((frame) => frame.id));
         const added = drawingFrames(next).findLast((frame) => !previous.has(frame.id));
+        if (!added && requireCrop) {
+          hint.textContent = "Сначала выделите область на холсте.";
+          api.frameTool();
+          return null;
+        }
         if (added) nextLayout.crop = added.id;
       }
       next.specCraft = drawingPresentation({ ...next, specCraft: nextLayout });
       return next;
     },
     stop() {
+      stopped = true;
       clearTimeout(timer);
+      exitFullscreen();
       frame.remove();
     },
   };
