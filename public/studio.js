@@ -366,7 +366,12 @@ function nav() {
       }
       filterFiles();
     };
-    row.append(button, fileMenu("Действия с папкой " + folder.name, () => folderActions(folder.id)));
+    row.append(
+      button,
+      fileMenu("Действия с папкой " + folder.name, "folder:" + folder.id, () =>
+        folderActions(folder.id),
+      ),
+    );
     const contents = document.createElement("div");
     contents.className = "folder-contents";
     entry.append(row, contents);
@@ -383,7 +388,12 @@ function nav() {
     const row = document.createElement("div");
     row.className = "file-row";
     row.dataset.documentRow = d.id;
-    row.append(b, fileMenu("Действия с файлом " + d.name, () => fileActions(d.id)));
+    row.append(
+      b,
+      fileMenu("Действия с файлом " + d.name, "file:" + d.id, () =>
+        fileActions(d.id),
+      ),
+    );
     (levels.get(d.folderId) || files).append(row);
   }
   filterFiles();
@@ -398,13 +408,14 @@ function nav() {
     b.disabled = !doc;
   icons();
 }
-function fileMenu(label, action) {
+function fileMenu(label, key, action) {
   const menu = document.createElement("button");
   menu.className = "file-menu";
   menu.title = label;
   menu.setAttribute("aria-label", label);
   menu.innerHTML = icon("ellipsis");
-  menu.onclick = action;
+  bindPanelButton(menu, key);
+  menu.onclick = () => togglePanel(key, action);
   return menu;
 }
 function switchDoc(d) {
@@ -1179,7 +1190,13 @@ function documentBlockTools(box, part, index, kind) {
       kind === "projectTree" ? "Изменить структуру" : "Изменить список",
     );
     edit.onmousedown = (event) => event.preventDefault();
-    edit.onclick = () => openStructuredBlock(index, kind);
+    if (kind === "projectTree") {
+      const key = "project-tree:" + index;
+      bindPanelButton(edit, key);
+      edit.onclick = () => togglePanel(key, () => openStructuredBlock(index, kind));
+    } else {
+      edit.onclick = () => openStructuredBlock(index, kind);
+    }
     tools.append(edit);
   }
   const copy = document.createElement("button");
@@ -1351,6 +1368,7 @@ function buildBlock(p, i, expanded) {
         width: Number(image.dataset.imageWidth) || null,
         source: p.text,
       };
+      const replacePanelKey = "image:" + i;
       box.showImageSettings = imageInspector(paragraph, image, p.text, {
         reopen: (options) => {
           if (!editor && !tableEdit && !inlineGraph) return false;
@@ -1382,11 +1400,13 @@ function buildBlock(p, i, expanded) {
           const state = imagePosition(i, initial.source);
           if (state) replaceImage(state.origin, value, true);
         },
-        replace: () => {
-          const state = imagePosition(i, initial.source);
-          if (state) imageDialog(state.origin, initial);
-        },
+        replace: () =>
+          togglePanel(replacePanelKey, () => {
+            const state = imagePosition(i, initial.source);
+            if (state) imageDialog(state.origin, initial);
+          }),
       });
+      bindPanelButton(box.querySelector("[data-image-replace]"), replacePanelKey);
       box.append(deleteBlockButton(i, "Удалить изображение", "block-remove"));
       return box;
     }
@@ -2279,13 +2299,41 @@ function insertBlock(type, idx = insertionBlock(), content) {
   }
 }
 let disposeImageDialog, stopComments, composeLiveComment;
+let openPanelKey = "";
+
+function bindPanelButton(button, key) {
+  button.dataset.panelKey = key;
+  button.setAttribute("aria-controls", modal.id);
+  button.setAttribute("aria-expanded", String(modal.open && openPanelKey === key));
+}
+
+function setPanelKey(key) {
+  openPanelKey = key;
+  for (const button of document.querySelectorAll("[data-panel-key]")) {
+    button.setAttribute("aria-expanded", String(button.dataset.panelKey === key));
+  }
+}
+
+function togglePanel(key, open) {
+  if (modal.open && openPanelKey === key) {
+    modal.close();
+    setPanelKey("");
+    return;
+  }
+  const previous = modal.firstElementChild;
+  open();
+  if (modal.open && modal.firstElementChild !== previous) setPanelKey(key);
+}
+
 function closeComments() {
   stopComments?.();
   stopComments = null;
   composeLiveComment = null;
 }
 modal.addEventListener("close", () => {
-  if (!modal.open) closeComments();
+  if (modal.open) return;
+  setPanelKey("");
+  closeComments();
 });
 function resetModal() {
   closeComments();
@@ -3357,8 +3405,7 @@ function toggleLiveComments(target) {
   target ??= liveTextSelection();
   const container = dialog("Комментарии", "");
   modal.classList.add("comments-dialog");
-  const trigger = $("[data-action=collaboration-discussion]");
-  trigger.setAttribute("aria-expanded", "true");
+  setPanelKey("collaboration-discussion");
   const showCanvas = () => {
     if (host.hidden) setMode("read");
   };
@@ -3400,10 +3447,7 @@ function toggleLiveComments(target) {
   });
   composeLiveComment = commentAt;
   if (target) commentAt(target);
-  stopComments = () => {
-    stop();
-    trigger.setAttribute("aria-expanded", "false");
-  };
+  stopComments = stop;
 }
 
 $("[data-action=collaboration-discussion]").addEventListener(
@@ -3700,7 +3744,10 @@ host.addEventListener(
     const name = link.dataset.wiki,
       matches = specIndex(parse()).resolve(name);
     if (matches.length === 1) jumpTo(matches[0]);
-    else panels.links(name);
+    else {
+      panels.links(name);
+      setPanelKey("links");
+    }
   },
   true,
 );
@@ -3843,14 +3890,9 @@ function toggleToolbar() {
     // The current view still works when browser storage is unavailable.
   }
 }
-const actions = {
-  "collaboration-people": toggleLivePeople,
+const panelActions = {
   share: sharingDialog,
   "collaboration-conflict": compareLiveEdits,
-  "collaboration-discussion": toggleLiveComments,
-  "collaboration-exit": () =>
-    leaveLiveEditing(() => clearShareHash("document")),
-  "expand-diagrams": toggleAllDiagrams,
   "edit-doc-label": editDocumentLabel,
   transfer: transferDialog,
   trace: () => panels.trace(),
@@ -3860,6 +3902,29 @@ const actions = {
     panels.links(h?.id || h?.label);
   },
   versions: () => panels.versions(),
+  new: () => templates.createFrom(),
+  "new-folder": () => folderNameDialog(),
+  templates: () => templates.library(),
+  ai: aiDialog,
+  export: exportDialog,
+  style: styleDialog,
+  "pdf-settings": () => styleDialog(true),
+  insert: insertDialog,
+  rename: () => renameFile(doc.id),
+  trash: trashDialog,
+};
+for (const button of document.querySelectorAll("button[data-action]")) {
+  const action = button.dataset.action;
+  if (Object.hasOwn(panelActions, action) || action === "collaboration-discussion")
+    bindPanelButton(button, action);
+}
+
+const actions = {
+  "collaboration-people": toggleLivePeople,
+  "collaboration-discussion": toggleLiveComments,
+  "collaboration-exit": () =>
+    leaveLiveEditing(() => clearShareHash("document")),
+  "expand-diagrams": toggleAllDiagrams,
   "toggle-topbar": toggleToolbar,
   "toggle-sidebar-tools": () => {
     const list = $("#sidebar-tool-list");
@@ -3874,19 +3939,9 @@ const actions = {
       mobileLayout.matches ? "show-side" : "hide-side",
     ),
   open: () => $("#file-input").click(),
-  new: () => templates.createFrom(),
-  "new-folder": () => folderNameDialog(),
-  templates: () => templates.library(),
-  ai: aiDialog,
-  export: exportDialog,
-  style: styleDialog,
-  "pdf-settings": () => styleDialog(true),
-  insert: insertDialog,
   append: () => insertBlock("paragraph", parts.length - 1),
   undo: () => historyStep(false),
   redo: () => historyStep(true),
-  rename: () => renameFile(doc.id),
-  trash: trashDialog,
 };
 document.addEventListener("click", (event) => {
   const link = event.target.closest('.paper a[href^="#"]');
@@ -3923,8 +3978,11 @@ document.addEventListener("click", (e) => {
   if (stopReview) return;
   const b = e.target.closest("[data-action],[data-mode]");
   if (!b) return;
+  const action = b.dataset.action;
   if (b.dataset.mode) setMode(b.dataset.mode);
-  else actions[b.dataset.action]?.();
+  else if (Object.hasOwn(panelActions, action))
+    togglePanel(action, panelActions[action]);
+  else actions[action]?.();
 });
 $("#file-input").onchange = async (e) => {
   for (const f of e.target.files) {

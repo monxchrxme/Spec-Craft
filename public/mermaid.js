@@ -38,16 +38,14 @@ export function mermaidBlocks(md) {
     if (!isMermaid(token)) return original(tokens, index, options, env, self);
     const { height } = mermaidPresentation(token.content);
     return `<figure class="diagram-card mermaid-figure" data-mermaid${height ? ` data-manual-height style="--manual-diagram-height:${height}px"` : ""}>
-      <header class="diagram-title"><i data-lucide="git-fork" aria-hidden="true"></i><strong>Mermaid</strong>
-        <div class="diagram-actions mermaid-actions">
-          <button type="button" data-mermaid-edit aria-label="Изменить код" title="Изменить код" hidden><i data-lucide="code" aria-hidden="true"></i><span>Изменить код</span></button>
-          <label class="mermaid-option" data-mermaid-layout hidden><i data-lucide="layout-template" aria-hidden="true"></i><span>Раскладка</span><select aria-label="Раскладка Mermaid"></select></label>
-          <label class="mermaid-option" data-mermaid-direction hidden><i data-lucide="arrow-right" aria-hidden="true"></i><span>Направление</span><select aria-label="Направление Mermaid"></select></label>
-          <label class="mermaid-option" data-mermaid-theme hidden><i data-lucide="palette" aria-hidden="true"></i><span>Оформление</span><select aria-label="Оформление Mermaid"></select></label>
-          <button type="button" data-mermaid-svg title="Скачать диаграмму Mermaid как SVG" aria-label="Скачать SVG Mermaid" hidden>SVG</button>
-          <button type="button" data-mermaid-fit aria-pressed="false" aria-label="Вписать" title="Вписать" hidden><i data-lucide="scan" aria-hidden="true"></i><span>Вписать</span></button>
-          <button type="button" data-mermaid-expand aria-expanded="false" hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
-        </div>
+      <header class="diagram-title"><strong>Mermaid</strong>
+        <button type="button" data-mermaid-edit hidden>Изменить код</button>
+        <label class="mermaid-option" data-mermaid-layout title="Как размещаются фигуры и стрелки" hidden>Раскладка <select aria-label="Раскладка Mermaid"></select></label>
+        <label class="mermaid-option" data-mermaid-direction title="«Как в коде» следует исходнику. Другой вариант меняет направление при отрисовке." hidden>Направление <select aria-label="Направление Mermaid"></select></label>
+        <label class="mermaid-option" data-mermaid-theme title="Цвета и оформление диаграммы" hidden>Оформление <select aria-label="Оформление Mermaid"></select></label>
+        <button type="button" data-mermaid-svg title="Скачать диаграмму Mermaid как SVG" aria-label="Скачать SVG Mermaid" hidden>SVG</button>
+        <button type="button" data-mermaid-fit aria-pressed="false" hidden>Вписать</button>
+        <button type="button" data-mermaid-expand aria-expanded="false" hidden>Развернуть</button>
       </header>
       <div class="diagram-window mermaid-window" aria-label="Просмотр диаграммы Mermaid" tabindex="0" hidden></div>
       <p class="mermaid-status" role="status">Построение диаграммы…</p>
@@ -162,10 +160,7 @@ export function mermaidControls(
     if (!card.setExpanded) {
       card.setExpanded = (value) => {
         card.classList.toggle("diagram-expanded", value);
-        const label = value ? "Свернуть" : "Развернуть";
-        expand.lastElementChild.textContent = label;
-        expand.setAttribute("aria-label", label);
-        expand.title = label;
+        expand.textContent = value ? "Свернуть" : "Развернуть";
         expand.setAttribute("aria-expanded", String(value));
       };
       card.setExpanded(!!expanded);
@@ -178,10 +173,7 @@ export function mermaidControls(
     fit.onclick = () => {
       const fitting = card.classList.toggle("mermaid-fit");
       fit.setAttribute("aria-pressed", String(fitting));
-      const label = fitting ? "Исходный размер" : "Вписать";
-      fit.lastElementChild.textContent = label;
-      fit.setAttribute("aria-label", label);
-      fit.title = label;
+      fit.textContent = fitting ? "Исходный размер" : "Вписать";
     };
     change.hidden = !edit;
     if (edit) change.onclick = edit;
@@ -201,16 +193,10 @@ export function mermaidControls(
     const setup = (selector, options, value) => {
       const label = card.querySelector(selector);
       const input = label.querySelector("select");
-      const name = label.querySelector("span").textContent;
-      const updateTitle = () => {
-        label.title = name + " — " + input.selectedOptions[0].text;
-      };
       input.append(
         ...Object.entries(options).map(([id, title]) => new Option(title, id)),
       );
       input.value = value;
-      updateTitle();
-      input.addEventListener("change", updateTitle);
       label.hidden = false;
       return input;
     };
