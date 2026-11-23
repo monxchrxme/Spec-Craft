@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
 import { privateWorkspaceHandler } from "../api/private-workspace.js";
+import { googleFinish, privateAccount } from "../lib/private-account.js";
 import { mergeWorkspace, workspaceSummary, sameWorkspaceSummary } from "../public/private-workspace-model.js";
 
 function apiFixture() {
@@ -100,13 +103,44 @@ test("Google sign-in uses a state cookie and rejects a callback with different s
   assert.equal(start.code, 303);
   const url = new URL(start.location);
   assert.equal(url.origin, "https://accounts.google.com");
-  assert.equal(url.searchParams.get("scope"), "openid");
+  assert.equal(url.searchParams.get("scope"), "openid email");
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
   assert.ok(start.cookie.startsWith("sc_google_state=" + url.searchParams.get("state") + "."));
   const rejected = await request("google-callback", {
     session: start.cookie, query: { state: "different", code: "not-used" },
   });
   assert.equal(rejected.location, "/?private-sync=google-failed");
+  const signing = await generateKeyPair("RS256");
+  const keys = createLocalJWKSet({ keys: [await exportJWK(signing.publicKey)] });
+  const token = await new SignJWT({ nonce: url.searchParams.get("nonce") })
+    .setProtectedHeader({ alg: "RS256" })
+    .setAudience(env.GOOGLE_CLIENT_ID)
+    .setIssuer("https://accounts.google.com")
+    .setSubject("synthetic-google-user")
+    .setExpirationTime("1m")
+    .sign(signing.privateKey);
+  const headers = new Map();
+  await googleFinish({
+    headers: { host: "speccraft.example", cookie: start.cookie },
+    query: { state: url.searchParams.get("state"), code: "synthetic-code" },
+  }, {
+    getHeader: (name) => headers.get(name),
+    setHeader: (name, value) => headers.set(name, value),
+    status() { return this; },
+    end() {},
+  }, {
+    keys,
+    async exchange(endpoint, { body }) {
+      assert.equal(endpoint, "https://oauth2.googleapis.com/token");
+      const challenge = createHash("sha256").update(body.get("code_verifier")).digest("base64url");
+      assert.equal(challenge, url.searchParams.get("code_challenge"));
+      return Response.json({ id_token: token });
+    },
+  });
+  assert.equal(headers.get("Location"), "/?private-sync=google");
+  const signedSession = headers.get("Set-Cookie").at(-1).split(";")[0];
+  const account = privateAccount({ headers: { host: "speccraft.example", cookie: signedSession } });
+  assert.equal(account.method, "google");
 });
 
 test("workspace merging preserves simultaneous edits and normalizes folder placement", async () => {
