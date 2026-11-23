@@ -982,7 +982,6 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .drawing-card .diagram-height-grip {
   z-index: 2;
-  background: var(--surface, white);
 }
 .drawing-card > .diagram-title {
   display: grid;
