@@ -314,22 +314,6 @@ button.primary:hover:enabled {
   background: var(--selection, #eae6f8);
   color: var(--active-ink, #52449c);
 }
-.file-drop-root {
-  display: none;
-}
-.is-moving-files .file-drop-root {
-  display: grid;
-  place-items: center;
-  position: absolute;
-  inset: 3px 8px;
-  z-index: 2;
-  border: 1px dashed var(--muted);
-  border-radius: 5px;
-  background: var(--sidebar, #f8f9fb);
-  font-size: 12px;
-  pointer-events: none;
-}
-.file-drop-target .file-drop-root,
 .file-drop-target .folder-toggle {
   background: var(--selection, #eae6f8);
   color: var(--active-ink, #52449c);
@@ -397,6 +381,10 @@ button.primary:hover:enabled {
 }
 .sidebar-section-toggle:hover:enabled {
   background: none;
+}
+.side-heading.file-drop-target .sidebar-section-toggle {
+  background: color-mix(in srgb, var(--selection, #eae6f8) 75%, transparent);
+  color: var(--active-ink, #52449c);
 }
 .sidebar-section-toggle svg {
   width: 14px;

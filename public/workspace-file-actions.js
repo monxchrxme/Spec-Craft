@@ -119,7 +119,6 @@ export function workspaceFileActions(section, { open, rename, move }) {
   function endDrag() {
     highlight(null);
     dragged = null;
-    section.classList.remove("is-moving-files");
   }
   section.addEventListener("dragstart", (event) => {
     const row = event.target.closest(".file")?.closest("[data-document-row]");
@@ -133,7 +132,6 @@ export function workspaceFileActions(section, { open, rename, move }) {
     dragged = visible().map(idFor).filter((id) => selected.has(id));
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(dragType, "files");
-    section.classList.add("is-moving-files");
   });
   section.addEventListener("dragover", (event) => {
     if (!dragged || !event.dataTransfer.types.includes(dragType)) return;
