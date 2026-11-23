@@ -2,7 +2,7 @@ import { formulaSettings, pageMargins } from "./document-style.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
-import { drawingGraphic } from "./excalidraw.js";
+import { drawingGraphic, drawingPrintImage } from "./excalidraw.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
@@ -217,12 +217,18 @@ async function markdownBlocks(html, settings) {
         try {
           const source = node.querySelector("[data-excalidraw-source]").textContent;
           const graphic = await drawingGraphic(source);
-          if (graphic) stack.push({
-            image: graphic.url,
-            fit: [Math.min(widthLimit, graphic.width * 0.75), heightLimit],
-            alignment: "center",
-            margin: [0, 4, 0, gap],
-          });
+          if (graphic) {
+            const scale = Math.min(0.75, widthLimit / graphic.width, heightLimit / graphic.height);
+            const width = graphic.width * scale;
+            const height = graphic.height * scale;
+            stack.push({
+              image: await drawingPrintImage(graphic, width, height),
+              width,
+              height,
+              alignment: "center",
+              margin: [0, 4, 0, gap],
+            });
+          }
         } catch {
           note("Не удалось встроить рисунок Excalidraw.");
           stack.push({ text: "Рисунок Excalidraw недоступен" });

@@ -27,11 +27,14 @@ import {
   updateMermaidCard,
 } from "./mermaid.js";
 import {
+  drawingControls,
   drawingFence,
+  drawingPresentation,
   editDrawing,
   excalidrawBlocks,
   isExcalidraw,
   paintDrawings,
+  readDrawing,
 } from "./excalidraw.js";
 import { setTaskChecked, taskLists } from "./task-lists.js";
 import { makeShare, reviewTargets, showReview } from "./review.js";
@@ -96,6 +99,7 @@ import {
   sidebarSearchPattern,
 } from "./sidebar-navigation.js";
 import { folderStorageKey, mergeFolders, readFolders } from "./workspace-folders.js";
+import { workspaceFileActions } from "./workspace-file-actions.js";
 import {
   applyTableWidths,
   automaticColumnWidths,
@@ -152,6 +156,11 @@ const icon = (n) => '<i aria-hidden="true" data-lucide="' + n + '"></i>';
 const docs = new Map(),
   history = new Map(),
   savedRecords = new Map();
+const fileActionsUI = workspaceFileActions($(".documents-wrap"), {
+  open: (id) => switchDoc(docs.get(id)),
+  rename: renameSidebarItem,
+  move: moveFilesToFolder,
+});
 let folders = [];
 const foldedFolders = new Set();
 try {
@@ -370,14 +379,15 @@ function nav() {
     b.setAttribute("aria-current", String(d.id === doc?.id));
     b.innerHTML = icon("file-text") + '<span class="file-name"></span>';
     b.title = d.name;
-    b.onclick = () => switchDoc(d);
+    b.draggable = true;
     const row = document.createElement("div");
     row.className = "file-row";
-    row.dataset.documentRow = "";
+    row.dataset.documentRow = d.id;
     row.append(b, fileMenu("Действия с файлом " + d.name, () => fileActions(d.id)));
     (levels.get(d.folderId) || files).append(row);
   }
   filterFiles();
+  fileActionsUI.paint();
   $("#filename").textContent = doc?.name || "";
   updateDocumentLabel();
   $("#trash-count").textContent =
@@ -585,6 +595,7 @@ function sortGrip(label, block) {
 }
 function prepareBlockChange(index) {
   if (mode !== "edit" || modal.open || !parts[index]) return null;
+  finishDrawing();
   let offset = parts[index].start;
   if (inlineBibliography) {
     const { origin } = inlineBibliography.state;
@@ -721,6 +732,7 @@ function styles() {
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
+let inlineDrawing = null;
 let inlineBibliography = null;
 let graphTransition = 0;
 let renderedDocumentId;
@@ -863,6 +875,7 @@ function render() {
   activeTableOrder = null;
   const scrollTop = viewport.scrollTop;
   const previousDiagrams = captureDiagramViews();
+  finishDrawing(true, false);
   renderedDocumentId = doc?.id;
   closeGraph(false);
   inlineBibliography = null;
@@ -1011,16 +1024,59 @@ function openDrawing(index) {
   const state = prepareBlockChange(index);
   const token = state && parts[state.origin].t;
   if (!isExcalidraw(token)) return;
+  const box = host.children[state.origin];
+  const card = box?.querySelector("[data-excalidraw]");
+  if (!card) return;
   try {
-    editDrawing(token.content, (scene) => {
-      if (!patchStructuredBlock(state, drawingFence(scene))) return false;
-      replaceStructuredView(state.origin);
-      save();
-      return true;
+    const scene = readDrawing(token.content);
+    const layout = drawingPresentation(scene);
+    const top = blockTop(box);
+    const editor = editDrawing(card, scene, {
+      save: () => finishDrawing(true, true, true),
+      cancel: () => finishDrawing(false),
     });
+    inlineDrawing = { card, editor, state, scene, layout };
+    restoreBlockTop(box, top);
   } catch {
     notice("Не удалось открыть рисунок. Проверьте исходный блок в Markdown.");
   }
+}
+function finishDrawing(commit = true, restore = true, keepOpenOnError = false) {
+  if (!inlineDrawing) return;
+  const { card, editor, state, scene, layout } = inlineDrawing;
+  if (commit) {
+    try {
+      const previous = JSON.stringify({ ...scene, specCraft: drawingPresentation(scene) });
+      const next = editor.snapshot(layout);
+      if (JSON.stringify(next) !== previous) {
+        if (patchStructuredBlock(state, drawingFence(next))) save();
+        else if (keepOpenOnError) return;
+      }
+    } catch {
+      notice("Не удалось сохранить рисунок Excalidraw.");
+      if (keepOpenOnError) return;
+    }
+  }
+  inlineDrawing = null;
+  const expanded = isExpanded(card);
+  if (restore && card.isConnected) replaceStructuredView(state.origin, expanded);
+  editor.stop();
+}
+function changeDrawing(index, card, change) {
+  if (inlineDrawing?.card === card) {
+    Object.assign(inlineDrawing.layout, change);
+    return true;
+  }
+  const expanded = isExpanded(card);
+  const state = prepareBlockChange(index);
+  const token = state && parts[state.origin]?.t;
+  if (!isExcalidraw(token)) return false;
+  const scene = readDrawing(token.content);
+  scene.specCraft = { ...drawingPresentation(scene), ...change };
+  if (!patchStructuredBlock(state, drawingFence(scene))) return false;
+  if (change.crop !== undefined || !card.isConnected)
+    replaceStructuredView(state.origin, expanded);
+  return true;
 }
 function patchStructuredBlock(state, markup) {
   if (doc?.id !== state.id || doc.body !== state.body || !parts[state.origin]) {
@@ -1252,15 +1308,24 @@ function buildBlock(p, i, expanded) {
     buildTable(box, p, i);
     return box;
   } else box.innerHTML = md.renderer.render(p.tokens, md.options, {});
-  if (mode === "edit") {
-    if (isExcalidraw(p.t)) {
-      const header = box.querySelector(".drawing-card header");
-      const button = header.querySelector("[data-excalidraw-edit]");
-      button.hidden = false;
-      button.onclick = () => openDrawing(i);
-      header.append(deleteBlockButton(i, "Удалить рисунок", "diagram-remove"));
-      return box;
+  if (isExcalidraw(p.t)) {
+    const card = box.querySelector("[data-excalidraw]");
+    try {
+      drawingControls(card, {
+        expanded,
+        onExpand: updateExpandButton,
+        edit: mode === "edit" ? () => openDrawing(i) : undefined,
+        change: (change) => changeDrawing(i, card, change),
+      });
+    } catch {
+      // Invalid scene JSON still appears in the Markdown editor.
     }
+    if (mode === "edit") card.querySelector("header").append(
+      deleteBlockButton(i, "Удалить рисунок", "diagram-remove"),
+    );
+    return box;
+  }
+  if (mode === "edit") {
     const kind =
       p.t.type === "spec_toc"
         ? "toc"
@@ -1618,6 +1683,7 @@ function liveBlock() {
   editor.end = start + value.length;
 }
 function flush() {
+  finishDrawing();
   closeGraph();
   closeBibliography();
   if (editor) {
@@ -2411,32 +2477,40 @@ function changeFolders(change) {
     return false;
   }
 }
-function folderNameDialog(id = "", parentId = "") {
-  const folder = folders.find((item) => item.id === id);
-  const body = dialog(folder ? "Переименовать папку" : "Новая папка",
+function folderNameDialog(parentId = "") {
+  const body = dialog("Новая папка",
     '<form class="template-form"><label>Название папки<input required maxlength="100"></label><button class="primary">Сохранить</button></form>');
   const form = body.querySelector("form");
   const input = form.querySelector("input");
-  input.value = folder?.name || "";
   input.focus();
   form.onsubmit = (event) => {
     event.preventDefault();
     const name = input.value.trim();
     if (!name) return;
     const saved = changeFolders((current) => {
-      const latest = current.find((item) => item.id === id);
-      if ((id && !latest) || (parentId && !current.some((item) => item.id === parentId)))
+      if (parentId && !current.some((item) => item.id === parentId))
         throw Error("Папка уже удалена.");
-      const parent = latest?.parentId || parentId;
-      if (current.some((item) => item.id !== id && item.parentId === parent &&
+      if (current.some((item) => item.parentId === parentId &&
           item.name.toLowerCase() === name.toLowerCase()))
         throw Error("Папка с таким названием уже существует.");
-      if (latest) return current.map((item) => item.id === id ? { ...item, name } : item);
-      foldedFolders.delete(parent);
-      return [...current, { id: crypto.randomUUID(), name, parentId: parent }];
+      foldedFolders.delete(parentId);
+      return [...current, { id: crypto.randomUUID(), name, parentId }];
     });
     if (saved) modal.close();
   };
+}
+function renameSidebarItem(id, folder, name) {
+  if (folder) return changeFolders((current) => {
+    const entry = current.find((item) => item.id === id);
+    if (!entry) throw Error("Папка уже удалена.");
+    if (current.some((item) => item.id !== id && item.parentId === entry.parentId &&
+        item.name.toLowerCase() === name.toLowerCase()))
+      throw Error("Папка с таким названием уже существует.");
+    return current.map((item) => item.id === id ? { ...item, name } : item);
+  });
+  if (!updateFile(id, (latest) => ({ ...latest, name: nameOf(name) }))) return false;
+  nav();
+  return true;
 }
 function folderActions(id) {
   const folder = folders.find((item) => item.id === id);
@@ -2447,8 +2521,11 @@ function folderActions(id) {
     option("remove", "Удалить пустую папку", "trash-2"));
   body.onclick = (event) => {
     const action = event.target.closest("[data-id]")?.dataset.id;
-    if (action === "new") return folderNameDialog("", id);
-    if (action === "rename") return folderNameDialog(id);
+    if (action === "new") return folderNameDialog(id);
+    if (action === "rename") {
+      modal.close();
+      return fileActionsUI.edit(id, true);
+    }
     if (action === "remove" && changeFolders((current) => {
       if (current.some((item) => item.parentId === id) ||
           [...docs.values()].some((item) => item.folderId === id))
@@ -2456,6 +2533,26 @@ function folderActions(id) {
       return current.filter((item) => item.id !== id);
     })) modal.close();
   };
+}
+function moveFilesToFolder(ids, folderId) {
+  if (folderId && !folders.some((item) => item.id === folderId)) {
+    notice("Папка уже удалена.");
+    return false;
+  }
+  let moved = true;
+  for (const id of ids) {
+    const file = docs.get(id);
+    if (!file || file.trashed || (file.folderId || "") === folderId) continue;
+    if (!updateFile(id, (latest) => ({ ...latest, folderId: folderId || undefined })))
+      moved = false;
+  }
+  if (moved) {
+    for (let folder = folders.find((item) => item.id === folderId); folder;
+      folder = folders.find((item) => item.id === folder.parentId))
+      foldedFolders.delete(folder.id);
+  }
+  nav();
+  return moved;
 }
 function moveFileDialog(id) {
   const body = dialog("Переместить в папку",
@@ -2472,18 +2569,7 @@ function moveFileDialog(id) {
   select.value = paths.has(docs.get(id)?.folderId) ? docs.get(id).folderId : "";
   form.onsubmit = (event) => {
     event.preventDefault();
-    const folderId = select.value;
-    if (folderId && !folders.some((item) => item.id === folderId)) {
-      notice("Папка уже удалена.");
-      return;
-    }
-    if (!updateFile(id, (latest) => ({ ...latest, folderId: folderId || undefined })))
-      return;
-    for (let folder = folders.find((item) => item.id === folderId); folder;
-      folder = folders.find((item) => item.id === folder.parentId))
-      foldedFolders.delete(folder.id);
-    modal.close();
-    nav();
+    if (moveFilesToFolder([id], select.value)) modal.close();
   };
 }
 function fileActions(id) {
@@ -2503,7 +2589,10 @@ function fileActions(id) {
       notice("Файл удалён в другой вкладке.");
       return;
     }
-    if (action === "rename") return renameFile(id);
+    if (action === "rename") {
+      modal.close();
+      return fileActionsUI.edit(id);
+    }
     if (action === "move") return moveFileDialog(id);
     if (action === "copy") {
       const next = {
@@ -3225,7 +3314,7 @@ function openLiveReview(share, { advanced = false } = {}) {
 }
 
 function liveTextSelection() {
-  if (host.hidden || tableEdit || inlineGraph) return null;
+  if (host.hidden || tableEdit || inlineGraph || inlineDrawing) return null;
   if (!editor)
     return selectedTextAnchor(host, workflowSections(parts, doc.body));
   const { ta, start } = editor;
@@ -3410,6 +3499,7 @@ function startLiveEditing(share, initial) {
       !editor &&
       !tableEdit &&
       !inlineGraph &&
+      !inlineDrawing &&
       (!modal.open || !!stopComments) &&
       !activeTableOrder?.active() &&
       !blockSorting.active() &&
@@ -3884,6 +3974,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+  if (inlineDrawing && e.key === "Escape") {
+    finishDrawing();
+    e.preventDefault();
+    return;
+  }
   if (inlineGraph && e.key === "Escape") {
     if (!inlineGraph.editor.cancelPreview()) closeGraph();
     e.preventDefault();
@@ -3936,6 +4031,7 @@ function syncFile(id) {
       (editor ||
         tableEdit ||
         inlineGraph ||
+        inlineDrawing ||
         modal.open ||
         document.activeElement === source)
     )
@@ -3969,6 +4065,7 @@ window.addEventListener("storage", (event) => {
   }
 });
 window.addEventListener("pagehide", () => {
+  finishDrawing(true, false);
   inlineGraph?.editor?.publish();
   closeBibliography();
   if (tableEdit) finishCell();

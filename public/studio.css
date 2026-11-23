@@ -306,6 +306,48 @@ button.primary:hover:enabled {
   background: var(--selection, #eae6f8);
   color: var(--active-ink, #52449c);
 }
+.has-file-selection .file[aria-current="true"][aria-pressed="false"] {
+  background: transparent;
+  font-weight: 650;
+}
+.file-selected .file {
+  background: var(--selection, #eae6f8);
+  color: var(--active-ink, #52449c);
+}
+.file-drop-root {
+  display: none;
+}
+.is-moving-files .file-drop-root {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  inset: 3px 8px;
+  z-index: 2;
+  border: 1px dashed var(--muted);
+  border-radius: 5px;
+  background: var(--sidebar, #f8f9fb);
+  font-size: 12px;
+  pointer-events: none;
+}
+.file-drop-target .file-drop-root,
+.file-drop-target .folder-toggle {
+  background: var(--selection, #eae6f8);
+  color: var(--active-ink, #52449c);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.file-rename {
+  min-width: 0;
+  flex: 1;
+}
+.file-rename input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid var(--focus-outline);
+  border-radius: 5px;
+  background: var(--surface, white);
+  color: var(--ink);
+}
 .folder-contents {
   margin-inline-start: 10px;
   padding-inline-start: 3px;
@@ -882,19 +924,85 @@ table[data-auto-column-widths] :is(th, td) {
 .task-checkbox:enabled {
   cursor: pointer;
 }
-.drawing-card > img {
+.drawing-card {
+  width: var(--drawing-width, 100%);
+  margin: 0 auto;
+  --drawing-height: var(--manual-diagram-height, min(60dvh, 620px));
+}
+.drawing-card.diagram-expanded:not([data-manual-height]) {
+  --drawing-height: 78dvh;
+}
+.drawing-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 64px;
+  max-height: var(--drawing-height);
+  overflow: hidden;
+}
+.drawing-card[data-manual-height] .drawing-stage,
+.drawing-card.diagram-expanded .drawing-stage,
+.drawing-editing .drawing-stage {
+  height: var(--drawing-height);
+}
+.drawing-editing:not([data-manual-height], .diagram-expanded) {
+  --drawing-height: clamp(360px, 62dvh, 620px);
+}
+.drawing-stage > img {
   display: block;
   width: auto;
   height: auto;
   max-width: 100%;
-  margin-inline: auto;
+  max-height: var(--drawing-height);
+  object-fit: contain;
 }
-.drawing-card > img[hidden] {
+.drawing-stage > img[hidden] {
   display: none;
 }
-.drawing-card > p {
+.drawing-stage:has(> img:not([hidden])) {
+  background-color: white;
+}
+.drawing-stage > p {
   margin: 0;
   padding: 10px 14px;
+}
+.drawing-stage > iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.drawing-editing .drawing-stage > p {
+  position: absolute;
+  inset: 0 auto auto 0;
+  background: var(--surface, white);
+}
+.drawing-card .diagram-height-grip {
+  z-index: 2;
+  background: var(--surface, white);
+}
+.drawing-card header label,
+.drawing-edit-actions {
+  font-size: 12px;
+  align-items: center;
+  gap: 4px;
+}
+.drawing-card header label:not([hidden]),
+.drawing-edit-actions {
+  display: inline-flex;
+}
+.drawing-edit-actions {
+  flex-wrap: wrap;
+}
+.drawing-card header input {
+  width: 5ch;
+}
+.drawing-card header select {
+  max-width: 150px;
+}
+.drawing-editing [data-drawing-crop],
+.drawing-editing .diagram-remove,
+.drawing-card.diagram-expanded [data-drawing-width] {
+  display: none !important;
 }
 .diagram-card {
   border: 1px solid var(--line);
@@ -969,7 +1077,8 @@ table[data-auto-column-widths] :is(th, td) {
   cursor: grab;
   user-select: none;
 }
-.diagram-window:active {
+.diagram-window:active,
+.mermaid-window[data-panning] {
   cursor: grabbing;
 }
 .diagram-window > svg {
@@ -1335,35 +1444,6 @@ dialog {
 }
 dialog::backdrop {
   background: #1e1b314d;
-}
-dialog.drawing-editor {
-  width: min(1400px, 96vw);
-  max-width: 96vw;
-  height: 92dvh;
-  max-height: 92dvh;
-  padding: 0;
-}
-.drawing-editor[open] {
-  display: flex;
-  flex-direction: column;
-}
-.drawing-editor > header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.drawing-editor h2 {
-  font-size: 1rem;
-  margin: 0 auto 0 0;
-}
-.drawing-editor iframe {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  border: 0;
 }
 dialog .dialog-head {
   display: flex;

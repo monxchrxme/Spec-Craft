@@ -222,6 +222,34 @@ export function mermaidControls(
 }
 
 const paintings = new WeakMap();
+
+export function enableMermaidPan(surface) {
+  let drag;
+  surface.oncontextmenu = (event) => event.preventDefault();
+  surface.onpointerdown = (event) => {
+    if (event.pointerType !== "mouse" || ![1, 2].includes(event.button)) return;
+    event.preventDefault();
+    drag = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: surface.scrollLeft,
+      top: surface.scrollTop,
+    };
+    surface.setPointerCapture(event.pointerId);
+    surface.setAttribute("data-panning", "");
+  };
+  surface.onpointermove = (event) => {
+    if (drag?.id !== event.pointerId) return;
+    surface.scrollLeft = drag.left + drag.x - event.clientX;
+    surface.scrollTop = drag.top + drag.y - event.clientY;
+  };
+  surface.onlostpointercapture = () => {
+    drag = null;
+    surface.removeAttribute("data-panning");
+  };
+}
+
 export function keepMermaidImage(card, previous) {
   const image = previous?.querySelector(".mermaid-window img");
   if (!card || !image) return;
@@ -238,6 +266,7 @@ export function updateMermaidCard(card, source, repaint) {
 }
 
 function requestPaint(card, preview) {
+  if (!paintings.has(card)) enableMermaidPan(card.querySelector(".mermaid-window"));
   const request = {};
   paintings.set(card, request);
   request.promise = paint(card, preview, request);
@@ -270,6 +299,7 @@ async function paint(card, preview, request) {
     const result = await mermaidGraphic(source);
     if (!isCurrent()) return;
     const image = new Image();
+    image.draggable = false;
     image.alt = result.label || "Диаграмма Mermaid";
     image.width = result.width;
     image.height = result.height;

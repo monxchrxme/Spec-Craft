@@ -1,3 +1,5 @@
+import { addHeightHandle, diagramHeight, setDiagramHeight } from "./diagram-height.js";
+
 const images = new Map();
 
 export const isExcalidraw = (token) =>
@@ -14,17 +16,39 @@ export function drawingFence(scene = { type: "excalidraw", version: 2, elements:
   return "```excalidraw\n" + JSON.stringify(scene) + "\n```";
 }
 
+function drawingFrames(scene) {
+  return scene.elements.filter((element) => element?.type === "frame" &&
+    !element.isDeleted && element.width > 0 && element.height > 0);
+}
+
+const drawingWidth = (value) =>
+  Number.isFinite(value) ? Math.max(30, Math.min(100, Math.round(value))) : 100;
+
+export function drawingPresentation(scene) {
+  const { width, height, crop } = scene.specCraft || {};
+  return {
+    width: drawingWidth(width),
+    height: Number.isFinite(height) ? diagramHeight(height) : 0,
+    crop: drawingFrames(scene).some((frame) => frame.id === crop) ? crop : "",
+  };
+}
+
 export function excalidrawBlocks(md) {
   const original = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, index, options, env, self) => {
     const token = tokens[index];
     if (!isExcalidraw(token)) return original(tokens, index, options, env, self);
     return `<figure class="diagram-card drawing-card" data-excalidraw>
-      <header class="diagram-title"><strong>Excalidraw</strong>
-        <button type="button" data-excalidraw-edit hidden>Редактировать рисунок</button>
+      <header class="diagram-title"><i data-lucide="pencil-ruler" aria-hidden="true"></i><strong>Excalidraw</strong>
+        <label data-drawing-crop hidden>Обрезка <select aria-label="Обрезка рисунка"></select></label>
+        <label data-drawing-width hidden>Ширина <input aria-label="Ширина рисунка, %" type="number" min="30" max="100" step="1"> %</label>
+        <button type="button" data-excalidraw-edit hidden>Изменить</button>
+        <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
       </header>
-      <img alt="Рисунок Excalidraw" hidden>
-      <p role="status">Загрузка рисунка…</p>
+      <div class="drawing-stage">
+        <img alt="Рисунок Excalidraw" hidden>
+        <p role="status">Загрузка рисунка…</p>
+      </div>
       <code data-excalidraw-source hidden>${md.utils.escapeHtml(token.content)}</code>
     </figure>`;
   };
@@ -33,10 +57,10 @@ export function excalidrawBlocks(md) {
 export async function drawingGraphic(source) {
   if (!images.has(source)) {
     const scene = readDrawing(source);
-    if (!scene.elements.some((element) => !element.isDeleted)) return null;
+    if (!scene.elements.some((element) => element && !element.isDeleted)) return null;
     if (images.size >= 8) images.delete(images.keys().next().value);
     const result = import("./excalidraw-assets/adapter.js").then((module) =>
-      module.drawingImage(scene),
+      module.drawingImage(scene, drawingPresentation(scene).crop),
     );
     images.set(source, result);
     result.catch(() => {
@@ -46,6 +70,19 @@ export async function drawingGraphic(source) {
   return images.get(source);
 }
 
+export async function drawingPrintImage(graphic, width, height) {
+  const scale = Math.min(5, 8192 / Math.max(width, height),
+    Math.sqrt(18_000_000 / (width * height)));
+  const image = new Image();
+  image.src = graphic.url;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png");
+}
+
 export function paintDrawings(root) {
   for (const card of root.querySelectorAll("[data-excalidraw]:not([data-painted])")) {
     card.dataset.painted = "true";
@@ -53,12 +90,14 @@ export function paintDrawings(root) {
     const image = card.querySelector("img");
     void drawingGraphic(card.querySelector("[data-excalidraw-source]").textContent)
       .then((graphic) => {
+        if (!image.isConnected) return;
         if (!graphic) {
           status.textContent = "Пустой рисунок";
           return;
         }
         image.width = graphic.width;
         image.height = graphic.height;
+        card.querySelector(".drawing-stage").style.backgroundColor = graphic.background;
         image.src = graphic.url;
         image.hidden = false;
         status.hidden = true;
@@ -67,71 +106,125 @@ export function paintDrawings(root) {
   }
 }
 
-export function editDrawing(source, apply) {
-  const scene = readDrawing(source);
-  const dialog = document.createElement("dialog");
-  dialog.className = "drawing-editor";
-  dialog.setAttribute("aria-label", "Редактор Excalidraw");
-  dialog.innerHTML = `<header>
-    <h2>Excalidraw</h2><span role="status">Загрузка редактора…</span>
-    <button type="button" data-cancel>Отмена</button>
-    <button type="button" class="primary" data-save disabled>Сохранить рисунок</button>
-  </header><iframe title="Холст Excalidraw"></iframe>`;
-  const frame = dialog.querySelector("iframe");
-  const save = dialog.querySelector("[data-save]");
-  const status = dialog.querySelector("[role=status]");
-  const origin = location.origin;
-  const post = (type, data) => frame.contentWindow.postMessage({ type, ...data }, origin);
-  let loaded = false;
-  let saving = false;
-  const loadTimer = setTimeout(() => {
-    status.textContent = "Не удалось загрузить редактор Excalidraw.";
-  }, 15_000);
-  function receive(event) {
-    if (event.source !== frame.contentWindow || event.origin !== origin) return;
-    switch (event.data?.type) {
-      case "excalidraw-ready":
-        post("excalidraw-open", { scene });
-        break;
-      case "excalidraw-loaded":
-        clearTimeout(loadTimer);
-        loaded = true;
-        save.disabled = false;
-        status.textContent = "";
-        break;
-      case "excalidraw-result":
-        if (!saving) break;
-        try {
-          if (apply(readDrawing(event.data.source))) dialog.close();
-          else status.textContent = "Блок изменился. Скачайте рисунок из Excalidraw перед закрытием.";
-        } catch {
-          status.textContent = "Не удалось сохранить рисунок.";
-        }
-        saving = false;
-        save.disabled = false;
-        break;
-      case "excalidraw-error":
-        clearTimeout(loadTimer);
-        status.textContent = event.data.message;
-        saving = false;
-        save.disabled = !loaded;
-        break;
-    }
-  }
-  save.onclick = () => {
-    saving = true;
-    save.disabled = true;
-    status.textContent = "Сохранение…";
-    post("excalidraw-save");
+export function drawingControls(card, { expanded, onExpand, edit, change }) {
+  const scene = readDrawing(card.querySelector("[data-excalidraw-source]").textContent);
+  const layout = drawingPresentation(scene);
+  const expand = card.querySelector("[data-drawing-expand]");
+  expand.hidden = false;
+  card.setExpanded = (value) => {
+    card.classList.toggle("diagram-expanded", value);
+    expand.setAttribute("aria-expanded", String(value));
+    expand.lastElementChild.textContent = value ? "Свернуть" : "Развернуть";
   };
-  dialog.querySelector("[data-cancel]").onclick = () => dialog.close();
-  dialog.addEventListener("close", () => {
-    clearTimeout(loadTimer);
-    window.removeEventListener("message", receive);
-    dialog.remove();
-  }, { once: true });
-  window.addEventListener("message", receive);
+  expand.onclick = () => {
+    card.setExpanded(!card.classList.contains("diagram-expanded"));
+    onExpand?.();
+    card.scrollIntoView({ block: "nearest" });
+  };
+  card.setExpanded(expanded);
+  card.style.setProperty("--drawing-width", layout.width + "%");
+  setDiagramHeight(card, layout.height);
+  if (!edit) return;
+  const editButton = card.querySelector("[data-excalidraw-edit]");
+  editButton.hidden = false;
+  editButton.onclick = edit;
+
+  const crop = card.querySelector("[data-drawing-crop]");
+  const select = crop.querySelector("select");
+  select.add(new Option("Авто", ""));
+  drawingFrames(scene).forEach((frame, index) => {
+    const name = typeof frame.name === "string" && frame.name.trim();
+    select.add(new Option(name || "Рамка " + (index + 1), frame.id));
+  });
+  select.value = layout.crop;
+  select.title = "Для ручной обрезки добавьте рамку на холсте и выберите её здесь.";
+  select.onchange = () => {
+    if (!change({ crop: select.value })) select.value = layout.crop;
+  };
+  crop.hidden = false;
+
+  const width = card.querySelector("[data-drawing-width]");
+  const input = width.querySelector("input");
+  width.hidden = false;
+  input.value = layout.width;
+  const applyWidth = () => {
+    const value = drawingWidth(input.valueAsNumber);
+    if (value !== layout.width && change({ width: value })) {
+      layout.width = value;
+      card.style.setProperty("--drawing-width", value + "%");
+    }
+    input.value = layout.width;
+  };
+  input.onchange = applyWidth;
+  input.onkeydown = (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyWidth();
+  };
+  addHeightHandle(card, card.querySelector(".drawing-stage"), layout.height,
+    (height) => change({ height }));
+}
+
+export function editDrawing(card, scene, { save, cancel }) {
+  const stage = card.querySelector(".drawing-stage");
+  const edit = card.querySelector("[data-excalidraw-edit]");
+  const actions = document.createElement("div");
+  actions.className = "drawing-edit-actions";
+  actions.innerHTML = `<button type="button" data-frame-tool disabled>Рамка обрезки</button>
+    <button type="button" data-cancel>Отмена</button>
+    <button type="button" class="primary" data-save disabled>Сохранить рисунок</button>`;
+  edit.after(actions);
+  edit.hidden = true;
+  card.classList.add("drawing-editing");
+  const frame = document.createElement("iframe");
+  frame.title = "Холст Excalidraw";
+  const status = document.createElement("p");
+  status.setAttribute("role", "status");
+  status.textContent = "Загрузка редактора…";
+  const saveButton = actions.querySelector("[data-save]");
+  const cropButton = actions.querySelector("[data-frame-tool]");
+  const timer = setTimeout(() => { status.textContent = "Не удалось загрузить Excalidraw."; }, 15_000);
+  let api, initial;
+  let selectNewFrame = false;
+  frame.onload = () => {
+    try {
+      frame.contentWindow.openSpecCraftDrawing(scene, (drawingApi) => {
+        clearTimeout(timer);
+        api = drawingApi;
+        initial = api.snapshot();
+        status.hidden = true;
+        cropButton.disabled = saveButton.disabled = false;
+      });
+    } catch {
+      clearTimeout(timer);
+      status.textContent = "Не удалось загрузить Excalidraw.";
+    }
+  };
+  cropButton.onclick = () => {
+    selectNewFrame = true;
+    api.frameTool();
+    frame.contentWindow.focus();
+  };
+  saveButton.onclick = save;
+  actions.querySelector("[data-cancel]").onclick = cancel;
   frame.src = new URL("./excalidraw-frame.html", import.meta.url).href;
-  document.body.append(dialog);
-  dialog.showModal();
+  stage.replaceChildren(frame, status);
+  return {
+    snapshot(layout) {
+      const raw = api?.snapshot();
+      const next = raw && raw !== initial ? readDrawing(raw) : { ...scene };
+      const nextLayout = { ...layout };
+      if (selectNewFrame) {
+        const previous = new Set(drawingFrames(scene).map((frame) => frame.id));
+        const added = drawingFrames(next).findLast((frame) => !previous.has(frame.id));
+        if (added) nextLayout.crop = added.id;
+      }
+      next.specCraft = drawingPresentation({ ...next, specCraft: nextLayout });
+      return next;
+    },
+    stop() {
+      clearTimeout(timer);
+      frame.remove();
+    },
+  };
 }

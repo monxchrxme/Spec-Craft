@@ -8,12 +8,12 @@ import {
   reorderMarkdown,
 } from "../public/block-order.js";
 import { reorderTable } from "../public/table-order.js";
-import { drawingFence, excalidrawBlocks, readDrawing } from "../public/excalidraw.js";
+import { drawingFence, drawingPresentation, excalidrawBlocks, readDrawing } from "../public/excalidraw.js";
 import { documentParts } from "../public/document-parts.js";
 import { latexProjection } from "../public/latex-source.js";
 import { setTaskChecked, taskLists } from "../public/task-lists.js";
 import { mergeFolders, readFolders } from "../public/workspace-folders.js";
-import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
+import { enableMermaidPan, isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
@@ -65,6 +65,48 @@ test("Excalidraw preserves scene assets and escapes drawing text in Markdown ren
   assert.equal(parts.length, 2);
   assert.deepEqual(readDrawing(parts[0].t.content), scene);
   assert.match(md.render(markdown), /&lt;\/code&gt;&lt;strong&gt;/);
+});
+
+test("Excalidraw keeps default block width and falls back to automatic cropping when a frame is removed", () => {
+  const scene = { type: "excalidraw", elements: [] };
+  assert.deepEqual(drawingPresentation(scene), { width: 100, height: 0, crop: "" });
+  const frame = { type: "frame", id: "detail", width: 180, height: 120 };
+  const existing = {
+    ...scene,
+    elements: [frame],
+    specCraft: { width: 75, height: 360, crop: "detail" },
+  };
+  assert.deepEqual(drawingPresentation(existing), { width: 75, height: 360, crop: "detail" });
+  assert.deepEqual(drawingPresentation({ ...existing, elements: [{ ...frame, isDeleted: true }] }),
+    { width: 75, height: 360, crop: "" });
+});
+
+test("Mermaid pans with either mouse button and suppresses its native context menu", () => {
+  for (const button of [1, 2]) {
+    let captured;
+    let prevented = 0;
+    const surface = {
+      scrollLeft: 100, scrollTop: 40,
+      setPointerCapture: (id) => { captured = id; },
+      setAttribute() {},
+      removeAttribute() {},
+    };
+    const pointer = {
+      pointerType: "mouse", pointerId: 3, button, clientX: 200, clientY: 90,
+      preventDefault: () => { prevented++; },
+    };
+    enableMermaidPan(surface);
+    surface.onpointerdown(pointer);
+    surface.onpointermove({ ...pointer, clientX: 150, clientY: 30 });
+    assert.equal(captured, 3);
+    assert.equal(surface.scrollLeft, 150);
+    assert.equal(surface.scrollTop, 100);
+    surface.onlostpointercapture();
+    surface.onpointermove({ ...pointer, clientX: 20, clientY: 10 });
+    assert.equal(surface.scrollLeft, 150);
+    surface.oncontextmenu(pointer);
+    assert.equal(prevented, 2);
+  }
 });
 
 test("restoring workspace folders remaps documents and preserves nesting on ID conflicts", () => {
