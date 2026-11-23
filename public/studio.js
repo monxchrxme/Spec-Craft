@@ -103,7 +103,7 @@ import {
   activeWorkspace, activeWorkspaceKey, readWorkspace, workspaceKeys, writeWorkspace,
 } from "./private-workspace-storage.js";
 import { privateRequest, personalSync } from "./private-sync.js";
-import { emptyWorkspace, mergeWorkspace, workspaceSummary } from "./private-workspace-model.js";
+import { addLocalWorkspace } from "./private-workspace-model.js";
 import { privateSyncPanel } from "./private-sync-panel.js";
 import { workspaceFileActions } from "./workspace-file-actions.js";
 import {
@@ -3872,6 +3872,7 @@ function transferDialog() {
 
 let privateStatus = "";
 const privateSave = $("#private-save");
+const privateWorkspaceDetails = () => "Файлов " + availableDocs().length + " · папок " + folders.length;
 
 function updatePrivateStatus(message) {
   privateStatus = message;
@@ -3880,6 +3881,8 @@ function updatePrivateStatus(message) {
   privateSave.hidden = !workspaceId || !!liveEdit;
   const status = modal.querySelector("[data-private-status]");
   if (status) status.textContent = message;
+  const details = modal.querySelector("#private-sync-details");
+  if (details) details.textContent = privateWorkspaceDetails();
 }
 
 function replacePrivateWorkspace(before, after) {
@@ -3915,24 +3918,38 @@ function privateWorkspaceDialog(message) {
     flush();
     if (!save()) throw Error("Сначала сохраните текущие правки.");
   };
+  const addFromBrowser = (id) => {
+    const target = workspaceKeys(id);
+    const current = readWorkspace(target);
+    const { workspace, documentsAdded, foldersAdded } =
+      addLocalWorkspace(current, readWorkspace(workspaceKeys("")));
+    if (!documentsAdded && !foldersAdded) return false;
+    if (id !== workspaceId) writeWorkspace(target, workspace);
+    else if (!replacePrivateWorkspace(current, workspace))
+      throw Error("Данные изменились в другой вкладке. Повторите добавление.");
+    return true;
+  };
   void privateSyncPanel(panel, {
     active: workspaceId,
     status: () => privateStatus,
+    details: privateWorkspaceDetails,
     message,
-    async connect(id, include) {
+    connect(id, include) {
       saveFirst();
-      if (include && id !== workspaceId) {
-        const target = workspaceKeys(id);
-        const mine = readWorkspace(target);
-        const guest = readWorkspace(workspaceKeys(""));
-        const [mySummary, guestSummary] = await Promise.all([workspaceSummary(mine), workspaceSummary(guest)]);
-        if (JSON.stringify(readWorkspace(target)) !== JSON.stringify(mine))
-          throw Error("Данные изменились в другой вкладке. Повторите подключение.");
-        const merged = mergeWorkspace({ documents: {}, folders: [] }, mine, guest, mySummary, guestSummary);
-        writeWorkspace(target, merged.workspace);
-      }
+      if (include && id !== workspaceId) addFromBrowser(id);
       localStorage.setItem(activeWorkspaceKey, id);
       location.reload();
+    },
+    async addLocal() {
+      saveFirst();
+      if (!await privateSync.flush()) return;
+      saveFirst();
+      if (!addFromBrowser(workspaceId)) {
+        updatePrivateStatus("Все локальные документы и папки уже в этом пространстве.");
+        return;
+      }
+      if (await privateSync.flush())
+        updatePrivateStatus("Локальные документы и папки добавлены и синхронизированы.");
     },
     async sync() {
       saveFirst();

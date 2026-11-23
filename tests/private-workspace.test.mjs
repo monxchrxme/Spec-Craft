@@ -4,7 +4,7 @@ import test from "node:test";
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
 import { privateWorkspaceHandler } from "../api/private-workspace.js";
 import { googleFinish, privateAccount } from "../lib/private-account.js";
-import { mergeWorkspace, workspaceSummary, sameWorkspaceSummary } from "../public/private-workspace-model.js";
+import { addLocalWorkspace, mergeWorkspace, workspaceSummary, sameWorkspaceSummary } from "../public/private-workspace-model.js";
 
 function apiFixture() {
   const records = new Map();
@@ -170,4 +170,30 @@ test("workspace merging propagates deletions without erasing an edit made on ano
   const deletion = await workspaceSummary(deleted);
   assert.deepEqual(mergeWorkspace(before, base, deleted, before, deletion).workspace, deleted);
   assert.deepEqual(mergeWorkspace(before, edited, deleted, await workspaceSummary(edited), deletion).workspace, edited);
+});
+
+test("adding local folders and files to a connected workspace is safe to repeat", () => {
+  const synced = { id: "a", name: "Схема.md", body: "Обновлено", folderId: "cloud" };
+  const cloud = {
+    documents: [synced],
+    folders: [{ id: "cloud", name: "Проект", parentId: "" }],
+  };
+  const guest = {
+    documents: [
+      { ...synced, body: "Ранее сохранено", folderId: "local" },
+      { id: "b", name: "Заметки.md", body: "Локальный текст", folderId: "nested" },
+    ],
+    folders: [
+      { id: "local", name: "Проект", parentId: "" },
+      { id: "nested", name: "Заметки", parentId: "local" },
+    ],
+  };
+  const imported = addLocalWorkspace(cloud, guest);
+  assert.equal(imported.documentsAdded, 1);
+  assert.equal(imported.foldersAdded, 1);
+  assert.deepEqual(imported.workspace.documents, [synced, guest.documents[1]]);
+  assert.deepEqual(imported.workspace.folders[1], { id: "nested", name: "Заметки", parentId: "cloud" });
+  assert.deepEqual(addLocalWorkspace(imported.workspace, guest), {
+    documentsAdded: 0, foldersAdded: 0, workspace: imported.workspace,
+  });
 });

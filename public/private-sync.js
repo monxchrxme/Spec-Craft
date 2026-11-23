@@ -16,7 +16,7 @@ export async function privateRequest(action, input, workspace, extra = {}) {
       headers, cache: "no-store",
       method: input === undefined ? "GET" : "POST",
       body: input === undefined ? undefined : JSON.stringify(input),
-      signal: AbortSignal.timeout(18_000),
+      signal: AbortSignal.timeout?.(18_000),
     });
   } catch {
     throw Error("Нет связи с личным пространством.");
@@ -101,7 +101,13 @@ export function personalSync({ workspace, read, apply, canApply, status }) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const base = readBase();
       const manifest = await privateRequest("", undefined, workspace, { etag: base.etag });
-      const remote = manifest.unchanged ? null : await readSnapshot(workspace, manifest.current);
+      let remote;
+      try {
+        remote = manifest.unchanged ? null : await readSnapshot(workspace, manifest.current);
+      } catch (error) {
+        if (error.status === 404) continue;
+        throw error;
+      }
       const theirSummary = remote ? await workspaceSummary(remote) : base.summary;
       const mine = read();
       const mySummary = await workspaceSummary(mine);
@@ -144,7 +150,9 @@ export function personalSync({ workspace, read, apply, canApply, status }) {
       ? navigator.locks.request(key, { ifAvailable: true }, (lock) => lock ? run() : false)
       : run();
     if (!inFlight) inFlight = sync().catch((error) => {
-      status(error.message);
+      status(error.name === "QuotaExceededError"
+        ? "Браузеру не хватило свободного места для личных файлов."
+        : error.message);
       return false;
     }).finally(() => {
       inFlight = null;

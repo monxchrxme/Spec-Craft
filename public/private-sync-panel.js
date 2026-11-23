@@ -7,7 +7,7 @@ const element = (tag, text, className) => {
   return node;
 };
 
-export async function privateSyncPanel(panel, { active, status, connect, sync, leave, message }) {
+export async function privateSyncPanel(panel, { active, status, details, connect, addLocal, sync, leave, message }) {
   const feedback = element("p", message || "Проверка входа…");
   feedback.setAttribute("role", "status");
   panel.append(feedback);
@@ -26,7 +26,9 @@ export async function privateSyncPanel(panel, { active, status, connect, sync, l
     try {
       await action();
     } catch (error) {
-      feedback.textContent = error.message;
+      feedback.textContent = error.name === "QuotaExceededError"
+        ? "Браузеру не хватило места для копирования. Исходные файлы сохранены."
+        : error.message;
     } finally {
       busy = false;
       for (const button of buttons) button.disabled = false;
@@ -52,8 +54,9 @@ export async function privateSyncPanel(panel, { active, status, connect, sync, l
     wrap.append(element("p", "Ключ даёт полный доступ к пространству. Храните его у себя."));
     return wrap;
   }
-  function show(account, google, key) {
+  function show(account, google, key, includeByDefault = false) {
     if (!panel.isConnected) return;
+    delete feedback.dataset.privateStatus;
     const intro = element("p", account && active === account.id
       ? "Документы и папки этого пространства доступны на подключённых устройствах."
       : "Храните личные документы и папки на подключённых устройствах.");
@@ -61,8 +64,13 @@ export async function privateSyncPanel(panel, { active, status, connect, sync, l
     if (account && active === account.id) {
       feedback.dataset.privateStatus = "";
       feedback.textContent = status();
+      const count = element("p", details());
+      count.id = "private-sync-details";
       panel.append(
+        element("p", "Код пространства " + account.id.slice(0, 8).toUpperCase()),
+        count,
         control("Синхронизировать сейчас", sync),
+        control("Добавить локальные документы и папки", addLocal),
         control("Выйти из личного пространства", () => leave(account.id)),
       );
       if (account.method === "key")
@@ -71,11 +79,11 @@ export async function privateSyncPanel(panel, { active, status, connect, sync, l
           show(account, google, key);
         }));
     } else if (account) {
-      feedback.textContent = account.method === "google" ? "Вход через Google выполнен." : "Приватный ключ принят.";
+      feedback.textContent = "Вход выполнен. Откройте личное пространство, чтобы начать синхронизацию.";
       const label = element("label", undefined, "style-check");
       const include = element("input");
       include.type = "checkbox";
-      include.checked = Boolean(key);
+      include.checked = includeByDefault;
       label.append(include, "Добавить локальные документы и папки с этого устройства");
       panel.append(label,
         control("Открыть личное пространство", () => connect(account.id, include.checked), true),
@@ -100,13 +108,16 @@ export async function privateSyncPanel(panel, { active, status, connect, sync, l
         event.preventDefault();
         void perform(async () => {
           const { account } = await privateRequest("key-login", { key: field.value.trim() });
-          show(account, google);
-          if (account.id === active) void sync();
+          if (account.id !== active) await connect(account.id, false);
+          else {
+            show(account, google);
+            await sync();
+          }
         });
       };
       panel.append(form, control("Создать приватный ключ", async () => {
         const { key, account } = await privateRequest("key-create", {});
-        show(account, google, key);
+        show(account, google, key, true);
       }));
       if (google) {
         panel.append(control("Войти через Google", () => {

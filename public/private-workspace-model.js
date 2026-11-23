@@ -1,4 +1,4 @@
-import { readFolders } from "./workspace-folders.js";
+import { mergeFolders as matchFolders, readFolders } from "./workspace-folders.js";
 
 export const emptyWorkspace = () => ({ documents: [], folders: [] });
 const encoder = new TextEncoder();
@@ -10,6 +10,26 @@ export async function workspaceSummary(snapshot) {
     return [record.id, Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")];
   }));
   return { documents: Object.fromEntries(documents), folders: snapshot.folders };
+}
+
+export function addLocalWorkspace(current, guest) {
+  const knownDocuments = new Set(current.documents.map(({ id }) => id));
+  const knownFolders = new Set(current.folders.map(({ id }) => id));
+  const imported = [
+    ...current.folders,
+    ...guest.folders.filter(({ id }) => !knownFolders.has(id)),
+  ];
+  const { folders, ids } = matchFolders(current.folders, imported);
+  const documents = guest.documents.filter(({ id }) => !knownDocuments.has(id))
+    .map((doc) => ({
+      ...doc,
+      folderId: knownFolders.has(doc.folderId) ? doc.folderId : ids.get(doc.folderId),
+    }));
+  return {
+    documentsAdded: documents.length,
+    foldersAdded: folders.length - current.folders.length,
+    workspace: { documents: [...current.documents, ...documents], folders },
+  };
 }
 
 function mergeFolders(base, mine, theirs) {
