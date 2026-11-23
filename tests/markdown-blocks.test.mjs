@@ -15,6 +15,7 @@ import { setTaskChecked, taskLists } from "../public/task-lists.js";
 import { mergeFolders, readFolders } from "../public/workspace-folders.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { enableDiagramPan } from "../public/diagram-pan.js";
+import { enableDiagramFitToggle } from "../public/diagram-zoom.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
@@ -124,6 +125,31 @@ test("diagram previews drag with the left button and leave middle clicks to the 
       surface.oncontextmenu(pointer);
       assert.equal(prevented, 2);
     }
+  }
+});
+
+test("leaving fit mode restores a diagram's previous zoom and scroll position", () => {
+  let scale = "fit";
+  const button = { getAttribute: () => String(scale === "fit") };
+  const surface = { scrollLeft: 0, scrollTop: 0 };
+  enableDiagramFitToggle(button, surface, () => scale, (value) => {
+    scale = value;
+    surface.scrollLeft = surface.scrollTop = 0;
+  });
+
+  button.onclick();
+  assert.equal(scale, 1);
+
+  for (const previousScale of [2.5, "width"]) {
+    scale = previousScale;
+    surface.scrollLeft = 240;
+    surface.scrollTop = 110;
+    button.onclick();
+    assert.equal(scale, "fit");
+    assert.deepEqual([surface.scrollLeft, surface.scrollTop], [0, 0]);
+    button.onclick();
+    assert.equal(scale, previousScale);
+    assert.deepEqual([surface.scrollLeft, surface.scrollTop], [240, 110]);
   }
 });
 

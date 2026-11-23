@@ -1,5 +1,6 @@
 import { addHeightHandle, diagramHeight, setDiagramHeight } from "./diagram-height.js";
 import { enableDiagramPan } from "./diagram-pan.js";
+import { enableDiagramFitToggle } from "./diagram-zoom.js";
 
 const images = new Map();
 
@@ -102,7 +103,7 @@ function enableDrawingZoom(card, image, originalWidth) {
     const viewport = surface.getBoundingClientRect();
     const x = (viewport.left + surface.clientWidth / 2 - before.left) / before.width;
     const y = (viewport.top + surface.clientHeight / 2 - before.top) / before.height;
-    const fitting = value === null;
+    const fitting = value === "fit";
     const zoom = fitting ? 1 : Math.min(4, Math.max(0.1, value));
     card.classList.toggle("drawing-fit", fitting);
     image.style.width = fitting ? "" : originalWidth * zoom + "px";
@@ -117,12 +118,12 @@ function enableDrawingZoom(card, image, originalWidth) {
   minus.onclick = () => scale(currentScale() / 1.25);
   plus.onclick = () => scale(currentScale() * 1.25);
   reset.onclick = () => scale(1);
-  fit.onclick = () => scale(null);
+  enableDiagramFitToggle(fit, surface, currentScale, scale);
   surface.tabIndex = 0;
   surface.setAttribute("aria-label", "Просмотр рисунка Excalidraw");
   enableDiagramPan(surface, { rightButton: true });
   controls.hidden = false;
-  scale(null);
+  scale("fit");
 }
 
 export function paintDrawings(root) {

@@ -3,6 +3,7 @@
 import { draw, frameLayout, styleFrame } from "./graph.js";
 import { addHeightHandle, setDiagramHeight } from "./diagram-height.js";
 import { enableDiagramPan } from "./diagram-pan.js";
+import { enableDiagramFitToggle } from "./diagram-zoom.js";
 
 function viewportGeometry(frame) {
   const svg = frame?.querySelector("svg");
@@ -143,7 +144,12 @@ export function diagramView(
   minus.onclick = () => scale(currentScale() / 1.25);
   plus.onclick = () => scale(currentScale() * 1.25);
   reset.onclick = () => scale(1);
-  fit.onclick = () => scale("fit");
+  enableDiagramFitToggle(
+    fit,
+    frame,
+    () => card.classList.contains("width-diagram") ? "width" : currentScale(),
+    scale,
+  );
   enableDiagramPan(frame);
   const fitMode = layout.fit;
   scale(fitMode === "contain" ? "fit" : fitMode === "width" ? "width" : 1);
