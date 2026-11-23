@@ -4322,9 +4322,7 @@ if (privateRedirect) {
   url.searchParams.delete("private-sync");
   window.history.replaceState(null, "", url);
   togglePanel("private-sync", () => privateWorkspaceDialog(
-    privateRedirect === "google" ? "Вход через Google выполнен." :
-      privateRedirect === "google-unavailable" ? "Google OAuth ещё не настроен на этом сайте." :
-        "Вход через Google не завершён. Попробуйте снова.",
+    privateRedirect === "google" ? "Вход выполнен." : "Вход не завершён. Попробуйте снова.",
   ));
 }
 

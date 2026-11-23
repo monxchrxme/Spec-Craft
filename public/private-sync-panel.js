@@ -1,6 +1,8 @@
 import { privateRequest } from "./private-sync.js";
 import { isWorkspaceSource, rememberWorkspaceSource } from "./private-workspace-storage.js";
 
+const showGoogleSignIn = false;
+
 const element = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text) node.textContent = text;
@@ -126,11 +128,13 @@ export async function privateSyncPanel(panel, { active, status, details, connect
         rememberWorkspaceSource(account.id);
         show(account, google, key, true);
       }));
-      if (google) {
+      if (showGoogleSignIn && google) {
         panel.append(control("Войти через Google", () => {
           location.assign("/api/private-workspace?action=google");
         }));
-      } else panel.append(element("p", "Вход через Google пока не настроен на сайте."));
+      } else if (showGoogleSignIn) {
+        panel.append(element("p", "Вход через Google пока не настроен на сайте."));
+      }
       if (active) panel.append(control("Перейти к локальным документам", () => leave()));
       else panel.append(control("Продолжить без входа", () => panel.closest("dialog").close()));
     }
