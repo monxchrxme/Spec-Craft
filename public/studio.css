@@ -62,6 +62,7 @@ button,
   gap: 7px;
 }
 button svg,
+.rail a svg,
 .side-heading > svg {
   width: 17px;
   height: 17px;
@@ -108,16 +109,23 @@ button.primary:hover:enabled {
   gap: 13px;
   padding: 16px 0;
 }
-.rail button {
+.rail button,
+.rail a {
   color: var(--rail-ink, #c7c5da);
   width: 36px;
   height: 36px;
+}
+.rail a {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
 }
 .rail [data-action="files"] {
   background: var(--rail-selection, #403c56);
   color: var(--rail-selected-ink, #e3dafa);
 }
-.rail button:hover:enabled {
+.rail button:hover:enabled,
+.rail a:hover {
   background: var(--rail-hover, #49465f);
 }
 .brand-icon {
