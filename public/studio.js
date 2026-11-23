@@ -784,7 +784,10 @@ function setGraphExpanded(session, value) {
   session.expanded = value;
   session.panel.classList.toggle("diagram-expanded", value);
   const button = session.panel.querySelector("[data-view-expand]");
-  button.lastElementChild.textContent = value ? "Свернуть" : "Развернуть";
+  const label = value ? "Свернуть" : "Развернуть";
+  button.lastElementChild.textContent = label;
+  button.setAttribute("aria-label", label);
+  button.title = label;
   button.setAttribute("aria-expanded", String(value));
   session.panel.querySelector(".frame-grip").title = value
     ? "Потяните для изменения высоты"

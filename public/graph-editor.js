@@ -43,13 +43,15 @@ export function graphEditor(
   const history = [],
     future = [];
   let layoutPreview = null;
-  panel.className = "diagram-card inline-graph";
+  panel.className = "diagram-card flowchart-card inline-graph";
   panel.classList.toggle("diagram-expanded", expanded);
   panel.innerHTML = `
     <header class="diagram-title">
-      <strong></strong><span class="spacer"></span>
-      <button type="button" data-view-expand><i data-lucide="maximize-2" aria-hidden="true"></i><span></span></button>
-      <button data-cmd="save">Готово</button>
+      <i data-lucide="workflow" aria-hidden="true"></i><strong></strong>
+      <div class="diagram-actions">
+        <button type="button" class="diagram-expand" data-view-expand><i data-lucide="maximize-2" aria-hidden="true"></i><span></span></button>
+        <button type="button" data-cmd="save">Готово</button>
+      </div>
     </header>
     <div class="graph-tools" role="group" aria-label="Инструменты схемы">
       <select aria-label="Фигура"></select>

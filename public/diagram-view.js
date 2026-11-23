@@ -39,11 +39,11 @@ export function diagramView(
   { edit, expanded = false, onExpand, resize } = {},
 ) {
   const card = document.createElement("section");
-  card.className = "diagram-card";
+  card.className = "diagram-card flowchart-card";
   const title = graph.title || "Блок-схема";
   card.setAttribute("aria-label", title);
   card.innerHTML = `
-    <header class="diagram-title"><i data-lucide="workflow" aria-hidden="true"></i><strong></strong><span class="spacer"></span></header>
+    <header class="diagram-title"><i data-lucide="workflow" aria-hidden="true"></i><strong></strong><div class="diagram-actions"></div></header>
     <div class="diagram-zoom" role="group" aria-label="Масштаб схемы">
       <button class="zoom-out" aria-label="Уменьшить схему">−</button>
       <button class="zoom-reset" title="Показать в масштабе 100%"></button>
@@ -52,15 +52,19 @@ export function diagramView(
     </div>
     <div class="diagram-window graph-bg" tabindex="0"></div>`;
   const header = card.querySelector("header");
+  const actions = header.querySelector(".diagram-actions");
   header.querySelector("strong").textContent = title;
   function addAction(name, symbol, fn) {
     if (!fn) return;
     const button = document.createElement("button");
-    button.innerHTML =
-      '<i aria-hidden="true" data-lucide="' + symbol + '"></i>';
-    button.append(name);
+    button.type = "button";
+    button.innerHTML = '<i aria-hidden="true" data-lucide="' + symbol + '"></i><span></span>';
+    button.lastElementChild.textContent = name;
+    button.setAttribute("aria-label", name);
+    button.title = name;
     button.onclick = fn;
-    header.append(button);
+    actions.append(button);
+    return button;
   }
   addAction("Изменить", "sliders-horizontal", edit);
   const expand = () => {
@@ -68,12 +72,15 @@ export function diagramView(
     onExpand?.();
     card.scrollIntoView({ block: "nearest" });
   };
-  addAction("Развернуть", "maximize-2", expand);
-  const expandButton = header.lastElementChild;
+  const expandButton = addAction("Развернуть", "maximize-2", expand);
+  expandButton.classList.add("diagram-expand");
   card.setExpanded = (value) => {
     expanded = value;
     card.classList.toggle("diagram-expanded", expanded);
-    expandButton.lastChild.textContent = expanded ? "Свернуть" : "Развернуть";
+    const label = expanded ? "Свернуть" : "Развернуть";
+    expandButton.lastElementChild.textContent = label;
+    expandButton.setAttribute("aria-label", label);
+    expandButton.title = label;
     expandButton.setAttribute("aria-expanded", String(expanded));
   };
   card.setExpanded(expanded);

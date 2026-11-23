@@ -915,7 +915,6 @@ table[data-auto-column-widths] :is(th, td) {
 .drawing-card {
   width: 100%;
   margin: 0 auto;
-  container-type: inline-size;
   --drawing-height: var(--manual-diagram-height, min(60dvh, 620px));
 }
 .drawing-card.diagram-expanded:not([data-manual-height]) {
@@ -983,36 +982,18 @@ table[data-auto-column-widths] :is(th, td) {
 .drawing-card .diagram-height-grip {
   z-index: 2;
 }
-.drawing-card > .diagram-title {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  gap: 4px 8px;
-  padding: 4px 8px;
-}
-.drawing-card > .diagram-title strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.drawing-actions,
 .drawing-edit-actions,
-.drawing-actions label:not([hidden]) {
+.diagram-actions label {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-.drawing-actions {
-  justify-content: flex-end;
-  font-size: 12px;
-}
-.drawing-actions button {
-  min-height: 28px;
-  padding: 4px 6px;
   gap: 4px;
 }
 .drawing-edit-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+.drawing-editing [data-drawing-fullscreen] {
+  order: 1;
 }
 .drawing-crop-hint {
   grid-column: 1 / -1;
@@ -1025,7 +1006,8 @@ table[data-auto-column-widths] :is(th, td) {
 }
 @container (max-width: 620px) {
   .drawing-actions > button > span,
-  .drawing-actions label > span {
+  .drawing-actions label > span,
+  .flowchart-card .diagram-actions button > span {
     display: none;
   }
   .drawing-actions select {
@@ -1077,23 +1059,99 @@ table[data-auto-column-widths] :is(th, td) {
   border-radius: 8px;
   overflow: hidden;
 }
+:is(.drawing-card, .flowchart-card, .mermaid-figure) {
+  container-type: inline-size;
+}
 .diagram-title {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 8px 12px;
+  gap: 4px 8px;
+  min-height: 43px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--line);
   font-family: system-ui, sans-serif;
   font-size: 13px;
   font-weight: 600;
 }
+.diagram-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .diagram-title > svg {
   width: 16px;
   color: var(--accent);
 }
-.diagram-title button {
+.diagram-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+}
+.diagram-actions button,
+.diagram-actions select {
+  min-height: 32px;
+  padding: 4px 6px;
+}
+.diagram-actions button {
+  gap: 4px;
   font-size: 12px;
   font-weight: 450;
+  white-space: nowrap;
+}
+.diagram-actions .diagram-expand {
+  min-width: 92px;
+}
+@container (max-width: 620px) {
+  :is(.drawing-card, .flowchart-card) .diagram-expand {
+    min-width: 0;
+  }
+}
+.mermaid-actions {
+  flex-wrap: wrap;
+}
+.mermaid-actions select {
+  max-width: 106px;
+}
+.mermaid-actions [data-mermaid-layout] select {
+  max-width: 124px;
+}
+.mermaid-option > svg {
+  display: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+@container (max-width: 1050px) {
+  .mermaid-option:has(> svg) > span {
+    display: none;
+  }
+  .mermaid-option > svg {
+    display: block;
+  }
+}
+@container (max-width: 860px) {
+  .mermaid-actions button:has(> svg) > span {
+    display: none;
+  }
+}
+@container (max-width: 560px) {
+  .mermaid-figure > .diagram-title {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .mermaid-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .mermaid-actions select {
+    max-width: 88px;
+  }
+  .mermaid-actions [data-mermaid-layout] select {
+    max-width: 104px;
+  }
 }
 .graph-bg {
   background-color: #fbfaff;
@@ -1125,22 +1183,6 @@ table[data-auto-column-widths] :is(th, td) {
 }
 .diagram-card:has(.diagram-height-grip) .mermaid-source {
   padding-inline-end: 30px;
-}
-.diagram-title {
-  flex-wrap: wrap;
-}
-.diagram-card:is([data-align], .inline-graph) > .diagram-title {
-  padding-inline-end: 8px;
-}
-.diagram-title strong {
-  flex: 1 1 120px;
-  overflow-wrap: anywhere;
-}
-.diagram-title .spacer {
-  display: none;
-}
-.diagram-title button {
-  white-space: nowrap;
 }
 .diagram-window {
   max-height: var(--view-height);
@@ -1790,9 +1832,6 @@ select {
   .graph-tools button {
     padding: 5px;
   }
-  .diagram-title {
-    padding: 6px;
-  }
   .topbar #filename {
     max-width: 42%;
   }
@@ -1899,9 +1938,6 @@ select {
 .inline-graph {
   background: var(--surface, white);
   border-color: var(--edge, #a7a0d4);
-}
-.inline-graph .diagram-title strong {
-  flex: 1;
 }
 .inline-graph .graph-tools {
   gap: 3px;
@@ -3243,15 +3279,9 @@ g.workflow-anchored {
   padding-bottom: 7px;
 }
 .mermaid-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   color: var(--muted);
-  font-size: 12px;
 }
 .mermaid-option select {
-  max-width: 100%;
-  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: var(--surface, white);

@@ -37,11 +37,11 @@ export function excalidrawBlocks(md) {
     if (!isExcalidraw(token)) return original(tokens, index, options, env, self);
     return `<figure class="diagram-card drawing-card" data-excalidraw>
       <header class="diagram-title"><i data-lucide="pencil-ruler" aria-hidden="true"></i><strong>Excalidraw</strong>
-        <div class="drawing-actions">
+        <div class="diagram-actions drawing-actions">
           <label data-drawing-crop hidden><span>Обрезка</span><select aria-label="Обрезка рисунка"></select></label>
-          <button type="button" data-excalidraw-edit hidden aria-label="Изменить" title="Изменить рисунок"><i data-lucide="pencil" aria-hidden="true"></i><span>Изменить</span></button>
-          <button type="button" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
           <button type="button" data-drawing-fullscreen hidden aria-pressed="false" aria-label="На всю вкладку" title="На всю вкладку"><i data-lucide="fullscreen" aria-hidden="true"></i><span>На всю вкладку</span></button>
+          <button type="button" data-excalidraw-edit hidden aria-label="Изменить" title="Изменить рисунок"><i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>Изменить</span></button>
+          <button type="button" class="diagram-expand" data-drawing-expand hidden><i data-lucide="maximize-2" aria-hidden="true"></i><span>Развернуть</span></button>
         </div>
       </header>
       <div class="diagram-zoom drawing-zoom" role="group" aria-label="Масштаб рисунка Excalidraw" hidden>
