@@ -33,6 +33,8 @@ function inlineTex(tokens, tableCell = false) {
   let value = "";
   for (const t of tokens) {
     if (t.type === "text") value += escapeTex(t.content);
+    else if (t.type === "task_input")
+      value += (t.meta.checked ? "\\fbox{x}" : "\\fbox{\\phantom{x}}") + " ";
     else if (t.type === "hardbreak" && tableCell) value += "\\newline{}";
     else if (t.type === "softbreak") value += "\n";
     else if (t.type === "link_open")
@@ -50,6 +52,7 @@ function inlineTex(tokens, tableCell = false) {
 }
 function inlineMarkdown(tex, tableCell = false) {
   let pos = 0;
+  const task = /^\\fbox\{(x|\\phantom\{x\})\}(?:[ \t]+|$)/.exec(tex);
   function read(nested) {
     let result = "";
     while (pos < tex.length) {
@@ -126,7 +129,9 @@ function inlineMarkdown(tex, tableCell = false) {
     if (nested) throw Error();
     return result;
   }
-  return read(false);
+  if (!task || tableCell) return read(false);
+  pos = task[0].length;
+  return (task[1] === "x" ? "[x] " : "[ ] ") + read(false);
 }
 function convert(tex, library, assets) {
   if (library.has(tex)) return library.get(tex);

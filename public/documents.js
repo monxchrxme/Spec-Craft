@@ -1,4 +1,5 @@
 import { sampleGraph, shapes } from "./graph.js";
+import { drawingFence } from "./excalidraw.js";
 export const fence = (g) =>
   "\u0060\u0060\u0060studio-diagram\n" +
   JSON.stringify(g, null, 2) +
@@ -51,6 +52,7 @@ export const blocksToInsert = {
     "Диаграмма Mermaid",
     "\u0060\u0060\u0060mermaid\nflowchart TD\n  A[Начало] --> B[Действие]\n  B --> C[Результат]\n\u0060\u0060\u0060",
   ],
+  excalidraw: ["Рисунок Excalidraw", drawingFence()],
   requirement: [
     "Требование",
     "### FR-01 · Новое требование\n\n**Критерий приёмки** — укажите проверяемый результат.",

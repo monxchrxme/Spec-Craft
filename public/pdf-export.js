@@ -2,6 +2,7 @@ import { formulaSettings, pageMargins } from "./document-style.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
+import { drawingGraphic } from "./excalidraw.js";
 import { specIndex } from "./spec-index.js";
 import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
@@ -211,6 +212,29 @@ async function markdownBlocks(html, settings) {
           },
         );
         stack.push(drawing.node);
+      } else if (node.hasAttribute?.("data-excalidraw")) {
+        flush();
+        try {
+          const source = node.querySelector("[data-excalidraw-source]").textContent;
+          const graphic = await drawingGraphic(source);
+          if (graphic) stack.push({
+            image: graphic.url,
+            fit: [Math.min(widthLimit, graphic.width * 0.75), heightLimit],
+            alignment: "center",
+            margin: [0, 4, 0, gap],
+          });
+        } catch {
+          note("Не удалось встроить рисунок Excalidraw.");
+          stack.push({ text: "Рисунок Excalidraw недоступен" });
+        }
+      } else if (node.hasAttribute?.("data-task-line")) {
+        const box = size * 0.78;
+        const tick = node.checked ? '<path d="M2 5l2 2 4-4"/>' : "";
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${box}" height="${box}" viewBox="0 0 10 10"><g fill="none" stroke="#393643"><rect x=".75" y=".75" width="8.5" height="8.5" rx="1"/>${tick}</g></svg>`;
+        runs.push({
+          text: "\uFFFC",
+          inlineSvg: { svg, _width: box, _height: box, ascent: box * 0.9 },
+        }, { text: " " });
       } else if (tag === "img") {
         flush();
         stack.push(await imageBlock(node, widthLimit, heightLimit));
@@ -413,6 +437,7 @@ async function markdownBlocks(html, settings) {
       for (const li of el.children)
         items.push({
           stack: await flow(li, { specParagraph: true, specKeepLines: true }),
+          ...(li.classList.contains("task-list-item") ? { listType: "none" } : {}),
         });
       return {
         [tag]: items,

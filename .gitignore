@@ -1,4 +1,5 @@
 .vercel
 .DS_Store
 node_modules
+public/excalidraw-assets/
 .env*

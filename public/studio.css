@@ -245,12 +245,9 @@ button.primary:hover:enabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.documents-wrap .side-heading {
-  flex-wrap: wrap;
-  row-gap: 0;
-}
-.documents-wrap .side-actions {
-  margin-inline-start: auto;
+.documents-wrap .side-actions svg {
+  width: 16px;
+  height: 16px;
 }
 .side-actions {
   position: relative;
@@ -309,9 +306,25 @@ button.primary:hover:enabled {
   background: var(--selection, #eae6f8);
   color: var(--active-ink, #52449c);
 }
-.sidebar .import {
+.folder-contents {
+  margin-inline-start: 10px;
+  padding-inline-start: 3px;
+  border-inline-start: 1px solid var(--line);
+}
+.sidebar .folder-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+.folder-caret {
+  display: inline-flex;
+  flex: none;
+}
+.folder-toggle[aria-expanded="true"] .folder-caret {
+  transform: rotate(90deg);
+}
+.folder-toggle {
   color: var(--muted);
-  margin-top: 5px;
+  font-weight: 600;
 }
 .outline-wrap {
   flex: 0 0 clamp(25%, var(--outline-share, 45%), 75%);
@@ -856,6 +869,33 @@ table[data-auto-column-widths] :is(th, td) {
 #source {
   min-height: 56vh;
 }
+.task-list-item {
+  list-style: none;
+}
+.task-checkbox {
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.45em 0 0;
+  vertical-align: -0.06em;
+  accent-color: var(--accent);
+}
+.task-checkbox:enabled {
+  cursor: pointer;
+}
+.drawing-card > img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  margin-inline: auto;
+}
+.drawing-card > img[hidden] {
+  display: none;
+}
+.drawing-card > p {
+  margin: 0;
+  padding: 10px 14px;
+}
 .diagram-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1295,6 +1335,35 @@ dialog {
 }
 dialog::backdrop {
   background: #1e1b314d;
+}
+dialog.drawing-editor {
+  width: min(1400px, 96vw);
+  max-width: 96vw;
+  height: 92dvh;
+  max-height: 92dvh;
+  padding: 0;
+}
+.drawing-editor[open] {
+  display: flex;
+  flex-direction: column;
+}
+.drawing-editor > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.drawing-editor h2 {
+  font-size: 1rem;
+  margin: 0 auto 0 0;
+}
+.drawing-editor iframe {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
 }
 dialog .dialog-head {
   display: flex;

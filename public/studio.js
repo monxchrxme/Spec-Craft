@@ -26,6 +26,14 @@ import {
   paintMermaid,
   updateMermaidCard,
 } from "./mermaid.js";
+import {
+  drawingFence,
+  editDrawing,
+  excalidrawBlocks,
+  isExcalidraw,
+  paintDrawings,
+} from "./excalidraw.js";
+import { setTaskChecked, taskLists } from "./task-lists.js";
 import { makeShare, reviewTargets, showReview } from "./review.js";
 import {
   blockAnchor,
@@ -87,6 +95,7 @@ import {
   highlightSidebarMatches,
   sidebarSearchPattern,
 } from "./sidebar-navigation.js";
+import { folderStorageKey, mergeFolders, readFolders } from "./workspace-folders.js";
 import {
   applyTableWidths,
   automaticColumnWidths,
@@ -125,6 +134,8 @@ const md = window
   .use(wikiLinks)
   .use(latex)
   .use(mermaidBlocks)
+  .use(excalidrawBlocks)
+  .use(taskLists)
   .use(imageSizes)
   .use(pdfRules)
   .use(tableWidths)
@@ -141,6 +152,15 @@ const icon = (n) => '<i aria-hidden="true" data-lucide="' + n + '"></i>';
 const docs = new Map(),
   history = new Map(),
   savedRecords = new Map();
+let folders = [];
+const foldedFolders = new Set();
+try {
+  folders = readFolders(JSON.parse(localStorage.getItem(folderStorageKey)));
+  const folds = JSON.parse(localStorage.getItem("buro:folder-folds"));
+  if (Array.isArray(folds)) folds.forEach((id) => foldedFolders.add(id));
+} catch {
+  // Documents remain accessible in the root if folder metadata is unavailable.
+}
 let doc,
   mode = "edit",
   parts = [],
@@ -247,7 +267,7 @@ function save() {
 }
 function updateWordcount() {
   const plain = doc.body
-    .replace(/^`{3,}studio-diagram[^\n]*\n[\s\S]*?^`{3,}\s*$/gm, "")
+    .replace(/^`{3,}(?:studio-diagram|excalidraw)[^\n]*\n[\s\S]*?^`{3,}\s*$/gim, "")
     .replace(/data:image\/[a-z]+;base64,[A-Za-z\d+/=]+/gi, "");
   $("#wordcount").textContent =
     (plain.match(/[\p{L}\p{N}]+/gu) || []).length + " слов";
@@ -290,7 +310,7 @@ function updateDocumentLabel() {
 function filterFiles() {
   const pattern = sidebarSearchPattern(fileSearch);
   let hasMatch = false;
-  for (const row of $("#files").children) {
+  for (const row of $("#files").querySelectorAll("[data-document-row]")) {
     const file = row.firstElementChild;
     const match = highlightSidebarMatches(
       file.lastElementChild,
@@ -300,11 +320,50 @@ function filterFiles() {
     row.hidden = Boolean(pattern) && !match;
     if (!row.hidden) hasMatch = true;
   }
+  for (const entry of [...$("#files").querySelectorAll(".folder-entry")].reverse()) {
+    const [row, contents] = entry.children;
+    const matching = [...contents.children].some((child) => !child.hidden);
+    const expanded = pattern ? matching : !foldedFolders.has(entry.dataset.folder);
+    entry.hidden = Boolean(pattern) && !matching;
+    contents.hidden = !expanded;
+    row.firstElementChild.setAttribute("aria-expanded", String(expanded));
+  }
   $("#files-empty").hidden = !pattern || hasMatch;
 }
 function nav() {
   const files = $("#files");
   files.replaceChildren();
+  const levels = new Map([["", files]]);
+  for (const folder of folders) {
+    const entry = document.createElement("div");
+    entry.className = "folder-entry";
+    entry.dataset.folder = folder.id;
+    const row = document.createElement("div");
+    row.className = "file-row";
+    const button = document.createElement("button");
+    button.className = "file folder-toggle";
+    button.innerHTML = '<span class="folder-caret">' + icon("chevron-right") +
+      "</span>" + icon("folder") + '<span class="file-name"></span>';
+    button.querySelector(".file-name").textContent = folder.name;
+    button.title = folder.name;
+    button.onclick = () => {
+      if (fileSearch.value.trim()) return;
+      if (foldedFolders.has(folder.id)) foldedFolders.delete(folder.id);
+      else foldedFolders.add(folder.id);
+      try {
+        localStorage.setItem("buro:folder-folds", JSON.stringify([...foldedFolders]));
+      } catch {
+        // The folder remains folded in this tab.
+      }
+      filterFiles();
+    };
+    row.append(button, fileMenu("Действия с папкой " + folder.name, () => folderActions(folder.id)));
+    const contents = document.createElement("div");
+    contents.className = "folder-contents";
+    entry.append(row, contents);
+    (levels.get(folder.parentId) || files).append(entry);
+    levels.set(folder.id, contents);
+  }
   for (const d of availableDocs()) {
     const b = document.createElement("button");
     b.className = "file";
@@ -314,14 +373,9 @@ function nav() {
     b.onclick = () => switchDoc(d);
     const row = document.createElement("div");
     row.className = "file-row";
-    const menu = document.createElement("button");
-    menu.className = "file-menu";
-    menu.title = "Действия с файлом " + d.name;
-    menu.setAttribute("aria-label", menu.title);
-    menu.innerHTML = icon("ellipsis");
-    menu.onclick = () => fileActions(d.id);
-    row.append(b, menu);
-    files.append(row);
+    row.dataset.documentRow = "";
+    row.append(b, fileMenu("Действия с файлом " + d.name, () => fileActions(d.id)));
+    (levels.get(d.folderId) || files).append(row);
   }
   filterFiles();
   $("#filename").textContent = doc?.name || "";
@@ -333,6 +387,15 @@ function nav() {
   ))
     b.disabled = !doc;
   icons();
+}
+function fileMenu(label, action) {
+  const menu = document.createElement("button");
+  menu.className = "file-menu";
+  menu.title = label;
+  menu.setAttribute("aria-label", label);
+  menu.innerHTML = icon("ellipsis");
+  menu.onclick = action;
+  return menu;
 }
 function switchDoc(d) {
   flush();
@@ -773,6 +836,7 @@ const sourcePane = sourceWorkspace({
     for (const block of blocks) {
       void paintMath(block);
       void paintMermaid(block);
+      paintDrawings(block);
     }
   },
 });
@@ -861,6 +925,7 @@ function render() {
   viewport.scrollTop = scrollTop;
   void paintMath(host);
   void paintMermaid(host);
+  paintDrawings(host);
   updateWordcount();
 }
 function deleteBlockButton(index, label, className) {
@@ -911,6 +976,7 @@ function block(p, i, expanded = expandAll) {
     onExpand: updateExpandButton,
   });
   if (mode === "edit") {
+    for (const input of box.querySelectorAll(".task-checkbox")) input.disabled = false;
     box.append(sortGrip("Перетащить блок", true));
   }
   return box;
@@ -941,6 +1007,21 @@ function editMermaidCode(index, selectExample = false) {
   const end = Math.max(start, ta.value.lastIndexOf("\n"));
   ta.setSelectionRange(start, selectExample ? end : start);
 }
+function openDrawing(index) {
+  const state = prepareBlockChange(index);
+  const token = state && parts[state.origin].t;
+  if (!isExcalidraw(token)) return;
+  try {
+    editDrawing(token.content, (scene) => {
+      if (!patchStructuredBlock(state, drawingFence(scene))) return false;
+      replaceStructuredView(state.origin);
+      save();
+      return true;
+    });
+  } catch {
+    notice("Не удалось открыть рисунок. Проверьте исходный блок в Markdown.");
+  }
+}
 function patchStructuredBlock(state, markup) {
   if (doc?.id !== state.id || doc.body !== state.body || !parts[state.origin]) {
     notice("Блок изменился. Откройте его заново.");
@@ -968,6 +1049,7 @@ function replaceStructuredView(index, expanded, previousMermaid) {
   icons();
   void paintMath(replacement);
   void paintMermaid(replacement);
+  paintDrawings(replacement);
 }
 function openStructuredBlock(index, kind) {
   const state = prepareBlockChange(index);
@@ -1171,6 +1253,14 @@ function buildBlock(p, i, expanded) {
     return box;
   } else box.innerHTML = md.renderer.render(p.tokens, md.options, {});
   if (mode === "edit") {
+    if (isExcalidraw(p.t)) {
+      const header = box.querySelector(".drawing-card header");
+      const button = header.querySelector("[data-excalidraw-edit]");
+      button.hidden = false;
+      button.onclick = () => openDrawing(i);
+      header.append(deleteBlockButton(i, "Удалить рисунок", "diagram-remove"));
+      return box;
+    }
     const kind =
       p.t.type === "spec_toc"
         ? "toc"
@@ -1238,7 +1328,7 @@ function buildBlock(p, i, expanded) {
     box.title = "Нажмите, чтобы редактировать";
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
-      if (e.target.closest("textarea,.inline-tools,.mermaid-figure")) return;
+      if (e.target.closest("textarea,.inline-tools,.mermaid-figure,.task-checkbox")) return;
       if (
         e.target.closest('a[href^="#"]') ||
         (e.target.closest("a") && (e.metaKey || e.ctrlKey))
@@ -1339,6 +1429,7 @@ function editBlock(i, selectAll = false) {
     if (!preview.hidden) {
       void paintMath(preview);
       void paintMermaid(preview, true);
+      paintDrawings(preview);
     }
     if (originalMermaid) updateExpandButton();
   }
@@ -2104,6 +2195,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
     if (["paragraph", "heading", "code", "list", "math"].includes(type))
       editBlock(selected, true);
     if (type === "mermaid") editMermaidCode(selected, true);
+    if (type === "excalidraw") openDrawing(selected);
     if (type === "math" && editor) {
       editor.ta.setSelectionRange(3, editor.ta.value.length - 3);
     }
@@ -2180,6 +2272,7 @@ function insertDialog() {
             table: "table",
             diagram: "workflow",
             mermaid: "git-fork",
+            excalidraw: "pencil-ruler",
             requirement: "list-checks",
             code: "code",
             math: "sigma",
@@ -2305,12 +2398,101 @@ function updateFile(id, mutate) {
     return false;
   }
 }
+function changeFolders(change) {
+  try {
+    const current = readFolders(JSON.parse(localStorage.getItem(folderStorageKey)));
+    const next = change(current);
+    localStorage.setItem(folderStorageKey, JSON.stringify(next));
+    folders = next;
+    nav();
+    return true;
+  } catch (error) {
+    notice(error.message || "Не удалось сохранить папки.");
+    return false;
+  }
+}
+function folderNameDialog(id = "", parentId = "") {
+  const folder = folders.find((item) => item.id === id);
+  const body = dialog(folder ? "Переименовать папку" : "Новая папка",
+    '<form class="template-form"><label>Название папки<input required maxlength="100"></label><button class="primary">Сохранить</button></form>');
+  const form = body.querySelector("form");
+  const input = form.querySelector("input");
+  input.value = folder?.name || "";
+  input.focus();
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+    const saved = changeFolders((current) => {
+      const latest = current.find((item) => item.id === id);
+      if ((id && !latest) || (parentId && !current.some((item) => item.id === parentId)))
+        throw Error("Папка уже удалена.");
+      const parent = latest?.parentId || parentId;
+      if (current.some((item) => item.id !== id && item.parentId === parent &&
+          item.name.toLowerCase() === name.toLowerCase()))
+        throw Error("Папка с таким названием уже существует.");
+      if (latest) return current.map((item) => item.id === id ? { ...item, name } : item);
+      foldedFolders.delete(parent);
+      return [...current, { id: crypto.randomUUID(), name, parentId: parent }];
+    });
+    if (saved) modal.close();
+  };
+}
+function folderActions(id) {
+  const folder = folders.find((item) => item.id === id);
+  if (!folder) return;
+  const body = dialog(folder.name,
+    option("new", "Новая вложенная папка", "folder-plus") +
+    option("rename", "Переименовать", "pencil") +
+    option("remove", "Удалить пустую папку", "trash-2"));
+  body.onclick = (event) => {
+    const action = event.target.closest("[data-id]")?.dataset.id;
+    if (action === "new") return folderNameDialog("", id);
+    if (action === "rename") return folderNameDialog(id);
+    if (action === "remove" && changeFolders((current) => {
+      if (current.some((item) => item.parentId === id) ||
+          [...docs.values()].some((item) => item.folderId === id))
+        throw Error("Папка содержит вложенные папки или документы, включая корзину.");
+      return current.filter((item) => item.id !== id);
+    })) modal.close();
+  };
+}
+function moveFileDialog(id) {
+  const body = dialog("Переместить в папку",
+    '<form class="template-form"><label>Папка<select></select></label><button class="primary">Переместить</button></form>');
+  const form = body.querySelector("form");
+  const select = form.querySelector("select");
+  const paths = new Map();
+  select.add(new Option("Без папки", ""));
+  for (const folder of folders) {
+    const path = [paths.get(folder.parentId), folder.name].filter(Boolean).join(" / ");
+    paths.set(folder.id, path);
+    select.add(new Option(path, folder.id));
+  }
+  select.value = paths.has(docs.get(id)?.folderId) ? docs.get(id).folderId : "";
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    const folderId = select.value;
+    if (folderId && !folders.some((item) => item.id === folderId)) {
+      notice("Папка уже удалена.");
+      return;
+    }
+    if (!updateFile(id, (latest) => ({ ...latest, folderId: folderId || undefined })))
+      return;
+    for (let folder = folders.find((item) => item.id === folderId); folder;
+      folder = folders.find((item) => item.id === folder.parentId))
+      foldedFolders.delete(folder.id);
+    modal.close();
+    nav();
+  };
+}
 function fileActions(id) {
   const d = docs.get(id);
   if (!d || d.trashed) return;
   const body = dialog(
     d.name,
     option("rename", "Переименовать", "pencil") +
+      option("move", "Переместить в папку", "folder-input") +
       option("copy", "Создать копию", "copy") +
       option("trash", "Переместить в корзину", "trash-2"),
   );
@@ -2322,6 +2504,7 @@ function fileActions(id) {
       return;
     }
     if (action === "rename") return renameFile(id);
+    if (action === "move") return moveFileDialog(id);
     if (action === "copy") {
       const next = {
         ...structuredClone(docs.get(id)),
@@ -2476,6 +2659,7 @@ const templates = templateTools({
     void paintMath(target);
     mermaidControls(target);
     void paintMermaid(target);
+    paintDrawings(target);
   },
 });
 let pdfCache;
@@ -2512,11 +2696,13 @@ function requestPdf(force = false) {
                 : part.t.type === "math_block"
                   ? "Формула"
                   : part.t.type === "fence"
-                    ? isMermaid(part.t)
-                      ? "Mermaid"
-                      : part.t.info.trim() === "studio-diagram"
-                        ? "Блок-схема"
-                        : "Код"
+                    ? isExcalidraw(part.t)
+                      ? "Рисунок Excalidraw"
+                      : isMermaid(part.t)
+                        ? "Mermaid"
+                        : part.t.info.trim() === "studio-diagram"
+                          ? "Блок-схема"
+                          : "Код"
                     : readable?.startsWith("![")
                       ? "Изображение"
                       : (readable || part.text)
@@ -3392,6 +3578,26 @@ const panels = specPanels({
 host.addEventListener("mousedown", (e) => {
   if (e.target.closest("[data-wiki]")) e.preventDefault();
 });
+host.addEventListener("change", (event) => {
+  const input = event.target;
+  if (mode !== "edit" || !input.matches(".task-checkbox")) return;
+  const index = Number(input.closest(".block").dataset.idx);
+  const line = Number(input.dataset.taskLine) - parts[index].t.map[0];
+  const checked = input.checked;
+  const state = prepareBlockChange(index);
+  if (!state) {
+    input.checked = !checked;
+    return;
+  }
+  const part = parts[state.origin];
+  const next = setTaskChecked(part.text, line, checked);
+  if (next === part.text || !patchStructuredBlock(state, next)) return;
+  const current = host.children[state.origin]?.querySelector(
+    `[data-task-line="${part.t.map[0] + line}"]`,
+  );
+  if (current) current.checked = checked;
+  save();
+});
 host.addEventListener(
   "click",
   (e) => {
@@ -3410,7 +3616,7 @@ host.addEventListener(
 function transferDialog() {
   const box = dialog(
     "Перенос данных",
-    "<p>Резервная копия включает документы, шаблоны, версии и доступ автора к замечаниям. Храните её у себя.</p>" +
+    "<p>Резервная копия включает папки, документы, шаблоны, версии и доступ автора к замечаниям. Храните её у себя.</p>" +
       option("backup", "Скачать резервную копию", "download") +
       '<label>Загрузить резервную копию<input type="file" accept=".json,application/json"></label>',
   );
@@ -3423,6 +3629,7 @@ function transferDialog() {
           version: 1,
           active: doc?.id,
           documents: [...docs.values()],
+          folders,
           templates: readTemplates(),
         }),
         "application/json",
@@ -3458,7 +3665,16 @@ function transferDialog() {
       )
         throw Error("Выберите резервную копию SpecCraft.");
       const templateCount = restoreTemplates(bundle.templates ?? []);
-      for (const record of bundle.documents) {
+      const restoredFolders = mergeFolders(folders, bundle.folders);
+      if (restoredFolders.folders.length > folders.length) {
+        localStorage.setItem(folderStorageKey, JSON.stringify(restoredFolders.folders));
+        folders = restoredFolders.folders;
+      }
+      for (const importedRecord of bundle.documents) {
+        const record = {
+          ...importedRecord,
+          folderId: restoredFolders.ids.get(importedRecord.folderId),
+        };
         const existing = docs.get(record.id);
         if (
           existing &&
@@ -3568,6 +3784,7 @@ const actions = {
     ),
   open: () => $("#file-input").click(),
   new: () => templates.createFrom(),
+  "new-folder": () => folderNameDialog(),
   templates: () => templates.library(),
   ai: aiDialog,
   export: exportDialog,
@@ -3742,6 +3959,14 @@ function syncFile(id) {
 }
 window.addEventListener("storage", (event) => {
   if (event.key?.startsWith(prefix)) syncFile(event.key.slice(prefix.length));
+  if (event.key === folderStorageKey) {
+    try {
+      folders = readFolders(JSON.parse(event.newValue));
+      nav();
+    } catch {
+      notice("Не удалось прочитать папки из другой вкладки.");
+    }
+  }
 });
 window.addEventListener("pagehide", () => {
   inlineGraph?.editor?.publish();

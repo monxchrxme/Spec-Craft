@@ -8,6 +8,11 @@ import {
   reorderMarkdown,
 } from "../public/block-order.js";
 import { reorderTable } from "../public/table-order.js";
+import { drawingFence, excalidrawBlocks, readDrawing } from "../public/excalidraw.js";
+import { documentParts } from "../public/document-parts.js";
+import { latexProjection } from "../public/latex-source.js";
+import { setTaskChecked, taskLists } from "../public/task-lists.js";
+import { mergeFolders, readFolders } from "../public/workspace-folders.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
@@ -25,6 +30,61 @@ import {
   mermaidPresentation,
   setMermaidPresentation,
 } from "../public/mermaid-presentation.js";
+
+test("task markers round-trip in nested lists, standalone paragraphs and LaTeX", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit().use(taskLists);
+  const body = "- [ ] Первая\r\n  - [X] **Вторая**\r\n\r\n[ ] Отдельно\r\n\r\n`[x] Код`";
+  const html = md.render(body);
+  assert.match(html, /data-task-line="0"[^>]* disabled>/);
+  assert.match(html, /data-task-line="1"[^>]* disabled checked><strong>Вторая<\/strong>/);
+  assert.match(html, /data-task-line="3"[^>]* disabled>/);
+  assert.match(html, /<code>\[x\] Код<\/code>/);
+  assert.equal(setTaskChecked(body, 1, false), body.replace("[X]", "[ ]"));
+  assert.equal(setTaskChecked(body, 3, true), body.replace("[ ] Отдельно", "[x] Отдельно"));
+  const flat = "- [x] Текст\n- [ ] Другой";
+  const projection = latexProjection(flat, documentParts(md, flat));
+  assert.match(projection.text, /\\item \\fbox\{x\} Текст/);
+  assert.equal(projection.apply(projection.text.replace("Текст", "Правка")), flat.replace("Текст", "Правка"));
+});
+
+test("Excalidraw preserves scene assets and escapes drawing text in Markdown rendering", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit({ html: false }).use(excalidrawBlocks);
+  const scene = {
+    type: "excalidraw",
+    version: 2,
+    elements: [{ type: "text", text: "</code><strong>\n```" }],
+    appState: { viewBackgroundColor: "#fff" },
+    files: { sample: { mimeType: "image/png", dataURL: "data:image/png;base64,QQ==" } },
+  };
+  const markdown = drawingFence(scene);
+  const parts = documentParts(md, markdown + "\n\nАбзац");
+  assert.equal(parts.length, 2);
+  assert.deepEqual(readDrawing(parts[0].t.content), scene);
+  assert.match(md.render(markdown), /&lt;\/code&gt;&lt;strong&gt;/);
+});
+
+test("restoring workspace folders remaps documents and preserves nesting on ID conflicts", () => {
+  const root = { id: "existing", name: "Учёба", parentId: "" };
+  const imported = [
+    { id: "child", name: "Лабораторные", parentId: "parent" },
+    { id: "existing", name: "Материалы", parentId: "child" },
+    { id: "parent", name: "Учёба", parentId: "" },
+    { id: "loop", name: "Цикл", parentId: "loop" },
+  ];
+  assert.deepEqual(readFolders(imported).map((folder) => folder.id), ["parent", "child", "existing"]);
+  const merged = mergeFolders([root], imported, () => "new");
+  assert.deepEqual(merged.folders, [
+    root,
+    { id: "child", name: "Лабораторные", parentId: "existing" },
+    { id: "new", name: "Материалы", parentId: "child" },
+  ]);
+  assert.equal(merged.ids.get("parent"), "existing");
+  assert.equal(merged.ids.get("existing"), "new");
+});
 
 test("reordering table data keeps column widths and alignment with the values", () => {
   const table = {
