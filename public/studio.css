@@ -948,6 +948,9 @@ table[data-auto-column-widths] :is(th, td) {
 .drawing-editing:not([data-manual-height], .diagram-expanded) {
   --drawing-height: clamp(360px, 62dvh, 620px);
 }
+.drawing-editing .drawing-stage {
+  min-height: min(360px, 68dvh);
+}
 .drawing-stage > img {
   display: block;
   width: auto;
@@ -994,7 +997,8 @@ table[data-auto-column-widths] :is(th, td) {
   flex-wrap: wrap;
 }
 .drawing-card header input {
-  width: 5ch;
+  width: 8ch;
+  padding-inline: 5px;
 }
 .drawing-card header select {
   max-width: 150px;
