@@ -197,10 +197,19 @@ button.primary:hover:enabled {
 .brand {
   flex: none;
   padding: 20px 22px;
+}
+.brand h1 {
+  margin: 0;
   font-weight: 750;
   font-size: 25px;
   letter-spacing: -1.3px;
   line-height: 1.1;
+}
+.brand p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .sidebar-navigation > .topbar-toggle {
   display: none;
