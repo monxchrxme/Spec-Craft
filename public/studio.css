@@ -87,6 +87,7 @@ button.primary:hover:enabled {
 #workspace {
   --workspace-row-height: 32px;
   --topbar-height: 60px;
+  --rail-width: 54px;
   --sidebar-default-width: 228px;
   --sidebar-min-width: 155px;
   --sidebar-max-width: clamp(var(--sidebar-min-width), 100vw - 550px, 480px);
@@ -95,12 +96,13 @@ button.primary:hover:enabled {
     var(--sidebar-user-width, var(--sidebar-default-width)),
     var(--sidebar-max-width)
   );
+  --sidebar-space: var(--sidebar-width);
   height: 100dvh;
   display: flex;
   overflow: hidden;
 }
 .rail {
-  width: 54px;
+  width: var(--rail-width);
   flex: none;
   background: var(--rail, #252536);
   display: flex;
@@ -440,6 +442,7 @@ main {
 }
 #workspace-toolbar {
   flex: none;
+  container: workspace-toolbar / inline-size;
 }
 .topbar,
 .controls {
@@ -477,14 +480,19 @@ main {
   font-weight: 550;
 }
 .controls {
-  height: 54px;
+  min-height: 54px;
+  flex-wrap: wrap;
+  align-content: center;
   gap: 3px;
+  padding-block: 5px;
 }
 .modes {
   background: var(--inset, #f0f1f5);
   border-radius: 7px;
   padding: 3px;
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 .modes button {
   color: var(--muted);
@@ -499,7 +507,12 @@ main {
   border: 1px solid var(--line);
   margin-left: 8px;
 }
-.controls.pdf-mode > :is(.tool, .insert) {
+.editing-tools {
+  display: flex;
+  gap: 3px;
+  margin-inline-start: auto;
+}
+.controls.pdf-mode > .editing-tools {
   display: none;
 }
 .mobile-menu,
@@ -1524,6 +1537,9 @@ footer {
 #wordcount {
   margin-inline-start: auto;
 }
+.hide-side #workspace {
+  --sidebar-space: 0px;
+}
 .hide-side .sidebar,
 .hide-side .sidebar-resizer {
   display: none;
@@ -1688,17 +1704,15 @@ select {
 @media (max-width: 980px) {
   #workspace {
     --sidebar-default-width: 190px;
+    --rail-width: 46px;
   }
   .topbar,
   .controls {
-    padding: 0 14px;
+    padding-inline: 14px;
   }
   .paper {
     --paper-inline-padding: 28px;
     padding-block: 28px;
-  }
-  .rail {
-    width: 46px;
   }
   #scroll {
     padding: 18px;
@@ -1766,7 +1780,7 @@ select {
   }
   .topbar,
   .controls {
-    padding: 0 8px;
+    padding-inline: 8px;
   }
   .controls .tool {
     padding: 6px;
@@ -1871,7 +1885,10 @@ select {
   flex: 0 0 var(--inspector-user-width, var(--inspector-default-width));
   margin: 0;
   width: auto;
-  max-width: clamp(280px, 100vw - 560px, 560px);
+  max-width: min(
+    clamp(280px, 100vw - 560px, 560px),
+    max(190px, calc(100vw - var(--rail-width) - var(--sidebar-space) - 270px))
+  );
   min-width: 190px;
   height: 100%;
   max-height: none;
@@ -2416,15 +2433,40 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
     width: 24px;
   }
 }
-@media (max-width: 360px) {
+@container workspace-toolbar (max-width: 560px) {
+  .controls {
+    padding-inline: 8px;
+  }
   .controls .modes button {
-    padding-inline: 4px;
+    padding-inline: 6px;
+  }
+  .controls :is(.tool, .insert) {
+    padding-inline: 6px;
+  }
+  .controls .modes button svg {
+    display: none;
+  }
+}
+@container workspace-toolbar (max-width: 430px) {
+  .topbar {
+    gap: 3px;
+    padding-inline: 8px;
+  }
+  .topbar #filename {
+    min-width: 0;
+  }
+  .topbar :is(.crumb, .slash),
+  .topbar :is([data-action="share"], [data-action="collaboration-discussion"], [data-action="export"]) span,
+  .controls .insert span {
+    display: none;
   }
   .controls .insert {
     margin-left: 2px;
   }
-  .controls .insert span {
-    display: none;
+}
+@container workspace-toolbar (max-width: 360px) {
+  .controls .modes button {
+    padding-inline: 4px;
   }
 }
 
@@ -3307,7 +3349,9 @@ g.workflow-anchored {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
+  max-width: 100%;
   padding-inline: 8px;
   white-space: nowrap;
   font:
@@ -3405,16 +3449,6 @@ g.workflow-anchored {
   #source-workspace[data-preview="off"] .source-columns {
     grid-template-rows: minmax(0, 1fr);
   }
-  .controls {
-    overflow-x: auto;
-  }
-}
-
-.controls:has(.source-controls:not([hidden])) {
-  overflow-x: auto;
-}
-.controls:has(.source-controls:not([hidden])) > :not(.spacer) {
-  flex-shrink: 0;
 }
 
 .style-fields {

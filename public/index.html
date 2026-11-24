@@ -263,8 +263,8 @@
             >
               <i data-lucide="users" aria-hidden="true"></i
               ><span></span></button
-            ><button class="primary" data-action="export">
-              <i data-lucide="download"></i><span>Экспорт</span>
+            ><button class="primary" data-action="export" aria-label="Экспорт" title="Экспорт">
+              <i data-lucide="download" aria-hidden="true"></i><span>Экспорт</span>
             </button>
           </header>
           <aside
@@ -312,31 +312,29 @@
                 текстом</label
               >
             </div>
-            <span class="spacer"></span
-            ><button
-              class="tool"
-              data-action="undo"
-              title="Отменить"
-              aria-label="Отменить"
-              aria-keyshortcuts="Control+Z Meta+Z"
-            >
-              <i data-lucide="undo-2"></i></button
-            ><button
-              class="tool"
-              data-action="redo"
-              title="Повторить"
-              aria-label="Повторить"
-              aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
-            >
-              <i data-lucide="redo-2"></i></button
-            ><button
-              class="insert"
-              data-action="insert"
-              aria-label="Вставить"
-              title="Вставить"
-            >
-              <i data-lucide="plus" aria-hidden="true"></i><span>Вставить</span>
-            </button>
+            <div class="editing-tools">
+              <button
+                class="tool"
+                data-action="undo"
+                title="Отменить"
+                aria-label="Отменить"
+                aria-keyshortcuts="Control+Z Meta+Z"
+              >
+                <i data-lucide="undo-2"></i>
+              </button>
+              <button
+                class="tool"
+                data-action="redo"
+                title="Повторить"
+                aria-label="Повторить"
+                aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
+              >
+                <i data-lucide="redo-2"></i>
+              </button>
+              <button class="insert" data-action="insert" aria-label="Вставить" title="Вставить">
+                <i data-lucide="plus" aria-hidden="true"></i><span>Вставить</span>
+              </button>
+            </div>
           </div>
         </div>
         <div class="compact-mobile-header">
