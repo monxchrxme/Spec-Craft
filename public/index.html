@@ -494,11 +494,19 @@
               ></select>
               <span class="pdf-block-location" data-pdf="placement"></span>
               <button type="button" data-pdf="edit">К блоку в редакторе</button>
+              <details class="pdf-spacer-insert" data-pdf="spacer-insert" hidden>
+                <summary><i data-lucide="plus" aria-hidden="true"></i> Вставить интервал</summary>
+                <div class="pdf-spacer-options">
+                  <button type="button" data-pdf="spacer-before">Перед блоком</button>
+                  <button type="button" data-pdf="spacer-after">После блока</button>
+                </div>
+              </details>
               <label class="pdf-spacer-size" data-pdf="spacer-size" hidden>
                 Высота интервала, мм
                 <input type="number" min="0" data-pdf="spacer-height"
                   title="Пустое поле использует общую высоту" />
               </label>
+              <button type="button" data-pdf="remove-spacer" hidden>Удалить интервал</button>
               <div
                 class="pdf-rule-fields"
                 role="group"

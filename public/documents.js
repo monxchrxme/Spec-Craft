@@ -1,7 +1,6 @@
 import { sampleGraph, shapes } from "./graph.js";
 import { drawingFence } from "./excalidraw.js";
 import { speakerNotesMarkdown } from "./portable-blocks.js";
-import { formatPdfSpacer } from "./pdf-rules.js";
 export const fence = (g) =>
   "\u0060\u0060\u0060studio-diagram\n" +
   JSON.stringify(g, null, 2) +
@@ -61,7 +60,6 @@ export const blocksToInsert = {
   ],
   code: ["Блок кода", "\u0060\u0060\u0060text\nПример\n\u0060\u0060\u0060"],
   list: ["Список", "- Первый пункт\n- Второй пункт"],
-  pdfSpacer: ["Пустой интервал для PDF", formatPdfSpacer()],
   projectTree: [
     "Структура проекта",
     "\u0060\u0060\u0060text\nПроект/\n├── README.md  # Описание проекта\n└── src/\n    └── main.js\n\u0060\u0060\u0060",

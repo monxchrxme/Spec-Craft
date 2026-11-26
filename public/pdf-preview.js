@@ -49,9 +49,28 @@ function formatSheet({ width, height }) {
   return "Увеличенный лист";
 }
 
+// Zero-height intervals have no printed position. List each one on the
+// following block's first page, or on the last page for trailing intervals.
+function includeZeroSpacers(data) {
+  const blocksOnPages = new Map(data.blocksOnPages);
+  const zeroSpacers = new Map();
+  let page = data.pageSizes.length || 1;
+  for (let i = data.blocks.length - 1; i >= 0; i--) {
+    const block = data.blocks[i];
+    const first = data.blocksOnPages.get(block.index)?.[0];
+    if (first) page = first;
+    else if (block.spacer && (block.spacer.height ?? block.spacer.fallback) === 0) {
+      if (!zeroSpacers.has(page)) zeroSpacers.set(page, []);
+      zeroSpacers.get(page).push(block);
+      blocksOnPages.set(block.index, [page]);
+    }
+  }
+  return { ...data, blocksOnPages, zeroSpacers };
+}
+
 export function pdfPreview(
   root,
-  { profile, numbering, download, print, edit, select, rules, resizeSpacer },
+  { profile, numbering, download, print, edit, select, rules, addSpacer, resizeSpacer, removeSpacer },
 ) {
   const by = (name) => root.querySelector('[data-pdf="' + name + '"]');
   const pagePicker = by("page");
@@ -61,8 +80,10 @@ export function pdfPreview(
   const thumbnails = by("thumbnails");
   const blockPicker = by("block");
   const syncBlockPicker = enhanceDocumentPicker(blockPicker);
+  const spacerInsert = by("spacer-insert");
   const spacerSize = by("spacer-size");
   const spacerHeight = by("spacer-height");
+  const spacerRemove = by("remove-spacer");
   spacerHeight.max = maxPdfSpacerHeight;
   const warnings = by("warnings");
   const placementRule = by("placement-rule");
@@ -108,6 +129,11 @@ export function pdfPreview(
     thumbnails.replaceChildren();
   }
   function state(enabled) {
+    spacerInsert.hidden = !enabled;
+    if (!enabled) {
+      spacerInsert.open = false;
+      spacerSize.hidden = spacerRemove.hidden = true;
+    }
     for (const name of [
       "download",
       "print",
@@ -138,8 +164,9 @@ export function pdfPreview(
     blockPicker.value = entry ? String(index) : "";
     syncBlockPicker();
     by("edit").disabled = placementRule.disabled = !entry;
+    by("edit").hidden = Boolean(entry?.spacer);
     placementInfo.hidden = !entry;
-    spacerSize.hidden = !entry?.spacer;
+    spacerSize.hidden = spacerRemove.hidden = !entry?.spacer;
     if (entry?.spacer) {
       spacerHeight.placeholder = entry.spacer.fallback;
       spacerHeight.value = entry.spacer.height ?? "";
@@ -200,6 +227,11 @@ export function pdfPreview(
       const candidates = (layout.locations.get(page) || [])
         .map(({ index }) => byIndex.get(index))
         .filter(Boolean);
+      const zeroSpacers = layout.zeroSpacers.get(page);
+      if (zeroSpacers) {
+        candidates.push(...zeroSpacers);
+        candidates.sort((a, b) => a.index - b.index);
+      }
       blockPicker.replaceChildren(
         ...candidates.map(
           (block) =>
@@ -497,6 +529,15 @@ export function pdfPreview(
     if (selected !== null) rules(selected, []);
   };
   blockPicker.onchange = () => selectBlock(Number(blockPicker.value));
+  const insertSpacer = (before) => {
+    spacerInsert.open = false;
+    addSpacer(selected, before);
+  };
+  by("spacer-before").onclick = () => insertSpacer(true);
+  by("spacer-after").onclick = () => insertSpacer(false);
+  spacerRemove.onclick = () => {
+    if (selected !== null) removeSpacer(selected);
+  };
   spacerHeight.onchange = () => {
     if (!spacerHeight.reportValidity() || selected === null || !byIndex.get(selected)?.spacer) return;
     resizeSpacer(selected, spacerHeight.value === "" ? null : spacerHeight.valueAsNumber);
@@ -520,12 +561,15 @@ export function pdfPreview(
   placementRule.onchange = keepNext.onchange = saveRule;
   root.addEventListener("pointerdown", (event) => {
     if (!placementInfo.contains(event.target)) placementInfo.open = false;
+    if (!spacerInsert.contains(event.target)) spacerInsert.open = false;
   });
   root.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !placementInfo.open) return;
+    if (event.key !== "Escape") return;
+    const open = spacerInsert.open ? spacerInsert : placementInfo.open ? placementInfo : null;
+    if (!open) return;
     event.preventDefault();
-    placementInfo.open = false;
-    placementInfo.querySelector("summary").focus();
+    open.open = false;
+    open.querySelector("summary").focus();
   });
   return {
     reveal(index) {
@@ -535,6 +579,7 @@ export function pdfPreview(
     hide() {
       if (!root.hidden) stop();
       placementInfo.open = false;
+      spacerInsert.open = false;
       root.hidden = true;
     },
     async show(pending, settings, block, force = false) {
@@ -548,7 +593,6 @@ export function pdfPreview(
       stop();
       layout = null;
       state(false);
-      spacerSize.hidden = true;
       placementInfo.hidden = true;
       by("clear").hidden = true;
       by("placement").textContent = by("placement-help").textContent = "";
@@ -561,7 +605,7 @@ export function pdfPreview(
       try {
         const data = await pending;
         if (request !== pending) return;
-        layout = data;
+        layout = includeZeroSpacers(data);
         byIndex = new Map(data.blocks.map((entry) => [entry.index, entry]));
         by("download").disabled = by("print").disabled = false;
         const nextTask = await openPdfTask(data.blob);

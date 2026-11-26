@@ -78,7 +78,7 @@ import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
 import {
   formatPdfRules, formatPdfSpacer, isPdfSpacer, isPdfSpacerHeight,
-  maxPdfSpacerHeight, pdfRules, pdfSpacerDefault,
+  pdfRules, pdfSpacerDefault,
 } from "./pdf-rules.js";
 import { pdfPreview, printPdf } from "./pdf-preview.js";
 import {
@@ -889,9 +889,6 @@ function styles() {
   );
   updateAutocorrect(source);
   host.querySelectorAll("[contenteditable]").forEach(updateAutocorrect);
-  host.querySelectorAll("[data-spacer-height]").forEach((input) => {
-    input.placeholder = pdfSpacerDefault(s);
-  });
   source.wrap = s.wrap === false ? "off" : "soft";
 }
 let inlineGraph = null;
@@ -1324,7 +1321,7 @@ function block(p, i, expanded = expandAll) {
   if (mode === "edit") {
     box.querySelector(
       ":scope > :is(h1,h2,h3,h4,h5,h6,hr,pre,.diagram-card,.math-display," +
-      ".document-toc,.document-bibliography,.speaker-notes,.pdf-spacer), " +
+      ".document-toc,.document-bibliography,.speaker-notes), " +
       ":scope > .table-scroll > table, :scope > p > .image-stage > img",
     )?.classList.add("block-focus-surface");
     for (const input of box.querySelectorAll(".task-checkbox")) input.disabled = false;
@@ -1428,24 +1425,6 @@ function patchStructuredBlock(state, markup) {
   const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
   patch(start, end, markup.replace(/\r\n|\r|\n/g, newline));
   parts = parse();
-  return true;
-}
-function resizePdfSpacer(index, height) {
-  if (!doc || (mode !== "edit" && mode !== "pdf")) return false;
-  if (height !== null && !isPdfSpacerHeight(height)) return false;
-  const state = mode === "edit"
-    ? prepareBlockChange(index)
-    : { origin: index, id: doc.id, body: doc.body };
-  const token = state && parts[state.origin]?.t;
-  if (!isPdfSpacer(token)) return false;
-  if (token.meta === height) return true;
-  if (!patchStructuredBlock(state, formatPdfSpacer(height))) return false;
-  selected = state.origin;
-  if (mode === "pdf") render();
-  else {
-    const input = host.children[selected]?.querySelector("[data-spacer-height]");
-    if (input) input.value = height ?? "";
-  }
   return true;
 }
 function replaceStructuredView(index, expanded, previousMermaid) {
@@ -1569,8 +1548,7 @@ function buildBlock(p, i, expanded) {
   const box = document.createElement("div");
   box.className = "block";
   box.dataset.idx = i;
-  if ((isSpeakerNotes(p.t) && (mode !== "edit" || speakerNotesHidden)) ||
-      (isPdfSpacer(p.t) && mode !== "edit")) {
+  if (isPdfSpacer(p.t) || (isSpeakerNotes(p.t) && (mode !== "edit" || speakerNotesHidden))) {
     box.hidden = true;
     return box;
   }
@@ -1580,32 +1558,6 @@ function buildBlock(p, i, expanded) {
   box.addEventListener("focusin", () => {
     selected = i;
   });
-  if (isPdfSpacer(p.t)) {
-    const spacer = document.createElement("div");
-    spacer.className = "pdf-spacer";
-    const title = document.createElement("span");
-    title.innerHTML = icon("move-vertical");
-    title.append("Пустой интервал для PDF");
-    const label = document.createElement("label");
-    label.textContent = "Высота, мм";
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "0";
-    input.max = maxPdfSpacerHeight;
-    input.placeholder = pdfSpacerDefault(doc.style);
-    input.value = p.t.meta ?? "";
-    input.dataset.spacerHeight = "";
-    input.title = "Пустое поле использует общую высоту";
-    input.onchange = () => {
-      if (!input.reportValidity()) return;
-      const height = input.value === "" ? null : input.valueAsNumber;
-      if (!resizePdfSpacer(i, height)) input.value = parts[i]?.t.meta ?? "";
-    };
-    label.append(input);
-    spacer.append(title, label);
-    box.append(spacer, deleteBlockButton(i, "Удалить пустой интервал", "block-remove"));
-    return box;
-  }
   if (p.t.type === "fence" && p.t.info.trim() === "studio-diagram") {
     try {
       const g = normalize(JSON.parse(p.t.content));
@@ -2606,6 +2558,17 @@ function anchorInsertPanel(panel, anchor) {
     restoreInsertion(anchor);
   };
 }
+function insertBlockSource(pos, body) {
+  const before = doc.body.slice(0, pos);
+  const after = doc.body.slice(pos);
+  const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
+  const add =
+    (before.trim() ? newline + newline : "") +
+    body.replace(/\r\n|\r|\n/g, newline) +
+    (after.trim() ? newline + newline : newline);
+  patch(pos, pos, add);
+  return pos + add.length;
+}
 function insertBlock(type, idx = insertionBlock(), content) {
   const anchor = prepareInsertion(idx);
   idx = anchor.index;
@@ -2621,18 +2584,10 @@ function insertBlock(type, idx = insertionBlock(), content) {
     body = body.replace("FR-01", "FR-" + String(max + 1).padStart(2, "0"));
   }
   const pos =
-      mode === "source"
-        ? sourcePane.bodyOffset(source.selectionStart)
-        : (parts[idx]?.end ?? (idx < 0 ? 0 : doc.body.length)),
-    before = doc.body.slice(0, pos),
-    after = doc.body.slice(pos);
-  const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
-  const leading = before.trim() ? newline + newline : "";
-  const add =
-    leading +
-    body.replace(/\r\n|\r|\n/g, newline) +
-    (after.trim() ? newline + newline : newline);
-  patch(pos, pos, add);
+    mode === "source"
+      ? sourcePane.bodyOffset(source.selectionStart)
+      : (parts[idx]?.end ?? (idx < 0 ? 0 : doc.body.length));
+  const end = insertBlockSource(pos, body);
   if (type === "toc") setText(materializeToc(doc.body, md), false);
   render();
   selected = Math.max(
@@ -2644,7 +2599,7 @@ function insertBlock(type, idx = insertionBlock(), content) {
     const insertedToc =
       type === "toc" &&
       parts.find((part) => part.start >= pos && part.t.type === "spec_toc");
-    const caret = insertedToc ? insertedToc.end : pos + add.length;
+    const caret = insertedToc ? insertedToc.end : end;
     const offset = sourcePane.displayOffset(caret);
     source.setSelectionRange(offset, offset);
   } else if (mode === "latex") {
@@ -2885,7 +2840,6 @@ function insertDialog() {
             code: "code",
             math: "sigma",
             list: "list",
-            pdfSpacer: "move-vertical",
             projectTree: "folder-tree",
             toc: "list-ordered",
             bibliography: "book-open",
@@ -3375,7 +3329,27 @@ function setPdfNumbering(enabled) {
   showPdfPreview();
 }
 const pdfViewer = pdfPreview($("#pdf-preview"), {
-  resizeSpacer: resizePdfSpacer,
+  addSpacer(index, before) {
+    const part = parts[index];
+    const position = before ? part?.fullStart ?? 0 : part?.end ?? doc.body.length;
+    insertBlockSource(position, formatPdfSpacer());
+    selected = part ? index + (before ? 0 : 1) : before ? 0 : parts.length;
+    render();
+  },
+  resizeSpacer(index, height) {
+    const part = parts[index];
+    if (!isPdfSpacer(part?.t) || (height !== null && !isPdfSpacerHeight(height))) return;
+    if (part.t.meta === height) return;
+    patch(part.start, part.end, formatPdfSpacer(height));
+    selected = index;
+    render();
+  },
+  removeSpacer(index) {
+    if (!isPdfSpacer(parts[index]?.t)) return;
+    setText(removeMarkdownBlocks(doc.body, parts, [[index, index + 1]]));
+    selected = index;
+    render();
+  },
   profile(value, force) {
     setPdfProfile(value);
     showPdfPreview(force);

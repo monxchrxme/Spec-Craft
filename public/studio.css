@@ -736,40 +736,18 @@ main {
   margin-block-start: 2px;
   white-space: pre-wrap;
 }
-.pdf-spacer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px dashed var(--line);
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.pdf-spacer > span,
-.pdf-spacer label,
 .pdf-spacer-size {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 13px;
 }
-.pdf-spacer svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-}
-.pdf-spacer input,
 .pdf-spacer-size input {
   width: 5em;
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: var(--surface);
-}
-.pdf-spacer-size {
-  font-size: 13px;
 }
 .paper .block :is(h1, h2, h3, h4, h5, h6) {
   text-align: var(--heading-align, left);
@@ -1460,6 +1438,47 @@ footer {
 }
 .pdf-rule-fields button {
   color: var(--accent);
+}
+.pdf-spacer-insert {
+  position: relative;
+}
+.pdf-spacer-insert summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+}
+.pdf-spacer-insert summary::-webkit-details-marker {
+  display: none;
+}
+.pdf-spacer-insert summary svg {
+  width: 15px;
+  height: 15px;
+}
+.pdf-spacer-insert summary:hover,
+.pdf-spacer-insert[open] summary {
+  background: var(--hover);
+}
+.pdf-spacer-options {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: calc(100% + 4px);
+  z-index: 1;
+  width: max-content;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px #25273524;
+}
+.pdf-spacer-options button {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
 }
 .pdf-placement-info summary {
   display: grid;
