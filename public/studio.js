@@ -163,6 +163,7 @@ const prefix = storageKeys.docs,
   folderStorageKey = storageKeys.folders,
   sessionKey = storageKeys.active,
   toolbarKey = "buro:topbar-collapsed",
+  speakerNotesKey = "buro:speaker-notes-hidden",
   mobileLayout = matchMedia("(max-width: 760px)"),
   icons = () => window.lucide?.createIcons();
 for (const [id, item] of Object.entries(highlightColors))
@@ -177,6 +178,12 @@ const fileActionsUI = workspaceFileActions($(".documents-wrap"), {
   move: moveFilesToFolder,
 });
 let folders = [];
+let speakerNotesHidden = false;
+try {
+  speakerNotesHidden = sessionStorage.getItem(speakerNotesKey) === "1";
+} catch {
+  // Note visibility can still be changed until this tab reloads.
+}
 const foldedFolders = new Set();
 try {
   folders = readFolders(JSON.parse(localStorage.getItem(folderStorageKey)));
@@ -515,9 +522,6 @@ function outline() {
     if (!spans.length) return;
     const start = Math.min(...spans.map(([first]) => first));
     removeBlocks(spans, start);
-    const remaining = [...panel.querySelectorAll(".outline-row:not([hidden]) > .outline-item")];
-    (remaining.find((item) => Number(item.dataset.idx) >= start) ??
-      remaining.at(-1) ?? $("#outline-section-toggle")).focus({ preventScroll: true });
   }
   remove.onclick = () => deleteSections(visible().filter((heading) => chosen.has(heading)));
   panel.onkeydown = (event) => {
@@ -764,7 +768,7 @@ function moveOrder(state, index, below, section) {
 const blockSorting = dragOrder({
   container: host,
   scroller: viewport,
-  item: ":scope > .block",
+  item: ":scope > .block:not([hidden])",
   handle: ".block-grip",
   prepare: prepareBlockChange,
   targets: () => parts.map((_, index) => index),
@@ -998,6 +1002,8 @@ function render() {
   closeGraph(false);
   inlineBibliography = null;
   editor = tableEdit = null;
+  const notesToggle = $('[data-action="hide-speaker-notes"]');
+  notesToggle.setAttribute("aria-pressed", String(speakerNotesHidden));
   $("#empty-workspace").hidden = !!doc;
   $(".paper").hidden = !doc || mode === "pdf";
   $(".controls").hidden = !doc;
@@ -1059,18 +1065,22 @@ function render() {
   paintDrawings(host);
   updateWordcount();
 }
-function removeBlocks(spans, focusIndex, { focusCanvas = false } = {}) {
+function removeBlocks(spans, focusIndex) {
   const scrollTop = viewport.scrollTop;
   setText(removeMarkdownBlocks(doc.body, parts, spans));
   selected = focusIndex;
   render();
   viewport.scrollTop = scrollTop;
-  const block = focusCanvas && host.children[selected];
+  const visible = [...host.children].filter((item) => !item.hidden);
+  const block = visible.find((item) => Number(item.dataset.idx) >= selected) ??
+    visible.at(-1);
   if (!block) return;
+  document.body.classList.remove("show-side");
   if (!block.hasAttribute("tabindex")) block.tabIndex = -1;
   block.dataset.focusAfterDelete = "";
   block.addEventListener("blur", () => delete block.dataset.focusAfterDelete, { once: true });
   block.focus({ preventScroll: true });
+  block.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function canvasTextRange() {
@@ -1121,12 +1131,13 @@ function deleteBlockButton(index, label, className) {
       entry.start + editingBefore + (cellBefore ? doc.body.length - length : 0);
     const nextIndex = parts.findIndex((part) => part.start === start);
     if (nextIndex < 0) return;
-    removeBlocks([[nextIndex, nextIndex + 1]], nextIndex, { focusCanvas: true });
+    removeBlocks([[nextIndex, nextIndex + 1]], nextIndex);
   };
   return button;
 }
 function block(p, i, expanded = expandAll) {
   const box = buildBlock(p, i, expanded);
+  if (box.hidden) return box;
   const editableMermaid = mode === "edit" && isMermaid(p.t);
   mermaidControls(box, {
     edit: mode === "edit" ? () => editMermaidCode(i) : undefined,
@@ -1365,7 +1376,10 @@ function buildBlock(p, i, expanded) {
   const box = document.createElement("div");
   box.className = "block";
   box.dataset.idx = i;
-  box.hidden = mode !== "edit" && isSpeakerNotes(p.t);
+  if (isSpeakerNotes(p.t) && (mode !== "edit" || speakerNotesHidden)) {
+    box.hidden = true;
+    return box;
+  }
   box.onpointerdown = () => {
     selected = i;
   };
@@ -2541,6 +2555,8 @@ function openSpeakerNotes() {
     notice("Добавьте блок «Заметка докладчика» через меню «Вставить».");
     return;
   }
+  setSpeakerNotesHidden(true);
+  if (isSource()) setMode("edit");
   const popup = window.open("about:blank", "_blank", "popup,width=520,height=640");
   if (!popup) {
     notice("Браузер заблокировал окно заметок.");
@@ -2556,6 +2572,18 @@ function openSpeakerNotes() {
   title.textContent = "Заметки докладчика";
   page.head.append(styles);
   page.body.append(title, notes);
+}
+
+function setSpeakerNotesHidden(hidden) {
+  if (speakerNotesHidden === hidden) return;
+  flush();
+  speakerNotesHidden = hidden;
+  try {
+    sessionStorage.setItem(speakerNotesKey, hidden ? "1" : "0");
+  } catch {
+    // The current tab still uses the chosen setting.
+  }
+  render();
 }
 
 function option(id, label, symbol) {
@@ -2574,6 +2602,7 @@ function insertDialog() {
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
+      .filter(([key]) => key !== "speakerNotes" || !speakerNotesHidden || mode !== "edit")
       .map(([k, v]) =>
         option(
           k,
@@ -4227,6 +4256,7 @@ for (const button of document.querySelectorAll("button[data-action]")) {
 const actions = {
   "normalize-math": normalizeDocumentMath,
   "speaker-notes": openSpeakerNotes,
+  "hide-speaker-notes": () => setSpeakerNotesHidden(!speakerNotesHidden),
   "collaboration-people": toggleLivePeople,
   "collaboration-discussion": toggleLiveComments,
   "collaboration-exit": () =>
@@ -4364,7 +4394,10 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       if (e.repeat) return;
       document.getSelection().removeAllRanges();
-      removeBlocks([span], span[0], { focusCanvas: true });
+      const spans = [];
+      for (let i = span[0]; i < span[1]; i++)
+        if (!host.children[i]?.hidden) spans.push([i, i + 1]);
+      removeBlocks(spans, span[0]);
       return;
     }
   }
