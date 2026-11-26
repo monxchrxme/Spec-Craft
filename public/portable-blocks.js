@@ -87,6 +87,14 @@ export function isSpeakerNotes(token) {
   return token?.type === "fence" && token.info.trim() === "speaker-notes";
 }
 
+export function speakerNotesMarkdown(text) {
+  let length = 3;
+  for (const match of text.matchAll(/`{3,}/g))
+    length = Math.max(length, match[0].length + 1);
+  const fence = "`".repeat(length);
+  return fence + "speaker-notes\n" + text.trimEnd() + "\n" + fence;
+}
+
 export function headingSlug(title, used) {
   const base =
     title
@@ -185,10 +193,12 @@ export function portableBlocks(md) {
   };
   const fence = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
-    if (!isSpeakerNotes(tokens[index])) return fence(tokens, index, options, env, renderer);
-    return env.speakerNotes
-      ? '<aside class="speaker-notes"><strong>Заметка докладчика</strong></aside>'
-      : "";
+    const token = tokens[index];
+    if (!isSpeakerNotes(token)) return fence(tokens, index, options, env, renderer);
+    if (!env.speakerNotes) return "";
+    const text = md.utils.escapeHtml(token.content.trimEnd());
+    return '<aside class="speaker-notes"><strong>Заметка докладчика</strong>' +
+      (text ? '<div class="speaker-notes-text">' + text + '</div>' : '') + '</aside>';
   };
   md.block.ruler.before(
     "html_block",

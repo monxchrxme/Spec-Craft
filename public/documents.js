@@ -1,5 +1,6 @@
 import { sampleGraph, shapes } from "./graph.js";
 import { drawingFence } from "./excalidraw.js";
+import { speakerNotesMarkdown } from "./portable-blocks.js";
 export const fence = (g) =>
   "\u0060\u0060\u0060studio-diagram\n" +
   JSON.stringify(g, null, 2) +
@@ -79,7 +80,7 @@ $$`,
   ],
   speakerNotes: [
     "Заметка докладчика",
-    "\x60\x60\x60speaker-notes\nТекст подсказки для выступления.\n\x60\x60\x60",
+    speakerNotesMarkdown("Текст подсказки для выступления."),
   ],
 };
 const aiInstructions = [

@@ -628,6 +628,10 @@ main {
   border-inline-start: 2px solid var(--line);
   color: var(--muted);
 }
+.speaker-notes-text {
+  margin-block-start: 2px;
+  white-space: pre-wrap;
+}
 .paper .block :is(h1, h2, h3, h4, h5, h6) {
   text-align: var(--heading-align, left);
   color: var(--heading-color, inherit);

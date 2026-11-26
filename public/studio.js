@@ -84,6 +84,7 @@ import {
   isSpeakerNotes,
   plainHeading,
   portableBlocks,
+  speakerNotesMarkdown,
 } from "./portable-blocks.js";
 import { isProjectTree } from "./project-tree.js";
 import {
@@ -2466,6 +2467,10 @@ function insertBlock(type, idx = insertionBlock(), content) {
     sourcePane.select(selected);
   } else {
     restoreInsertion(anchor);
+    if (type === "speakerNotes" && speakerNotesHidden) {
+      focusBlockAt(idx);
+      return;
+    }
     host.children[selected]?.scrollIntoView({ block: "nearest" });
     if (["paragraph", "heading", "code", "list", "math", "speakerNotes"].includes(type))
       editBlock(selected, true);
@@ -2618,6 +2623,32 @@ function setSpeakerNotesHidden(hidden) {
   render();
 }
 
+function speakerNoteDialog(anchor) {
+  const panel = dialog(
+    "Заметка докладчика",
+    '<form class="template-form"><label>Текст заметки' +
+      '<textarea rows="5" required></textarea></label>' +
+      '<button class="primary" type="submit" disabled>Вставить заметку</button></form>',
+  );
+  const close = anchorInsertPanel(panel, anchor);
+  const form = panel.querySelector("form");
+  const text = form.querySelector("textarea");
+  const submit = form.querySelector("button[type=submit]");
+  text.oninput = () => { submit.disabled = !text.value.trim(); };
+  text.onkeydown = (event) => {
+    if (!finishEditingKey(event) || submit.disabled) return;
+    event.preventDefault();
+    form.requestSubmit();
+  };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    if (doc?.id !== anchor.id || submit.disabled) return;
+    close();
+    insertBlock("speakerNotes", anchor.index, speakerNotesMarkdown(text.value));
+  };
+  text.focus({ preventScroll: true });
+}
+
 function option(id, label, symbol) {
   return (
     '<button class="option" data-id="' +
@@ -2634,7 +2665,6 @@ function insertDialog() {
   const b = dialog(
     "Вставить блок",
     Object.entries(blocksToInsert)
-      .filter(([key]) => key !== "speakerNotes" || !speakerNotesHidden || mode !== "edit")
       .map(([k, v]) =>
         option(
           k,
@@ -2663,6 +2693,8 @@ function insertDialog() {
   b.onclick = (e) => {
     const k = e.target.closest("[data-id]")?.dataset.id;
     if (k === "image") imageDialog(index, null, anchor);
+    else if (k === "speakerNotes" && speakerNotesHidden && mode === "edit")
+      speakerNoteDialog(anchor);
     else if (k) {
       close();
       insertBlock(k, index);

@@ -24,6 +24,7 @@ import {
   isSpeakerNotes,
   materializeToc,
   portableBlocks,
+  speakerNotesMarkdown,
 } from "../public/portable-blocks.js";
 import {
   projectTreeMarkdown,
@@ -55,13 +56,16 @@ test("speaker note bodies remain in the source and stay out of rendered output",
   const scope = {};
   runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
   const md = scope.markdownit().use(portableBlocks);
-  const body = "### Секция\n\n```speaker-notes\nТолько докладчику\n```";
-  const part = documentParts(md, body)[1];
+  const text = "Только докладчику\n```\nПродолжение заметки";
+  const body = "### Секция\n\n" + speakerNotesMarkdown(text);
+  const [, part, ...rest] = documentParts(md, body);
   assert.ok(isSpeakerNotes(part.t));
+  assert.equal(rest.length, 0);
+  assert.equal(part.t.content.trimEnd(), text);
   assert.match(part.text, /Только докладчику/);
   assert.doesNotMatch(md.render(body), /Заметка докладчика|Только докладчику/);
   assert.match(md.render(body, { speakerNotes: true }), /Заметка докладчика/);
-  assert.doesNotMatch(md.render(body, { speakerNotes: true }), /Только докладчику/);
+  assert.match(md.render(body, { speakerNotes: true }), /Только докладчику\n.*\nПродолжение заметки/);
 });
 
 test("task markers round-trip in nested lists, standalone paragraphs and LaTeX", () => {
