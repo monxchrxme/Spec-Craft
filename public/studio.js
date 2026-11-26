@@ -1071,17 +1071,48 @@ function removeBlocks(spans, focusIndex) {
   selected = focusIndex;
   render();
   viewport.scrollTop = scrollTop;
-  const visible = [...host.children].filter((item) => !item.hidden);
-  const block = visible.find((item) => Number(item.dataset.idx) >= selected) ??
-    visible.at(-1);
-  if (!block) return;
   document.body.classList.remove("show-side");
+  focusBlockAt(selected);
+}
+
+function focusBlockAt(index) {
+  const visible = [...host.children].filter((item) => !item.hidden);
+  const block = visible.find((item) => Number(item.dataset.idx) >= index) ??
+    visible.at(-1);
+  focusCanvasBlock(block);
+}
+
+function focusCanvasBlock(block) {
+  if (!block) return;
   if (!block.hasAttribute("tabindex")) block.tabIndex = -1;
-  block.dataset.focusAfterDelete = "";
-  block.addEventListener("blur", () => delete block.dataset.focusAfterDelete, { once: true });
+  block.dataset.canvasFocus = "";
+  block.addEventListener("blur", () => delete block.dataset.canvasFocus, { once: true });
   block.focus({ preventScroll: true });
   block.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+
+host.addEventListener("keydown", (event) => {
+  const box = event.target;
+  if (
+    mode !== "edit" || box.parentElement !== host || !box.matches(".block") ||
+    event.defaultPrevented || event.isComposing || event.shiftKey ||
+    event.altKey || event.metaKey || event.ctrlKey
+  ) return;
+  if (event.key === "Enter" && box.editText) {
+    event.preventDefault();
+    box.editText();
+    return;
+  }
+  const forward = event.key === "ArrowDown";
+  if (!forward && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const sibling = forward ? "nextElementSibling" : "previousElementSibling";
+  for (let next = box[sibling]; next; next = next[sibling]) {
+    if (next.hidden || !next.editText) continue;
+    focusCanvasBlock(next);
+    return;
+  }
+});
 
 function canvasTextRange() {
   const selection = document.getSelection();
@@ -1152,6 +1183,11 @@ function block(p, i, expanded = expandAll) {
     onExpand: updateExpandButton,
   });
   if (mode === "edit") {
+    box.querySelector(
+      ":scope > :is(h1,h2,h3,h4,h5,h6,hr,pre,.diagram-card,.math-display," +
+      ".document-toc,.document-bibliography,.speaker-notes), " +
+      ":scope > .table-scroll > table, :scope > p > .image-stage > img",
+    )?.classList.add("block-focus-surface");
     for (const input of box.querySelectorAll(".task-checkbox")) input.disabled = false;
     box.append(sortGrip("Перетащить блок", true));
   }
@@ -1564,7 +1600,9 @@ function buildBlock(p, i, expanded) {
       return box;
     }
     box.tabIndex = 0;
+    box.editText = isMermaid(p.t) ? () => editMermaidCode(i) : () => editBlock(i);
     box.title = "Нажмите, чтобы редактировать";
+    box.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown Enter");
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools,.mermaid-figure,.task-checkbox")) return;
@@ -1575,13 +1613,7 @@ function buildBlock(p, i, expanded) {
       )
         return;
       e.preventDefault();
-      editBlock(i);
-    };
-    box.onkeydown = (e) => {
-      if (e.target === box && e.key === "Enter") {
-        e.preventDefault();
-        editBlock(i);
-      }
+      box.editText();
     };
   }
   return box;
@@ -1632,7 +1664,7 @@ function editBlock(i, selectAll = false) {
   toolbar.className = "inline-tools";
   function finish() {
     flush();
-    host.children[i]?.focus({ preventScroll: true });
+    focusBlockAt(i);
   }
   const preview = document.createElement("div");
   preview.className = "math-preview";

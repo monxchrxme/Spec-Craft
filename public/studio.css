@@ -584,10 +584,25 @@ main {
   position: relative;
   overflow-wrap: anywhere;
 }
-.block[tabindex]:is(:focus-visible, [data-focus-after-delete]:focus) {
+.block[tabindex]:is(:focus-visible, [data-canvas-focus]:focus) {
+  --block-focus-ring: 2px solid color-mix(in srgb, var(--line) 74%, var(--focus-outline));
   border-radius: 8px;
-  outline: 2px solid color-mix(in srgb, var(--line) 74%, var(--focus-outline));
+  outline: var(--block-focus-ring);
   outline-offset: 3px;
+}
+.block[tabindex]:has(.block-focus-surface):is(:focus-visible, [data-canvas-focus]:focus) {
+  outline: none;
+}
+.block[tabindex]:is(:focus-visible, [data-canvas-focus]:focus) .block-focus-surface {
+  border-radius: 8px;
+  outline: var(--block-focus-ring);
+  outline-offset: 3px;
+}
+.block[tabindex]:is(:focus-visible, [data-canvas-focus]:focus) :is(.diagram-card, table).block-focus-surface {
+  outline-offset: -1px;
+}
+.block[tabindex]:is(:focus-visible, [data-canvas-focus]:focus) hr.block-focus-surface {
+  outline-offset: 6px;
 }
 .block > :first-child {
   margin-top: 0;
