@@ -5,6 +5,8 @@ export function documentParts(md, body) {
   const tokens = md.parse(body, {}),
     res = [];
   let options = [],
+    pdfFormat = {},
+    pdfMetadata = { rules: [], format: [] },
     fullStart;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -13,9 +15,17 @@ export function documentParts(md, body) {
       if (t.attached) fullStart ??= starts[t.map[0]];
       continue;
     }
-    if (t.type === "spec_pdf") {
-      fullStart ??= starts[t.map[0]];
-      options.push(...t.meta);
+    if (t.type === "spec_pdf" || t.type === "spec_pdf_block") {
+      const from = starts[t.map[0]];
+      const to = starts[t.map[1]] ?? body.length;
+      fullStart ??= from;
+      if (t.type === "spec_pdf") {
+        options.push(...t.meta);
+        pdfMetadata.rules.push([from, to]);
+      } else {
+        Object.assign(pdfFormat, t.meta);
+        pdfMetadata.format.push([from, to]);
+      }
       continue;
     }
     let j = i;
@@ -35,11 +45,15 @@ export function documentParts(md, body) {
       start,
       fullStart: fullStart ?? start,
       pdfRules: [...new Set(options)],
+      pdfFormat,
+      pdfMetadata,
       end,
       text: body.slice(start, end),
     });
     fullStart = undefined;
     options = [];
+    pdfFormat = {};
+    pdfMetadata = { rules: [], format: [] };
     i = j;
   }
   return res;

@@ -70,7 +70,10 @@ function includeZeroSpacers(data) {
 
 export function pdfPreview(
   root,
-  { profile, numbering, download, print, edit, select, rules, addSpacer, resizeSpacer, removeSpacer },
+  {
+    profile, numbering, download, print, edit, select, rules,
+    addSpacer, resizeSpacer, removeSpacer, blockStyle, group, ungroup,
+  },
 ) {
   const by = (name) => root.querySelector('[data-pdf="' + name + '"]');
   const pagePicker = by("page");
@@ -100,7 +103,8 @@ export function pdfPreview(
     selected = null,
     lastWidth = 0,
     jumpedTo,
-    pendingReveal = null;
+    pendingReveal = null,
+    groupStart = null;
 
   function clearSheet(sheet) {
     sheet.pending = null;
@@ -121,6 +125,7 @@ export function pdfPreview(
     if (task) void task.destroy().catch(() => {});
     task = pdf = request = null;
     selected = null;
+    groupStart = null;
     pendingReveal = null;
     page = 0;
     sheets = [];
@@ -133,6 +138,7 @@ export function pdfPreview(
     if (!enabled) {
       spacerInsert.open = false;
       spacerSize.hidden = spacerRemove.hidden = true;
+      groupControls();
     }
     for (const name of [
       "download",
@@ -147,6 +153,15 @@ export function pdfPreview(
       "keep-next",
     ])
       by(name).disabled = !enabled;
+  }
+  function groupControls() {
+    const choosing = groupStart !== null;
+    by("group-start").hidden = selected === null || choosing;
+    by("group-hint").hidden = by("group-apply").hidden =
+      by("group-cancel").hidden = !choosing;
+    by("group-apply").disabled = selected === null || selected === groupStart;
+    by("group-remove").hidden = choosing || !byIndex.get(selected)?.group;
+    by("block-style").hidden = selected === null || Boolean(byIndex.get(selected)?.spacer);
   }
   function markSelection() {
     for (const sheet of sheets) {
@@ -167,6 +182,7 @@ export function pdfPreview(
     by("edit").hidden = Boolean(entry?.spacer);
     placementInfo.hidden = !entry;
     spacerSize.hidden = spacerRemove.hidden = !entry?.spacer;
+    groupControls();
     if (entry?.spacer) {
       spacerHeight.placeholder = entry.spacer.fallback;
       spacerHeight.value = entry.spacer.height ?? "";
@@ -529,6 +545,27 @@ export function pdfPreview(
     if (selected !== null) rules(selected, []);
   };
   blockPicker.onchange = () => selectBlock(Number(blockPicker.value));
+  by("block-style").onclick = () => {
+    if (selected !== null) blockStyle(selected);
+  };
+  by("group-start").onclick = () => {
+    if (selected === null) return;
+    groupStart = selected;
+    groupControls();
+    (blockPicker.previousElementSibling?.querySelector(".document-picker-trigger") ?? blockPicker).focus();
+  };
+  by("group-cancel").onclick = () => {
+    groupStart = null;
+    groupControls();
+    by("group-start").focus();
+  };
+  by("group-apply").onclick = () => {
+    if (selected === null || groupStart === null || selected === groupStart) return;
+    group(groupStart, selected);
+  };
+  by("group-remove").onclick = () => {
+    if (selected !== null) ungroup(selected);
+  };
   const insertSpacer = (before) => {
     spacerInsert.open = false;
     addSpacer(selected, before);

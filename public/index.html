@@ -358,6 +358,10 @@
               >
                 <i data-lucide="search" aria-hidden="true"></i>
               </button>
+              <button type="button" class="tool" data-action="expand-diagrams" hidden
+                aria-label="Развернуть все схемы" title="Развернуть все схемы">
+                <i data-lucide="maximize-2" aria-hidden="true"></i>
+              </button>
               <button
                 class="tool"
                 data-action="undo"
@@ -494,6 +498,12 @@
               ></select>
               <span class="pdf-block-location" data-pdf="placement"></span>
               <button type="button" data-pdf="edit">К блоку в редакторе</button>
+              <button type="button" data-pdf="block-style" hidden>Настройки блока</button>
+              <button type="button" data-pdf="group-start" hidden>Начать группу</button>
+              <span class="pdf-block-location" data-pdf="group-hint" role="status" hidden>Выберите другой край группы</span>
+              <button type="button" data-pdf="group-apply" hidden>Держать вместе</button>
+              <button type="button" data-pdf="group-cancel" hidden>Отменить выбор</button>
+              <button type="button" data-pdf="group-remove" hidden>Разгруппировать</button>
               <details class="pdf-spacer-insert" data-pdf="spacer-insert" hidden>
                 <summary><i data-lucide="plus" aria-hidden="true"></i> Вставить интервал</summary>
                 <div class="pdf-spacer-options">
@@ -563,14 +573,6 @@
                 title="Изменить надпись над документом"
               >
                 <span></span><i data-lucide="pencil" aria-hidden="true"></i>
-              </button>
-              <button
-                class="expand-diagrams"
-                data-action="expand-diagrams"
-                hidden
-              >
-                <i data-lucide="maximize-2" aria-hidden="true"></i>Развернуть
-                все схемы
               </button>
             </div>
             <div id="blocks"></div>

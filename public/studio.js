@@ -77,15 +77,14 @@ import { graphEditor } from "./graph-editor.js";
 import { normalize, escapeHtml as esc } from "./graph.js";
 import { examples, blocksToInsert, fence, aiPrompt } from "./documents.js";
 import {
-  formatPdfRules, formatPdfSpacer, isPdfSpacer, isPdfSpacerHeight,
-  pdfRules, pdfSpacerDefault,
+  formatPdfSpacer, isPdfSpacer, isPdfSpacerHeight, pdfBlockAlignments,
+  pdfBlockFields, pdfRules, pdfSpacerDefault, updatePdfMetadata,
 } from "./pdf-rules.js";
 import { pdfPreview, printPdf } from "./pdf-preview.js";
 import {
   bibliographyEntries,
   materializeToc,
   bindTocExceptions,
-  formatHeadingIdentity,
   headingInline,
   isSpeakerNotes,
   plainHeading,
@@ -908,9 +907,15 @@ function updateExpandButton() {
   const allExpanded =
     cards.every(isExpanded) && (!inlineGraph || inlineGraph.expanded);
   button.hidden = !cards.length && !inlineGraph;
-  button.lastChild.textContent = allExpanded
-    ? "Свернуть все схемы"
-    : "Развернуть все схемы";
+  const label = allExpanded ? "Свернуть все схемы" : "Развернуть все схемы";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  const symbol = allExpanded ? "minimize-2" : "maximize-2";
+  if (button.dataset.symbol !== symbol) {
+    button.dataset.symbol = symbol;
+    button.innerHTML = icon(symbol);
+    icons();
+  }
 }
 function toggleAllDiagrams() {
   const cards = diagramCards();
@@ -2508,6 +2513,7 @@ source.onkeyup = source.onclick = () => {
 };
 function setMode(next) {
   flush();
+  if (next !== "pdf" && openPanelKey === "pdf-block-style") modal.close();
   if (isSource()) selected = sourcePane.cursorBlock();
   if ((next === "source" || next === "latex") && next !== mode) {
     const synchronized = materializeToc(doc.body, md);
@@ -3277,7 +3283,8 @@ function requestPdf(force = false) {
         const fallback = pdfSpacerDefault(data.style);
         return {
           index, label: "Пустой интервал · " + (part.t.meta ?? fallback) + " мм",
-          rules: part.pdfRules, spacer: { height: part.t.meta, fallback },
+          rules: part.pdfRules, group: part.pdfFormat.group,
+          spacer: { height: part.t.meta, fallback },
         };
       }
       const inline = part.tokens.find(
@@ -3309,6 +3316,7 @@ function requestPdf(force = false) {
         index,
         label: (typeof label === "string" || label.text) ? label : "Блок " + (index + 1),
         rules: part.pdfRules,
+        group: part.pdfFormat.group,
         heading: part.t.type === "heading_open",
       };
     }),
@@ -3328,7 +3336,100 @@ function setPdfNumbering(enabled) {
   if (isSource()) sourcePane.refreshPreview();
   showPdfPreview();
 }
+function pdfBlockStyleDialog(index) {
+  const part = parts[index];
+  if (!part || isPdfSpacer(part.t)) return;
+  const id = doc.id;
+  let expectedBody = doc.body;
+  const body = dialog("Настройки блока PDF", "");
+  const form = document.createElement("form");
+  form.className = "style-form";
+  for (const [name, title, min, max] of pdfBlockFields) {
+    const field = document.createElement("label");
+    field.textContent = title;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.name = name;
+    input.min = min;
+    input.max = max;
+    input.value = part.pdfFormat[name] ?? "";
+    input.placeholder = "Общее значение";
+    field.append(input);
+    form.append(field);
+  }
+  const alignment = document.createElement("select");
+  alignment.name = "align";
+  alignment.add(new Option("Общее значение", ""));
+  for (const [value, label] of Object.entries(pdfBlockAlignments))
+    alignment.add(new Option(label, value));
+  alignment.value = part.pdfFormat.align ?? "";
+  const label = document.createElement("label");
+  label.append("Выравнивание", alignment);
+  form.append(label);
+  const actions = document.createElement("div");
+  actions.className = "dialog-actions";
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.textContent = "Вернуть общие настройки";
+  const apply = document.createElement("button");
+  apply.className = "primary";
+  apply.textContent = "Применить";
+  actions.append(reset, apply);
+  form.append(actions);
+  body.append(form);
+  function saveFormat(format) {
+    if (mode !== "pdf" || doc?.id !== id || doc.body !== expectedBody) {
+      notice("Блок изменился. Откройте его настройки заново.");
+      return;
+    }
+    const current = parts[index];
+    setText(updatePdfMetadata(doc.body, [[current, {
+      group: current.pdfFormat.group, ...format,
+    }]], "format"));
+    selected = index;
+    render();
+    expectedBody = doc.body;
+  }
+  reset.onclick = () => {
+    for (const input of form.querySelectorAll("input, select")) input.value = "";
+    saveFormat({});
+  };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    const format = { align: alignment.value };
+    for (const input of form.querySelectorAll("input"))
+      if (input.value !== "") format[input.name] = input.valueAsNumber;
+    saveFormat(format);
+  };
+}
+bindPanelButton($('[data-pdf="block-style"]'), "pdf-block-style");
 const pdfViewer = pdfPreview($("#pdf-preview"), {
+  blockStyle(index) {
+    togglePanel("pdf-block-style", () => pdfBlockStyleDialog(index));
+  },
+  group(from, to) {
+    const first = Math.min(from, to);
+    const last = Math.max(from, to);
+    const group = crypto.randomUUID().replaceAll("-", "");
+    const updates = parts.slice(first, last + 1).map((part) =>
+      [part, { ...part.pdfFormat, group }]);
+    setText(updatePdfMetadata(doc.body, updates, "format"));
+    selected = to;
+    render();
+  },
+  ungroup(index) {
+    const group = parts[index]?.pdfFormat.group;
+    if (!group) return;
+    let first = index;
+    let last = index;
+    while (parts[first - 1]?.pdfFormat.group === group) first--;
+    while (parts[last + 1]?.pdfFormat.group === group) last++;
+    const updates = parts.slice(first, last + 1).map((part) =>
+      [part, { ...part.pdfFormat, group: undefined }]);
+    setText(updatePdfMetadata(doc.body, updates, "format"));
+    selected = index;
+    render();
+  },
   addSpacer(index, before) {
     const part = parts[index];
     const position = before ? part?.fullStart ?? 0 : part?.end ?? doc.body.length;
@@ -3358,6 +3459,7 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
   print: printGeneratedPdf,
   numbering: setPdfNumbering,
   select(index) {
+    if (index !== selected && openPanelKey === "pdf-block-style") modal.close();
     selected = index;
     highlight(index);
   },
@@ -3370,10 +3472,8 @@ const pdfViewer = pdfPreview($("#pdf-preview"), {
   rules(index, rules) {
     const part = parts[index];
     if (!part) return;
-    const newline = doc.body.match(/\r\n|\r|\n/)?.[0] || "\n";
     selected = index;
-    const anchor = formatHeadingIdentity(part.t.meta?.tocId, newline);
-    patch(part.fullStart, part.start, formatPdfRules(rules, newline) + anchor);
+    setText(updatePdfMetadata(doc.body, [[part, rules]], "rules"));
     render();
   },
 });

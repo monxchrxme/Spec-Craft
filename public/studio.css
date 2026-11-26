@@ -677,13 +677,6 @@ main {
   width: 12px;
   height: 12px;
 }
-.expand-diagrams {
-  flex-shrink: 0;
-  margin-inline-start: auto;
-  padding: 5px 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
 .block {
   position: relative;
   overflow-wrap: anywhere;

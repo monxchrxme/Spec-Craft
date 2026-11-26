@@ -33,7 +33,7 @@ function fontFiles(name) {
   );
 }
 
-async function imageBlock(element, widthLimit, heightLimit) {
+async function imageBlock(element, widthLimit, heightLimit, { scale = 1, blockAlign } = {}) {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = new URL(element.getAttribute("src"), document.baseURI).href;
@@ -46,23 +46,25 @@ async function imageBlock(element, widthLimit, heightLimit) {
     const width = Number(element.dataset.imageWidth);
     const caption = element.getAttribute("title")?.trim();
     const captionHeight = caption
-      ? 16 + Math.ceil((caption.length * 6) / widthLimit) * 12
+      ? (16 + Math.ceil((caption.length * 6 * scale) / widthLimit) * 12) * scale
       : 0;
+    const naturalWidth = width >= 10 && width <= 100
+      ? widthLimit * width / 100 : img.naturalWidth * 0.75;
     const drawing = {
       image: canvas.toDataURL("image/png"),
       fit: [
-        width >= 10 && width <= 100
-          ? (widthLimit * width) / 100
-          : Math.min(img.naturalWidth * 0.75, widthLimit),
+        Math.min(naturalWidth * scale, widthLimit),
         Math.max(24, heightLimit - captionHeight),
       ],
+      ...(blockAlign ? { alignment: blockAlign } : {}),
     };
     if (!caption) return drawing;
     const label = {
       text: caption,
-      fontSize: 9,
+      fontSize: 9 * scale,
       color: "#585363",
       margin: [0, 3, 0, 0],
+      ...(blockAlign ? { alignment: blockAlign } : {}),
     };
     return {
       stack: [drawing, label],
@@ -139,7 +141,7 @@ async function pdfFormula(element, settings, widthLimit, heightLimit, headingSiz
         ...math,
         width: width * scale,
         height: height * scale,
-        alignment: "center",
+        alignment: settings.blockAlign || "center",
         margin,
       };
     return {
@@ -221,14 +223,14 @@ async function markdownBlocks(html, settings) {
           const source = node.querySelector("[data-excalidraw-source]").textContent;
           const graphic = await drawingGraphic(source);
           if (graphic) {
-            const scale = Math.min(0.75, widthLimit / graphic.width, heightLimit / graphic.height);
+            const scale = Math.min(0.75 * (settings.scale ?? 1), widthLimit / graphic.width, heightLimit / graphic.height);
             const width = graphic.width * scale;
             const height = graphic.height * scale;
             stack.push({
               image: await drawingPrintImage(graphic, width, height),
               width,
               height,
-              alignment: "center",
+              alignment: settings.blockAlign || "center",
               margin: [0, 4, 0, gap],
             });
           }
@@ -246,7 +248,7 @@ async function markdownBlocks(html, settings) {
         }, { text: " " });
       } else if (tag === "img") {
         flush();
-        stack.push(await imageBlock(node, widthLimit, heightLimit));
+        stack.push(await imageBlock(node, widthLimit, heightLimit, settings));
       } else if (/^(p|h[1-6]|ul|ol|table|blockquote|pre|hr)$/.test(tag)) {
         flush();
         stack.push(await block(node));
@@ -305,6 +307,11 @@ async function markdownBlocks(html, settings) {
   async function block(el) {
     const tag = el.localName;
     if (tag === "table") {
+      const scale = settings.scale ?? 1;
+      const tableWidth = pageWidth * Math.min(1, scale);
+      const remainder = pageWidth - tableWidth;
+      const left = settings.blockAlign === "center" ? remainder / 2
+        : settings.blockAlign === "right" ? remainder : 0;
       const rows = Array.from(el.rows);
       const weights =
         readColumnWidths(
@@ -314,13 +321,13 @@ async function markdownBlocks(html, settings) {
       const total = weights.reduce((sum, width) => sum + width, 0);
       const headerRows = el.tHead?.rows.length || 0;
       // Match the outer column proportions, including padding and borders.
-      const narrowest = (pageWidth * Math.min(...weights)) / total;
+      const narrowest = (tableWidth * Math.min(...weights)) / total;
       const border = Math.min(0.75, narrowest * 0.1);
-      const sidePadding = Math.min(7.5, narrowest * 0.2);
-      const verticalPadding = 6;
+      const sidePadding = Math.min(7.5 * scale, narrowest * 0.2);
+      const verticalPadding = 6 * scale;
       const columnWidths = weights.map(
         (width) =>
-          ((pageWidth - border) * width) / total - 2 * sidePadding - border,
+          ((tableWidth - border) * width) / total - 2 * sidePadding - border,
       );
       const body = [];
       let headerHeight = 0;
@@ -438,7 +445,7 @@ async function markdownBlocks(html, settings) {
           paddingRight: () => sidePadding,
         },
         fontSize: size * 0.9,
-        margin: [0, 3, 0, gap],
+        margin: [left, 3, remainder - left, gap],
       };
     }
     if (tag === "ul" || tag === "ol") {
@@ -545,12 +552,13 @@ function diagramSheet({
   vertical,
   extra,
   fitted,
+  scale = 1,
 }) {
   const fit = (page) =>
     Math.min(
       (page.width - horizontal) / width,
       (page.height - vertical - extra) / height,
-      1,
+      scale,
     );
   if (profile === "a4") {
     return { scale: fitted, pageSize: separate ? basePage : null };
@@ -561,19 +569,19 @@ function diagramSheet({
   if (fitted + 0.01 >= desired) return { scale: fitted, pageSize: basePage };
   if (wide + 0.01 >= desired)
     return { scale: Math.min(wide, desired), pageSize: landscape };
-  const scale = Math.min(
+  const expanded = Math.min(
     desired,
     (14400 - Math.max(horizontal, vertical + extra) - 2) /
       Math.max(width, height),
   );
   return {
-    scale,
+    scale: expanded,
     pageSize: {
       width: Math.max(
         basePage.width,
-        Math.ceil(width * scale + horizontal + 2),
+        Math.ceil(width * expanded + horizontal + 2),
       ),
-      height: Math.max(360, Math.ceil(height * scale + vertical + extra + 2)),
+      height: Math.max(360, Math.ceil(height * expanded + vertical + extra + 2)),
     },
   };
 }
@@ -617,19 +625,22 @@ function diagramBlock(raw, options) {
   for (const label of svg.querySelectorAll("text"))
     label.setAttribute("font-family", "Sans");
   const layout = frameLayout(graph);
+  const zoom = options.scale ?? 1;
+  const alignment = options.blockAlign || layout.align;
   const labelSizes = Array.from(svg.querySelectorAll("text"), (el) =>
     Number(el.getAttribute("font-size")),
   ).filter((n) => n > 0);
   const smallest = labelSizes.reduce((min, size) => Math.min(min, size), 16);
-  const desiredScale = Math.min(1, 9 / smallest);
+  const desiredScale = Math.min(1, 9 / smallest) * zoom;
   const extra = 75 + Math.ceil((graph.title || "").length / 95) * 13;
   const fitted = Math.min(
-    ((options.basePage.width - options.horizontal) * layout.width) /
+    ((options.basePage.width - options.horizontal) * layout.width * zoom) /
       100 /
       width,
     (options.basePage.height - options.vertical - extra) / height,
-    layout.height ? (layout.height * 0.75) / height : Infinity,
-    1,
+    (options.basePage.width - options.horizontal) / width,
+    layout.height ? (layout.height * 0.75 * zoom) / height : Infinity,
+    zoom,
   );
   const { scale, pageSize } = diagramSheet({
     ...options,
@@ -643,15 +654,15 @@ function diagramBlock(raw, options) {
     svg: svg.outerHTML,
     width: width * scale,
     font: "Sans",
-    alignment: layout.align,
+    alignment,
   };
   const stack = [drawing];
   if (graph.title)
     stack.push({
       text: graph.title,
-      fontSize: 9,
+      fontSize: 9 * zoom,
       color: "#585363",
-      alignment: layout.align,
+      alignment,
       margin: [0, 3, 0, 0],
     });
   const node = { stack, unbreakable: true, margin: [0, 2, 0, 8] };
@@ -662,8 +673,9 @@ async function mermaidBlock(source, options) {
   try {
     const { url, width, height } = await mermaidGraphic(source);
     const extra = 75;
+    const zoom = options.scale ?? 1;
     const fitted = Math.min(
-      0.75,
+      0.75 * zoom,
       (options.labelWidth || options.basePage.width - options.horizontal) /
         width,
       (options.basePage.height - options.vertical - extra) / height,
@@ -674,7 +686,7 @@ async function mermaidBlock(source, options) {
       height,
       extra,
       fitted,
-      desired: 0.64,
+      desired: 0.64 * zoom,
     });
     const pixels = Math.min(scale * 4, 4096 / Math.max(width, height));
     const canvas = document.createElement("canvas");
@@ -691,7 +703,7 @@ async function mermaidBlock(source, options) {
       image: canvas.toDataURL("image/png"),
       width: width * scale,
       height: height * scale,
-      alignment: "center",
+      alignment: options.blockAlign || "center",
     };
     return {
       node: { stack: [drawing], unbreakable: true, margin: [0, 2, 0, 8] },
@@ -750,6 +762,62 @@ async function contentsRows(meta, settings, pageNumbers, md) {
     });
   }
   return rows;
+}
+
+function copyPdfNode(value) {
+  if (Array.isArray(value)) return value.map(copyPdfNode);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, copyPdfNode(item)]));
+  return value;
+}
+
+async function measuredGroups(sections, createPdf, definition, warnings) {
+  const groups = [];
+  for (const section of sections) {
+    const units = section.section;
+    for (let start = 0; start < units.length;) {
+      const id = units[start].group;
+      let end = start + 1;
+      while (id && units[end]?.group === id) end++;
+      if (end > start + 1)
+        groups.push({ ...section, section: units.slice(start, end) });
+      start = end;
+    }
+  }
+  const keep = new Map();
+  if (!groups.length) return keep;
+  const measure = () => false;
+  const positions = new Map();
+  measure.specLayout = (nodes) => {
+    for (const { id, positions: placed } of nodes)
+      if (id?.startsWith("spec-pdf-block-") && placed.length)
+        positions.set(id, new Set(placed.map((p) => p.pageNumber)));
+  };
+  // Measure only the candidate groups, each starting on a fresh sheet.
+  await createPdf({ ...definition, content: copyPdfNode(groups), pageBreakBefore: measure }).getBlob();
+  for (const { section: units } of groups) {
+    const ids = units.map((unit) => unit.id);
+    const page = positions.get(ids[0])?.values().next().value;
+    if (page && ids.every((id) => positions.get(id)?.size === 1 && positions.get(id).has(page))) {
+      units[0].specKeep = true;
+      keep.set(ids[0], ids.slice(1));
+    } else {
+      warnings.push({
+        index: Number(ids[0].slice("spec-pdf-block-".length)),
+        message: "Группа выше листа. Для неё действует обычная разбивка.",
+      });
+    }
+  }
+  return keep;
+}
+
+function applyBlockSpacing(blocks, { before, after }) {
+  for (const [value, node, edge] of [[before, blocks[0], 1], [after, blocks.at(-1), 3]]) {
+    if (value === undefined) continue;
+    const margin = [...(node.margin || [0, 0, 0, 0])];
+    margin[edge] = value * 72 / 25.4;
+    node.margin = margin;
+  }
 }
 
 // Only the final layout knows where headings landed and where a wrapped title
@@ -859,6 +927,24 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     const spacer = isPdfSpacer(part.t);
     const spacerHeight = spacer ? part.t.meta ?? pdfSpacerDefault(style) : 0;
     if (spacer && !spacerHeight) continue;
+    const format = part.pdfFormat || {};
+    const scale = (format.scale ?? 100) / 100;
+    const blockSize = size * scale;
+    const blockLayout = {
+      ...pageLayout,
+      vertical: pageLayout.vertical + ((format.before ?? 0) + (format.after ?? 0)) * 72 / 25.4,
+      scale,
+      blockAlign: format.align,
+    };
+    const blockSettings = {
+      ...settings,
+      ...blockLayout,
+      size: blockSize,
+      align: format.align || settings.align,
+      headingAlign: format.align || settings.headingAlign,
+      measureTable: scale === 1
+        ? settings.measureTable : tableMeasurer(fontFiles, font, blockSize * 0.9, leading),
+    };
     const rules = part.pdfRules || [];
     const forceLandscape = rules.includes("landscape-sheet");
     const separate = forceLandscape || rules.includes("separate-sheet");
@@ -893,7 +979,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       }] }];
     } else if (diagram || mermaid) {
       const options = {
-        ...pageLayout,
+        ...blockLayout,
         basePage: forceLandscape ? landscape : basePage,
         profile: forceLandscape ? "a4" : profile,
         separate,
@@ -906,7 +992,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       blocks = [rendered.node];
     } else if (part.t.type === "spec_toc" && part.t.meta.entries.length) {
       blocks = await contentsRows(
-        part.t.meta, { ...settings, pageSize: pageSize || basePage, note },
+        part.t.meta, { ...blockSettings, pageSize: pageSize || basePage, note },
         style.pdfPageNumbers, md,
       );
     } else {
@@ -916,7 +1002,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       blocks = await markdownBlocks(
         md.renderer.render(part.tokens, md.options, {}),
         {
-          ...settings,
+          ...blockSettings,
           pageSize: pageSize || basePage,
           targets: selectedTargets,
           keepParagraph: (targets.get(i - 1) || []).some(
@@ -941,10 +1027,14 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       }
     }
     if (!blocks.length) continue;
+    applyBlockSpacing(blocks, format);
     const heading = Boolean(blocks[0].headlineLevel);
     const unit = {
       id: "spec-pdf-block-" + i,
       stack: blocks,
+      ...(scale === 1 ? {} : { fontSize: blockSize }),
+      ...(format.align ? { alignment: format.align } : {}),
+      group: format.group,
       specKeep: heading || rules.includes("keep-next"),
       heading,
       spacer,
@@ -987,6 +1077,14 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     });
   }
   const pageBreakBefore = (node, container) => {
+    const group = keepGroups.get(node.id);
+    if (group && container.getPreviousNodesOnPage().some((item) => item.id?.startsWith("spec-pdf-block-"))) {
+      const page = node.pageNumbers[0];
+      const following = new Set(container.getFollowingNodesOnPage()
+        .filter((item) => item.pageNumbers.length === 1 && item.pageNumbers[0] === page)
+        .map((item) => item.id));
+      if (node.pageNumbers.length !== 1 || group.some((id) => !following.has(id))) return true;
+    }
     const next = nextBlock.get(node.id);
     if (!next) return false;
     const page = node.pageNumbers.at(-1);
@@ -1041,14 +1139,32 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     [...new Set(["Sans", "Mono", font])].map((name) => [name, fontFiles(name)]),
   );
   const pdf = window.pdfMake;
-  pdf.setFonts(fonts);
   pdf.setUrlResourceCaching(true);
-  const blob = await pdf
-    .createPdf({
-      info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
+  const createPdf = (definition) => {
+    pdf.setFonts(fonts);
+    return pdf.createPdf(definition);
+  };
+  const definition = {
       pageSize: basePage,
       pageOrientation: basePage === landscape ? "landscape" : "portrait",
       pageMargins: margins,
+      defaultStyle: {
+        font,
+        fontSize: size,
+        color: "#262431",
+        lineHeight: leading,
+      },
+  };
+  const keepGroups = await measuredGroups(sections, createPdf, definition, warnings);
+  for (const [first, rest] of keepGroups) {
+    const members = new Set([first, ...rest]);
+    // A soft keep-with-next rule cannot pull a fitted group's last block away.
+    for (const id of members)
+      if (!members.has(nextBlock.get(id))) nextBlock.delete(id);
+  }
+  const blob = await createPdf({
+      ...definition,
+      info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
       footer: style.pdfPageNumbers
         ? (page) => ({
             text: String(page),
@@ -1058,12 +1174,6 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
             color: "#585363",
           })
         : null,
-      defaultStyle: {
-        font,
-        fontSize: size,
-        color: "#262431",
-        lineHeight: leading,
-      },
       content: sections.length ? sections : [{ text: "" }],
       pageBreakBefore,
     })

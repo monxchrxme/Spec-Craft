@@ -18,7 +18,7 @@ import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { enableDiagramPan } from "../public/diagram-pan.js";
 import { enableDiagramFitToggle } from "../public/diagram-zoom.js";
 import {
-  formatPdfRules, formatPdfSpacer, isPdfSpacer, pdfRules, pdfSpacerDefault,
+  formatPdfRules, formatPdfSpacer, isPdfSpacer, pdfRules, pdfSpacerDefault, updatePdfMetadata,
 } from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
@@ -89,6 +89,29 @@ test("PDF spacers stay independently editable and inherit the document height", 
   assert.equal(pdfSpacerDefault({}), 10);
   assert.equal(pdfSpacerDefault({ pdfSpacerHeight: 0 }), 0);
   assert.equal(pdfSpacerDefault({ pdfSpacerHeight: 101 }), 10);
+});
+
+test("PDF block formatting and grouping survive rule edits, moves and resets", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit({ html: false }).use(pdfRules).use(portableBlocks);
+  const group = "0123456789abcdef0123456789abcdef";
+  const format = { group, scale: 80, align: "right", before: 0, after: 12 };
+  const identity = "<!-- spec-heading-id: 67b52af3-26cf-4814-b45e-175be529af80 -->";
+  const body = ["Первый блок", identity, "## Заголовок", "Окончание"].join("\r\n\r\n");
+  const add = updatePdfMetadata(body, [[documentParts(md, body)[1], format]], "format");
+  const setRule = updatePdfMetadata(add, [[documentParts(md, add)[1], ["break-before"]]], "rules");
+  const parts = documentParts(md, setRule);
+  assert.deepEqual({ ...parts[1].pdfFormat }, format);
+  assert.deepEqual([...parts[1].pdfRules], ["break-before"]);
+  assert.match(setRule, new RegExp(identity));
+  const moved = reorderMarkdown(setRule, parts, 1, 2, 0);
+  assert.deepEqual({ ...documentParts(md, moved.body)[0].pdfFormat }, format);
+  const clear = updatePdfMetadata(setRule, [[parts[1], { group }]], "format");
+  const updated = documentParts(md, clear)[1];
+  assert.deepEqual({ ...updated.pdfFormat }, { group });
+  assert.deepEqual([...updated.pdfRules], ["break-before"]);
+  assert.doesNotMatch(md.render(clear), /spec-pdf-block/);
 });
 
 test("task markers round-trip in nested lists, standalone paragraphs and LaTeX", () => {
