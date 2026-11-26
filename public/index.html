@@ -343,6 +343,18 @@
             </div>
             <div class="editing-tools">
               <button
+                type="button"
+                class="tool"
+                id="document-search-toggle"
+                title="Поиск по документу"
+                aria-label="Поиск по документу"
+                aria-controls="document-search"
+                aria-expanded="false"
+                aria-keyshortcuts="Control+F Meta+F"
+              >
+                <i data-lucide="search" aria-hidden="true"></i>
+              </button>
+              <button
                 class="tool"
                 data-action="undo"
                 title="Отменить"
@@ -375,6 +387,24 @@
           >
             <i data-lucide="panel-left" aria-hidden="true"></i>Документы
           </button>
+        </div>
+        <div id="document-search" role="search" aria-label="Поиск по документам" hidden>
+          <div class="document-search-controls">
+            <input type="search" placeholder="Найти в документе" aria-label="Найти в документе" />
+            <span role="status" aria-live="polite"></span>
+            <button type="button" data-find="scope" aria-pressed="false"
+              aria-keyshortcuts="Control+Shift+F Meta+Shift+F" title="Поиск по всем файлам">Все файлы</button>
+            <button type="button" data-find="previous" aria-label="Предыдущее совпадение" title="Предыдущее совпадение">
+              <i data-lucide="chevron-up" aria-hidden="true"></i>
+            </button>
+            <button type="button" data-find="next" aria-label="Следующее совпадение" title="Следующее совпадение">
+              <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </button>
+            <button type="button" data-find="close" aria-label="Закрыть поиск" title="Закрыть поиск · Esc">
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+          <ul class="document-search-results" aria-label="Совпадения в файлах" hidden></ul>
         </div>
         <div id="scroll">
           <section id="empty-workspace" hidden>

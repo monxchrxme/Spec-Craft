@@ -1,5 +1,6 @@
 import { paintFormulaStyle } from "./document-style.js";
 import { paintMath } from "./math.js";
+import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
 import { mermaidControls, paintMermaid } from "./mermaid.js";
 import { paintDrawings } from "./excalidraw.js";
 import { specIndex } from "./spec-index.js";
@@ -92,6 +93,7 @@ export async function reviewRequest(share, input) {
 export function showReview({
   share,
   parse,
+  menuLabel,
   renderMarkdown,
   onClose,
   onEdit,
@@ -230,6 +232,7 @@ export function showReview({
       form,
       replyForm,
     );
+  const syncPicker = enhanceDocumentPicker(picker);
   if (dock) {
     root.append(panel);
     dock.container.append(root);
@@ -262,6 +265,7 @@ export function showReview({
       paper,
       viewport,
       parse,
+      menuLabel,
       request,
       mutate,
       advanced,
@@ -339,6 +343,7 @@ export function showReview({
     }
     active = key;
     picker.value = key;
+    syncPicker();
     list.replaceChildren();
     for (const [id, marker] of markers) {
       marker.classList.toggle("review-anchor-active", id === active);
@@ -648,10 +653,9 @@ export function showReview({
     picker.replaceChildren(
       ...allTargets().map(
         (t) =>
-          new Option(
-            t.label + (counts.has(t.key) ? " · " + counts.get(t.key) : ""),
-            t.key,
-          ),
+          documentOption(menuLabel(t.labelSource || t.label), t.key, {
+            suffix: counts.has(t.key) ? " · " + counts.get(t.key) : "",
+          }),
       ),
     );
     for (const [key, marker] of markers) {

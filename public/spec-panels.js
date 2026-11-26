@@ -5,6 +5,7 @@ import {
   reviewUrl,
 } from "./review.js";
 import { specIndex, reviewItems, canonical } from "./spec-index.js";
+import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
 
 function element(tag, text, cls) {
   const el = document.createElement(tag);
@@ -23,12 +24,17 @@ function field(label, control) {
   el.append(control);
   return el;
 }
-function pick(label, items, onChange, value) {
+function pick(label, items, onChange, value, rich = false) {
   const el = element("select");
-  items.forEach(([key, name]) => el.add(new Option(name, key)));
+  items.forEach(([key, name]) => el.add(documentOption(name, key)));
   if (value !== undefined) el.value = value;
   el.onchange = () => onChange(el.value);
-  return field(label, el);
+  const result = field(label, el);
+  if (rich) {
+    el.setAttribute("aria-label", label);
+    enhanceDocumentPicker(el);
+  }
+  return result;
 }
 function checkbox(label, on, set) {
   const el = element("input");
@@ -45,7 +51,7 @@ function empty(panel, msg) {
 const states = ["На согласовании", "Согласована", "Требует доработки"];
 
 export function specPanels(api) {
-  const { open, parse, document: current, jump, commit, notice } = api;
+  const { open, parse, menuLabel, document: current, jump, commit, notice } = api;
   function panel(title) {
     const el = open(title, "");
     el.classList.add("spec-panel");
@@ -234,12 +240,15 @@ export function specPanels(api) {
       return;
     }
     const options = [...new Set([target, ...unique, ...unresolved])];
+    const labels = new Map(idx.headings.filter((item) => !item.id)
+      .map((item) => [item.label, item.labelSource]));
     box.append(
       pick(
         "Раздел или ID",
-        options.map((t) => [t, t]),
+        options.map((t) => [t, menuLabel(labels.get(t) || t)]),
         links,
         target,
+        true,
       ),
     );
     const matches = idx.resolve(target);

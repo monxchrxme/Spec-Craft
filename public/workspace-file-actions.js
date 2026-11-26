@@ -99,8 +99,14 @@ export function workspaceFileActions(section, { open, rename, move }) {
 
   section.addEventListener("keydown", (event) => {
     const button = event.target.closest(".file");
-    if (event.key !== "F2" || !button) return;
+    if (!button) return;
     const row = button.closest("[data-document-row]");
+    if (event.key === " " && row) {
+      event.preventDefault();
+      if (!event.repeat) select(row, event);
+      return;
+    }
+    if (event.key !== "F2") return;
     event.preventDefault();
     if (row) edit(idFor(row));
     else edit(button.closest("[data-folder]").dataset.folder, true);
@@ -108,7 +114,10 @@ export function workspaceFileActions(section, { open, rename, move }) {
   section.addEventListener("click", (event) => {
     const clicked = event.target;
     const row = clicked.closest(".file")?.closest("[data-document-row]");
-    if (row) return select(row, event);
+    if (row) {
+      event.preventDefault();
+      return select(row, event);
+    }
     if (selected.size < 2 || !clicked.closest("#files-scroll") ||
         clicked.closest("button, .file-rename")) return;
     const current = section.querySelector('.file[aria-current="true"]');
@@ -139,6 +148,7 @@ export function workspaceFileActions(section, { open, rename, move }) {
     }
     dragged = visible().map(idFor).filter((id) => selected.has(id));
     event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.clearData();
     event.dataTransfer.setData(dragType, "files");
   });
   section.addEventListener("dragover", (event) => {

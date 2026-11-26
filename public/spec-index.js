@@ -67,20 +67,26 @@ export function specIndex(parts) {
       const depth = Number(p.t.tag[1]);
       hierarchy = hierarchy.filter((h) => h.depth < depth);
       const h = addTarget(i, -1, label, id);
+      h.labelSource = inline[0]?.content;
       h.depth = depth;
       hierarchy.push(h);
       headings.push(h);
     }
     if (p.t.type === "table_open") {
       let cells = [],
+        sources = [],
         header = [],
         row = -1;
       for (const t of p.tokens) {
         if (t.type === "tr_open") {
           row++;
           cells = [];
+          sources = [];
         }
-        if (t.type === "inline") cells.push(plain(t));
+        if (t.type === "inline") {
+          cells.push(plain(t));
+          sources.push(t.content);
+        }
         if (t.type !== "tr_close") continue;
         if (row === 0) {
           header = cells;
@@ -98,15 +104,15 @@ export function specIndex(parts) {
           const name = header.findIndex((s) =>
             /требован|формулировк|названи|проверк/i.test(s),
           );
-          addTarget(
+          const titleColumn = name >= 0 && name !== c ? name : c === 0 ? 1 : 0;
+          const target = addTarget(
             i,
             row,
-            id +
-              " · " +
-              (cells[name >= 0 && name !== c ? name : c === 0 ? 1 : 0] || ""),
+            id + " · " + (cells[titleColumn] || ""),
             id,
             cells[criterion] || "",
           );
+          target.labelSource = id + " · " + (sources[titleColumn] || "");
         }
       }
     }

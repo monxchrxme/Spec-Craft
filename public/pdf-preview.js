@@ -1,4 +1,5 @@
 import { previewCanvas, openPdfTask } from "./pdf-pages.js";
+import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
 export function printPdf(blob, filename, onFallback) {
   const url = URL.createObjectURL(blob);
   const frame = document.createElement("iframe");
@@ -58,6 +59,7 @@ export function pdfPreview(
   const stage = by("stage");
   const thumbnails = by("thumbnails");
   const blockPicker = by("block");
+  const syncBlockPicker = enhanceDocumentPicker(blockPicker);
   const warnings = by("warnings");
   const placementRule = by("placement-rule");
   const placementInfo = by("placement-info");
@@ -128,6 +130,7 @@ export function pdfPreview(
     const entry = byIndex.get(index);
     selected = entry?.index ?? null;
     blockPicker.value = entry ? String(index) : "";
+    syncBlockPicker();
     by("edit").disabled = placementRule.disabled = !entry;
     placementInfo.hidden = !entry;
     const activeRules = entry?.rules || [];
@@ -189,13 +192,9 @@ export function pdfPreview(
       blockPicker.replaceChildren(
         ...candidates.map(
           (block) =>
-            new Option(
-              block.label +
-                (layout.blocksOnPages.get(block.index)[0] < page
-                  ? " · продолжение"
-                  : ""),
-              block.index,
-            ),
+            documentOption(block.label, block.index, {
+              suffix: layout.blocksOnPages.get(block.index)[0] < page ? " · продолжение" : "",
+            }),
         ),
       );
     }

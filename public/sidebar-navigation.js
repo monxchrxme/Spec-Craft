@@ -82,7 +82,7 @@ export function enableSidebarSearch(toggle, input, results) {
     event.stopPropagation();
     if (event.key === "Escape") show(false);
     else
-      results.querySelector(".sidebar-search-match")?.closest("button")?.click();
+      results.querySelector(".sidebar-search-match")?.closest("button, a.file")?.click();
   };
 }
 

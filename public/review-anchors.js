@@ -39,6 +39,7 @@ export function workflowSections(parts, body) {
     return {
       key: withinLimit(key),
       label: heading.label,
+      labelSource: heading.labelSource,
       index: heading.index,
       start,
       end,

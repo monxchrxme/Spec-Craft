@@ -1,5 +1,6 @@
 import { projectTreeMarkdown } from "./project-tree.js";
 import { finishEditingKey } from "./formatting.js";
+import { paintMath } from "./math.js";
 import {
   bibliographyMarkdown,
   bibliographyStyles,
@@ -28,7 +29,7 @@ function field(form, name, control) {
   return control;
 }
 
-export function tocControls(tools, meta, apply) {
+export function tocControls(tools, meta, apply, menuLabel) {
   const select = element("select");
   select.add(new Option("Маркеры", "bullets"));
   select.add(new Option("Номера разделов", "numbers"));
@@ -72,7 +73,7 @@ export function tocControls(tools, meta, apply) {
       box.name = name;
       box.value = value;
       box.checked = checked;
-      label.append(box, " " + title);
+      label.append(box, " ", title);
       group.append(label);
     }
     const levels = group("Уровни заголовков", "toc-levels");
@@ -89,14 +90,19 @@ export function tocControls(tools, meta, apply) {
       "toc-exceptions",
     );
     const chosen = new Set(meta.unnumbered);
-    for (const { level, label, slug, id = slug } of meta.headings)
+    for (const { level, label, inline, slug, id = slug } of meta.headings) {
+      const title = element("span");
+      title.innerHTML = menuLabel(inline).html;
+      if (!title.textContent) title.textContent = label;
+      title.prepend("H" + level + " · ");
       checkbox(
         exceptions,
         "unnumbered",
         id,
-        "H" + level + " · " + label,
+        title,
         chosen.has(id) || chosen.has(slug),
       );
+    }
     const submit = element("button", "Применить", "primary");
     submit.type = "submit";
     form.append(submit);
@@ -105,6 +111,7 @@ export function tocControls(tools, meta, apply) {
       save();
     };
     details.append(form);
+    void paintMath(exceptions);
   };
 }
 

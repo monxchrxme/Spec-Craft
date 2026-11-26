@@ -6,6 +6,9 @@ import {
 import { documentParts } from "./document-parts.js";
 import { readProject } from "./project-import.js";
 import { sourceWorkspace } from "./source-workspace.js";
+import { enableDocumentSearch } from "./document-search.js";
+import { markdownSource } from "./markdown-source.js";
+import { documentLabel } from "./document-picker.js";
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
 import { imageSizes, imageWidthMarkdown } from "./images.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
@@ -158,6 +161,7 @@ const md = window
   .use(tableWidths)
   .use(cellLineBreaks)
   .use(portableBlocks);
+const menuLabel = (source) => documentLabel(md, source);
 const workspaceId = activeWorkspace();
 const storageKeys = workspaceKeys(workspaceId);
 const prefix = storageKeys.docs,
@@ -231,6 +235,17 @@ function readDocument(id, raw) {
   return null;
 }
 let firstVisit = !workspaceId;
+const linkedFile = location.hash.startsWith("#file=")
+  ? new URLSearchParams(location.hash.slice(1)).get("file")
+  : null;
+if (linkedFile !== null)
+  window.history.replaceState(null, "", location.pathname + location.search);
+let tabFile;
+try {
+  tabFile = sessionStorage.getItem(sessionKey);
+} catch {
+  // Use the last document from this browser when tab storage is unavailable.
+}
 try {
   firstVisit = !workspaceId && localStorage.getItem(sessionKey) === null;
   for (let i = 0; i < localStorage.length; i++) {
@@ -246,7 +261,9 @@ try {
     savedRecords.set(record.id, raw);
   }
   doc =
-    availableDocs().find((d) => d.id === localStorage.getItem(sessionKey)) ||
+    [linkedFile, tabFile, localStorage.getItem(sessionKey)]
+      .map((id) => docs.get(id))
+      .find((d) => d && !d.trashed) ||
     availableDocs()[0];
 } catch {
   loaded = false;
@@ -293,6 +310,11 @@ function save() {
       writeRecord(doc);
     }
     localStorage.setItem(sessionKey, doc?.id || "");
+    try {
+      sessionStorage.setItem(sessionKey, doc?.id || "");
+    } catch {
+      // The browser-wide selection is still available.
+    }
     $("#save").textContent = "";
     return true;
   } catch {
@@ -405,8 +427,10 @@ function nav() {
     levels.set(folder.id, contents);
   }
   for (const d of availableDocs()) {
-    const b = document.createElement("button");
+    const b = document.createElement("a");
     b.className = "file";
+    b.href = "#file=" + encodeURIComponent(d.id);
+    b.setAttribute("role", "button");
     b.setAttribute("aria-current", String(d.id === doc?.id));
     b.innerHTML = icon("file-text") + '<span class="file-name"></span>';
     b.title = d.name;
@@ -433,6 +457,7 @@ function nav() {
   ))
     b.disabled = !doc;
   icons();
+  documentSearch.schedule();
 }
 function fileMenu(label, key, action) {
   const menu = document.createElement("button");
@@ -976,6 +1001,30 @@ const sourcePane = sourceWorkspace({
     }
   },
 });
+const documentSearch = enableDocumentSearch({
+  panel: $("#document-search"),
+  toggle: $("#document-search-toggle"),
+  blocks: host,
+  viewport,
+  source,
+  showSourceMatch: sourcePane.showMatch,
+  prepare: () => {
+    if (editor || tableEdit) flush();
+  },
+  files: availableDocs,
+  projectFile(file) {
+    const body = materializeToc(file.body, md);
+    return markdownSource(body, parse(body), true);
+  },
+  showFileMatch({ id, from, to }) {
+    const file = docs.get(id);
+    if (!file || file.trashed || liveEdit) return;
+    if (id !== doc?.id) switchDoc(file);
+    if (mode !== "source") setMode("source");
+    sourcePane.showMatch(sourcePane.displayOffset(from), sourcePane.displayOffset(to));
+  },
+});
+$("#source-fold").addEventListener("change", documentSearch.schedule);
 function diagramViewKey(card) {
   if (card.matches("[data-mermaid]")) {
     return "mermaid:" + card.querySelector(".mermaid-source code").textContent;
@@ -1006,6 +1055,7 @@ function render() {
   editor = tableEdit = null;
   const notesToggle = $('[data-action="hide-speaker-notes"]');
   notesToggle.setAttribute("aria-pressed", String(speakerNotesHidden));
+  documentSearch.update(doc?.id, isSource(), !!doc && mode !== "pdf", !liveEdit && !!doc);
   $("#empty-workspace").hidden = !!doc;
   $(".paper").hidden = !doc || mode === "pdf";
   $(".controls").hidden = !doc;
@@ -1391,7 +1441,7 @@ function documentBlockTools(box, part, index, kind) {
       host.children[state.origin]
         ?.querySelector(focus)
         ?.focus({ preventScroll: true });
-    });
+    }, menuLabel);
   } else {
     const edit = document.createElement("button");
     edit.type = "button";
@@ -1697,7 +1747,8 @@ function editBlock(i, selectAll = false) {
   function updatePreview() {
     const template = document.createElement("template");
     template.innerHTML = md.render(ta.value);
-    const mermaid = template.content.querySelector("[data-mermaid]");
+    const content = template.content;
+    const mermaid = content.querySelector("[data-mermaid]");
     keepMermaidImage(
       mermaid,
       preview.querySelector("[data-mermaid]") || originalMermaid,
@@ -1709,19 +1760,19 @@ function editBlock(i, selectAll = false) {
       };
       mermaid.setExpanded(editor.expanded);
     }
-    preview.replaceChildren(
-      ...template.content.querySelectorAll(
-        "[data-tex], [data-mermaid], pre:has(> code[class^='language-'])",
-      ),
-    );
+    const hasMath = !!content.querySelector("[data-tex]");
+    if (hasMath) preview.replaceChildren(content);
+    else preview.replaceChildren(...content.querySelectorAll(
+      "[data-mermaid], pre:has(> code[class^='language-'])",
+    ));
     preview.hidden = !preview.childElementCount;
     preview.setAttribute(
       "aria-label",
-      preview.querySelector("[data-mermaid]")
-        ? "Предпросмотр диаграммы Mermaid"
-        : preview.querySelector("pre")
-          ? "Предпросмотр кода"
-          : "Предпросмотр формул",
+      hasMath
+        ? "Предпросмотр формул"
+        : mermaid
+          ? "Предпросмотр диаграммы Mermaid"
+          : "Предпросмотр кода",
     );
     if (!preview.hidden) {
       void paintMath(preview);
@@ -3157,9 +3208,9 @@ function requestPdf(force = false) {
     ...(await exportPdf(blocks, md, data, profile)),
     name: data.name.replace(/\.md$/i, "") + ".pdf",
     blocks: blocks.map((part, index) => {
-      const readable = part.tokens.find(
+      const inline = part.tokens.find(
         (token) => token.type === "inline",
-      )?.content;
+      );
       const label =
         part.t.type === "spec_toc"
           ? "Оглавление"
@@ -3179,15 +3230,12 @@ function requestPdf(force = false) {
                         : part.t.info.trim() === "studio-diagram"
                           ? "Блок-схема"
                           : "Код"
-                    : readable?.startsWith("![")
+                    : inline?.content.startsWith("![")
                       ? "Изображение"
-                      : (readable || part.text)
-                          .replace(/\s+/g, " ")
-                          .trim()
-                          .slice(0, 75);
+                      : menuLabel(inline || part.text);
       return {
         index,
-        label: label || "Блок " + (index + 1),
+        label: (typeof label === "string" || label.text) ? label : "Блок " + (index + 1),
         rules: part.pdfRules,
         heading: part.t.type === "heading_open",
       };
@@ -3499,6 +3547,7 @@ function openSharedReview(share, onClose) {
   stopReview = showReview({
     share,
     parse,
+    menuLabel,
     renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
     onClose: () => {
       stopReview = null;
@@ -3687,6 +3736,7 @@ function openLiveReview(share, { advanced = false } = {}) {
   stopReview = showReview({
     share,
     parse,
+    menuLabel,
     renderMarkdown: (block) => md.renderer.render(block.tokens, md.options, {}),
     request: collaborationRequest,
     labels: roleLabels,
@@ -3750,6 +3800,7 @@ function toggleLiveComments(target) {
   const { stop, commentAt } = showReview({
     share: session.share,
     parse,
+    menuLabel,
     request: collaborationRequest,
     labels: roleLabels,
     dock: {
@@ -4031,6 +4082,7 @@ const panels = specPanels({
   openReview: openSharedReview,
   open: dialog,
   parse,
+  menuLabel,
   document: () => doc,
   jump: jumpTo,
   notice,
@@ -4491,6 +4543,16 @@ document.addEventListener("keydown", (e) => {
   }
   if (modal.open || !doc) return;
   const cmd = e.ctrlKey || e.metaKey;
+  if (
+    (e.shiftKey ? !liveEdit : mode !== "pdf") &&
+    !inlineDrawing && !inlineGraph && !e.defaultPrevented &&
+    !e.isComposing && cmd && !e.altKey &&
+    (e.code === "KeyF" || e.key.toLowerCase() === "f")
+  ) {
+    e.preventDefault();
+    documentSearch.open(e.shiftKey);
+    return;
+  }
   if (
     mode === "edit" && !editor && !tableEdit && !inlineGraph && !inlineDrawing &&
     !inlineBibliography && !e.defaultPrevented && !e.isComposing && !cmd &&

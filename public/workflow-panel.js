@@ -1,6 +1,7 @@
 import { diffLines } from "./vendor/jsdiff/diff/line.js";
 import { approvalStates, makePatch, validPatch } from "./workflow-model.js";
 import { specIndex } from "./spec-index.js";
+import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
 import {
   anchorFrom,
   historyUnits,
@@ -139,6 +140,7 @@ export function workflowPanel({
   paper,
   viewport,
   parse,
+  menuLabel,
   state,
   request,
   mutate,
@@ -381,11 +383,11 @@ export function workflowPanel({
       )
         return;
       if (type === "fence" && part.t.info.trim() === "studio-diagram") return;
-      const content = part.text.trim().replace(/\s+/g, " ").slice(0, 115);
       items.set(String(index), {
         index,
         table: type === "table_open",
-        label: (type === "table_open" ? "Таблица · " : "") + content,
+        label: menuLabel(part.tokens.find((token) => token.type === "inline") ||
+          (type === "fence" ? part.t.content.split("\n")[0] || "Код" : part.text)),
       });
     });
     if (!items.size) {
@@ -394,7 +396,10 @@ export function workflowPanel({
       );
       return;
     }
-    for (const [key, item] of items) choice.add(new Option(item.label, key));
+    for (const [key, item] of items) {
+      const label = typeof item.label === "string" ? menuLabel(item.label) : item.label;
+      choice.add(documentOption(label, key, { prefix: item.table ? "Таблица · " : "" }));
+    }
     const textarea = node("textarea");
     textarea.rows = 7;
     const label = field("Предлагаемая замена", textarea);
@@ -441,6 +446,7 @@ export function workflowPanel({
       advanced,
       submit,
     );
+    enhanceDocumentPicker(choice);
     seed();
     proposalForm.onsubmit = async (event) => {
       event.preventDefault();
@@ -598,10 +604,9 @@ export function workflowPanel({
     units.add(new Option("Весь документ", ""));
     for (const item of former)
       units.add(
-        new Option(
-          (item.type === "diagram" ? "Схема · " : "Раздел · ") + item.label,
-          item.key,
-        ),
+        documentOption(menuLabel(item.labelSource || item.label), item.key, {
+          prefix: item.type === "diagram" ? "Схема · " : "Раздел · ",
+        }),
       );
     units.value = historySelection || "";
     units.onchange = () => {
@@ -620,6 +625,7 @@ export function workflowPanel({
       field("Часть документа для сравнения", units),
       difference(before, after),
     );
+    enhanceDocumentPicker(units);
     if (!item) {
       const meta = (snapshot) =>
         JSON.stringify(
@@ -748,10 +754,9 @@ export function workflowPanel({
     approvalPicker = node("select");
     for (const unit of units)
       approvalPicker.add(
-        new Option(
-          unit.label + " · " + approvalStates[approval(unit)],
-          unit.key,
-        ),
+        documentOption(menuLabel(unit.labelSource || unit.label), unit.key, {
+          suffix: " · " + approvalStates[approval(unit)],
+        }),
       );
     if (!units.some((unit) => unit.key === chosenSection))
       chosenSection = units[0].key;
@@ -762,6 +767,7 @@ export function workflowPanel({
       renderApproval();
     };
     approvalPane.append(field("Раздел для согласования", approvalPicker));
+    enhanceDocumentPicker(approvalPicker);
     const unit = units.find((item) => item.key === chosenSection),
       saved = records.get(unit.key);
     approvalPane.append(button("К разделу", () => jumpIndex(unit.index)));

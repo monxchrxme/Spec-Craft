@@ -149,9 +149,8 @@ export function sourceWorkspace({
         preview.scrollTop += delta - 12;
     }
   }
-  function blockTops() {
+  function textTops(offsets) {
     const width = source.clientWidth;
-    if (measured?.width === width) return measured.tops;
     if (!mirror) {
       mirror = document.createElement("div");
       mirror.setAttribute("aria-hidden", "true");
@@ -176,7 +175,7 @@ export function sourceWorkspace({
       marks = [];
     const value = source.value;
     let previous = 0;
-    for (const [from] of spans) {
+    for (const from of offsets) {
       fragment.append(value.slice(previous, from));
       const mark = document.createElement("span");
       fragment.append(mark);
@@ -185,7 +184,12 @@ export function sourceWorkspace({
     }
     fragment.append(value.slice(previous));
     mirror.replaceChildren(fragment);
-    const tops = marks.map((mark) => mark.offsetTop);
+    return marks.map((mark) => mark.offsetTop);
+  }
+  function blockTops() {
+    const width = source.clientWidth;
+    if (measured?.width === width) return measured.tops;
+    const tops = textTops(spans.map(([from]) => from));
     measured = { width, tops };
     return tops;
   }
@@ -440,5 +444,12 @@ export function sourceWorkspace({
     select,
     reveal,
     span,
+    showMatch(from, to) {
+      source.setSelectionRange(from, to);
+      const [top] = textTops([from]);
+      source.scrollTop = Math.max(0, top - source.clientHeight / 3);
+      choose(cursorBlock());
+      followScroll();
+    },
   };
 }
