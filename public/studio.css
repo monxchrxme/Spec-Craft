@@ -584,6 +584,11 @@ main {
   position: relative;
   overflow-wrap: anywhere;
 }
+.block[tabindex]:focus-visible {
+  border-radius: 8px;
+  outline: 1px solid color-mix(in srgb, var(--line) 55%, var(--focus-outline));
+  outline-offset: 3px;
+}
 .block > :first-child {
   margin-top: 0;
 }
