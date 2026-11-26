@@ -177,6 +177,17 @@ const prefix = storageKeys.docs,
 for (const [id, item] of Object.entries(highlightColors))
   document.documentElement.style.setProperty("--marker-" + id, item.color);
 const icon = (n) => '<i aria-hidden="true" data-lucide="' + n + '"></i>';
+function syncSidebarButtons() {
+  const classes = document.body.classList;
+  const open = mobileLayout.matches ? classes.contains("show-side") : !classes.contains("hide-side");
+  for (const button of document.querySelectorAll('[data-action="files"]'))
+    button.setAttribute("aria-expanded", String(open));
+}
+function closeMobileSidebar() {
+  if (!document.body.classList.contains("show-side")) return;
+  document.body.classList.remove("show-side");
+  syncSidebarButtons();
+}
 const docs = new Map(),
   history = new Map(),
   savedRecords = new Map();
@@ -484,7 +495,7 @@ function activate(d) {
   expandAll = false;
   selected = 0;
   outlineScrollPosition = undefined;
-  document.body.classList.remove("show-side");
+  closeMobileSidebar();
   render();
   nav();
   viewport.scrollTop = source.scrollTop = 0;
@@ -707,7 +718,7 @@ function outline() {
         host.children[index]?.scrollIntoView({ block: "start" });
         outlineScrollPosition = viewport.scrollTop;
       }
-      document.body.classList.remove("show-side");
+      closeMobileSidebar();
       highlight(index);
     };
     row.append(b);
@@ -1176,7 +1187,7 @@ function removeBlocks(spans, focusIndex) {
   selected = focusIndex;
   render();
   viewport.scrollTop = scrollTop;
-  document.body.classList.remove("show-side");
+  closeMobileSidebar();
   focusBlockAt(selected);
 }
 
@@ -2716,7 +2727,7 @@ function resetModal() {
 }
 function dialog(title, html) {
   flush();
-  document.body.classList.remove("show-side");
+  closeMobileSidebar();
   resetModal();
   modal.innerHTML =
     '<div class="dialog-head"><h2>' +
@@ -4479,7 +4490,7 @@ function toggleToolbar() {
   const collapsed = !toolbar.hidden;
   setToolbarCollapsed(collapsed);
   if (mobileLayout.matches) {
-    document.body.classList.remove("show-side");
+    closeMobileSidebar();
     $(
       collapsed
         ? ".compact-mobile-header .mobile-menu"
@@ -4540,10 +4551,10 @@ const actions = {
       String(!list.hidden),
     );
   },
-  files: () =>
-    document.body.classList.toggle(
-      mobileLayout.matches ? "show-side" : "hide-side",
-    ),
+  files: () => {
+    document.body.classList.toggle(mobileLayout.matches ? "show-side" : "hide-side");
+    syncSidebarButtons();
+  },
   open: () => $("#file-input").click(),
   append: () => insertBlock("paragraph", parts.length - 1),
   undo: () => historyStep(false),
@@ -4792,6 +4803,8 @@ enableSidebarPanes(
   $("#sidebar-section-resizer"),
   $(".sidebar-tools"),
 );
+syncSidebarButtons();
+mobileLayout.addEventListener("change", syncSidebarButtons);
 nav();
 render();
 enablePanelResize(

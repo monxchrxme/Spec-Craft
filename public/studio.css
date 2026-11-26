@@ -123,7 +123,7 @@ button.primary:hover:enabled {
   place-items: center;
   border-radius: 6px;
 }
-.rail [data-action="files"] {
+.rail [data-action="files"][aria-expanded="true"] {
   background: var(--rail-selection, #403c56);
   color: var(--rail-selected-ink, #e3dafa);
 }
