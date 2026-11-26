@@ -15,6 +15,9 @@ const a4 = { width: 595.28, height: 841.89 };
 const landscape = { width: a4.height, height: a4.width };
 
 const families = { sans: "Sans", serif: "Serif", mono: "Mono" };
+const rasters = new Map();
+const rasterBudget = 8 * 1024 * 1024;
+let rasterSize = 0;
 
 function fontFiles(name) {
   return Object.fromEntries(
@@ -33,25 +36,63 @@ function fontFiles(name) {
   );
 }
 
-async function imageBlock(element, widthLimit, heightLimit, { scale = 1, blockAlign } = {}) {
+async function rasterImage(url, rasterDimensions) {
   const img = new Image();
   img.crossOrigin = "anonymous";
-  img.src = new URL(element.getAttribute("src"), document.baseURI).href;
-  try {
-    await img.decode();
-    const canvas = document.createElement("canvas");
+  img.src = url;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  if (rasterDimensions) {
+    [canvas.width, canvas.height] = rasterDimensions;
+  } else {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
-    canvas.getContext("2d").drawImage(img, 0, 0);
+  }
+  const context = canvas.getContext("2d");
+  if (rasterDimensions) {
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  context.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return { png: canvas.toDataURL("image/png"), width: img.naturalWidth };
+}
+
+async function cachedRaster(key, url, dimensions) {
+  if (!key || key.length >= rasterBudget) return rasterImage(url, dimensions);
+  const cached = rasters.get(key);
+  if (cached) {
+    rasters.delete(key);
+    rasters.set(key, cached);
+    return cached;
+  }
+  const raster = await rasterImage(url, dimensions);
+  const size = key.length + raster.png.length;
+  if (size <= rasterBudget && !rasters.has(key)) {
+    while (rasterSize + size > rasterBudget) {
+      const oldest = rasters.keys().next().value;
+      rasterSize -= oldest.length + rasters.get(oldest).png.length;
+      rasters.delete(oldest);
+    }
+    rasters.set(key, raster);
+    rasterSize += size;
+  }
+  return raster;
+}
+
+async function imageBlock(element, widthLimit, heightLimit, { scale = 1, blockAlign } = {}) {
+  try {
+    const url = new URL(element.getAttribute("src"), document.baseURI).href;
+    // External URLs may return updated content even when the Markdown is unchanged.
+    const raster = await cachedRaster(url.startsWith("data:") ? url : null, url);
     const width = Number(element.dataset.imageWidth);
     const caption = element.getAttribute("title")?.trim();
     const captionHeight = caption
       ? (16 + Math.ceil((caption.length * 6 * scale) / widthLimit) * 12) * scale
       : 0;
     const naturalWidth = width >= 10 && width <= 100
-      ? widthLimit * width / 100 : img.naturalWidth * 0.75;
+      ? widthLimit * width / 100 : raster.width * 0.75;
     const drawing = {
-      image: canvas.toDataURL("image/png"),
+      image: raster.png,
       fit: [
         Math.min(naturalWidth * scale, widthLimit),
         Math.max(24, heightLimit - captionHeight),
@@ -689,18 +730,12 @@ async function mermaidBlock(source, options) {
       desired: 0.64 * zoom,
     });
     const pixels = Math.min(scale * 4, 4096 / Math.max(width, height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(width * pixels));
-    canvas.height = Math.max(1, Math.ceil(height * pixels));
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    const context = canvas.getContext("2d");
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const dimensions = [width, height].map((value) =>
+      Math.max(1, Math.ceil(value * pixels)),
+    );
+    const raster = await cachedRaster(dimensions.join("x") + ":" + source, url, dimensions);
     const drawing = {
-      image: canvas.toDataURL("image/png"),
+      image: raster.png,
       width: width * scale,
       height: height * scale,
       alignment: options.blockAlign || "center",
@@ -794,7 +829,12 @@ async function measuredGroups(sections, createPdf, definition, warnings) {
         positions.set(id, new Set(placed.map((p) => p.pageNumber)));
   };
   // Measure only the candidate groups, each starting on a fresh sheet.
-  await createPdf({ ...definition, content: copyPdfNode(groups), pageBreakBefore: measure }).getBlob();
+  const measurement = await createPdf(
+    { ...definition, content: copyPdfNode(groups), pageBreakBefore: measure },
+    { specLayoutOnly: true },
+  ).getStream();
+  measurement.resume();
+  measurement.end();
   for (const { section: units } of groups) {
     const ids = units.map((unit) => unit.id);
     const page = positions.get(ids[0])?.values().next().value;
@@ -1140,9 +1180,9 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   );
   const pdf = window.pdfMake;
   pdf.setUrlResourceCaching(true);
-  const createPdf = (definition) => {
+  const createPdf = (definition, options) => {
     pdf.setFonts(fonts);
-    return pdf.createPdf(definition);
+    return pdf.createPdf(definition, options);
   };
   const definition = {
       pageSize: basePage,

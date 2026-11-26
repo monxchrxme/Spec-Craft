@@ -3482,6 +3482,7 @@ function showPdfPreview(force = false) {
     void pdfViewer.show(
       requestPdf(force),
       {
+        documentId: doc.id,
         profile: currentPdfProfile(),
         numbering: Boolean(doc.style?.pdfPageNumbers),
       },

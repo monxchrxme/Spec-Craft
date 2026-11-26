@@ -1,3 +1,5 @@
+let worker;
+
 export function previewCanvas(view, density) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(view.width * density));
@@ -11,7 +13,9 @@ export async function openPdfTask(blob) {
     "./vendor/pdfjs/pdf.worker.min.mjs",
     import.meta.url,
   ).href;
+  worker ??= lib.PDFWorker.create({});
   return lib.getDocument({
+    worker,
     data: new Uint8Array(await blob.arrayBuffer()),
     useWasm: false,
     isEvalSupported: false,

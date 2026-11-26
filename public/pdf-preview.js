@@ -96,6 +96,7 @@ export function pdfPreview(
   const numberingToggle = by("numbering");
   const retry = by("retry");
   let task, pdf, layout, request, sheetObserver, thumbnailObserver, scrollFrame;
+  let paintedDocument;
   let sheets = [],
     byIndex = new Map();
   const thumbnailDrawings = new Map();
@@ -106,14 +107,23 @@ export function pdfPreview(
     pendingReveal = null,
     groupStart = null;
 
-  function clearSheet(sheet) {
+  function clearSheet(sheet, keepCanvas = false) {
     sheet.pending = null;
     sheet.drawing?.cancel();
     sheet.drawing = null;
-    sheet.canvas?.remove();
+    if (keepCanvas) {
+      if (sheet.canvas) {
+        sheet.fallback = sheet.canvas;
+        sheet.fallback.style.objectFit = "contain";
+      }
+    } else {
+      sheet.canvas?.remove();
+      sheet.fallback?.remove();
+      sheet.fallback = null;
+    }
     sheet.canvas = null;
   }
-  function stop() {
+  function stop(keepView = false) {
     sheetObserver?.disconnect();
     thumbnailObserver?.disconnect();
     for (const thumbnail of thumbnailDrawings.values())
@@ -121,17 +131,20 @@ export function pdfPreview(
     thumbnailDrawings.clear();
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
-    sheets.forEach(clearSheet);
+    for (const sheet of sheets) clearSheet(sheet, keepView);
     if (task) void task.destroy().catch(() => {});
     task = pdf = request = null;
     selected = null;
     groupStart = null;
     pendingReveal = null;
     page = 0;
-    sheets = [];
     byIndex = new Map();
-    stage.replaceChildren();
-    thumbnails.replaceChildren();
+    if (!keepView) {
+      sheets = [];
+      paintedDocument = undefined;
+      stage.replaceChildren();
+      thumbnails.replaceChildren();
+    }
   }
   function state(enabled) {
     spacerInsert.hidden = !enabled;
@@ -265,7 +278,7 @@ export function pdfPreview(
     selectBlock(option ? Number(option.value) : null);
   }
   function jump(next, preferred) {
-    if (!sheets.length) return;
+    if (!pdf || !sheets.length) return;
     const number = Math.max(1, Math.min(sheets.length, next));
     const sheet = sheets[number - 1];
     stage.scrollTop = Math.max(0, sheet.element.offsetTop - 8);
@@ -287,7 +300,7 @@ export function pdfPreview(
     return true;
   }
   function onScroll() {
-    if (!sheets.length || Math.abs(stage.scrollTop - (jumpedTo ?? -10)) < 1)
+    if (!pdf || !sheets.length || Math.abs(stage.scrollTop - (jumpedTo ?? -10)) < 1)
       return;
     jumpedTo = undefined;
     const target = stage.scrollTop + Math.min(stage.clientHeight * 0.32, 180);
@@ -337,6 +350,8 @@ export function pdfPreview(
       });
       await sheet.drawing.promise;
       if (sheet.pending !== token) return;
+      sheet.fallback?.remove();
+      sheet.fallback = null;
       sheet.canvas = canvas;
       sheet.paper.prepend(canvas);
       stage.setAttribute("aria-busy", "false");
@@ -366,7 +381,7 @@ export function pdfPreview(
           ? Math.min(1.4, Math.max(100, lastWidth - 28) / sheet.width)
           : Number(zoom.value) * (4 / 3);
       if (scale === sheet.scale) continue;
-      clearSheet(sheet);
+      clearSheet(sheet, true);
       sheet.scale = scale;
       sheet.element.style.width = sheet.width * scale + "px";
       sheet.paper.style.height = sheet.height * scale + "px";
@@ -380,7 +395,7 @@ export function pdfPreview(
       jumpedTo = stage.scrollTop;
     }
   }
-  function makeSheets() {
+  function makeSheets(previous) {
     const current = pdf;
     sheetObserver = new IntersectionObserver(
       (entries) => {
@@ -426,8 +441,14 @@ export function pdfPreview(
       element.append(header, paper);
       fragment.append(element);
       const sheet = { number, width, height, element, paper, marker };
+      const old = previous[number - 1];
+      if (old?.fallback) {
+        sheet.fallback = old.fallback;
+        paper.prepend(sheet.fallback);
+      }
       sheets.push(sheet);
       paper.onclick = (event) => {
+        if (!pdf) return;
         const blocks = layout.locations.get(number) || [];
         const position =
           (event.clientY - paper.getBoundingClientRect().top) / sheet.scale;
@@ -519,6 +540,7 @@ export function pdfPreview(
   }
   new ResizeObserver(() => {
     if (
+      pdf &&
       sheets.length &&
       zoom.value === "fit" &&
       stage.clientWidth &&
@@ -610,7 +632,7 @@ export function pdfPreview(
   });
   return {
     reveal(index) {
-      if (sheets.length) revealBlock(index);
+      if (pdf && sheets.length) revealBlock(index);
       else pendingReveal = index;
     },
     hide() {
@@ -623,11 +645,12 @@ export function pdfPreview(
       root.hidden = false;
       numberingToggle.checked = settings.numbering;
       if (request === pending && !force) {
-        if (sheets.length && layout.blocksOnPages.has(block))
+        if (pdf && sheets.length && layout.blocksOnPages.has(block))
           jump(layout.blocksOnPages.get(block)[0], block);
         return;
       }
-      stop();
+      const keepView = paintedDocument === settings.documentId && sheets.some((sheet) => sheet.canvas || sheet.fallback);
+      stop(keepView);
       layout = null;
       state(false);
       placementInfo.hidden = true;
@@ -637,7 +660,7 @@ export function pdfPreview(
       stage.setAttribute("aria-busy", "true");
       profilePicker.value = settings.profile;
       request = pending;
-      status.textContent = "Формируем PDF…";
+      status.textContent = keepView ? "Обновляем страницы…" : "Формируем PDF…";
       retry.onclick = () => profile(settings.profile, true);
       try {
         const data = await pending;
@@ -653,7 +676,16 @@ export function pdfPreview(
         task = nextTask;
         const loaded = await task.promise;
         if (request !== pending) return;
+        const previous = sheets;
+        const old = previous.findLast((sheet) => sheet.element.offsetTop <= stage.scrollTop);
+        const offset = old
+          ? (stage.scrollTop - old.element.offsetTop) / Math.max(1, old.element.offsetHeight)
+          : 0;
+        sheets = [];
+        stage.replaceChildren();
+        thumbnails.replaceChildren();
         pdf = loaded;
+        paintedDocument = settings.documentId;
         state(true);
         pagePicker.replaceChildren(
           ...Array.from(
@@ -662,12 +694,20 @@ export function pdfPreview(
           ),
         );
         status.textContent = "Страниц: " + pdf.numPages;
-        makeSheets();
+        makeSheets(previous);
         makeThumbnails();
         listWarnings();
         const revealed = pendingReveal !== null && revealBlock(pendingReveal);
         pendingReveal = null;
-        if (!revealed) jump(layout.blocksOnPages.get(block)?.[0] || 1, block);
+        if (!revealed) {
+          const pages = layout.blocksOnPages.get(block);
+          const current = old && (pages?.includes(old.number) || !pages) && sheets[old.number - 1];
+          if (current) {
+            stage.scrollTop = current.element.offsetTop + offset * current.element.offsetHeight;
+            jumpedTo = stage.scrollTop;
+            setPage(current.number, block);
+          } else if (!old || !revealBlock(block)) jump(pages?.[0] || 1, block);
+        }
       } catch (error) {
         if (request !== pending) return;
         stage.setAttribute("aria-busy", "false");

@@ -123,4 +123,9 @@ replaceOnce(
   "h?.specLayout?.(u.pageBreakNodes,u.pages);return u.pages}tryLayoutDocument",
 );
 
+replaceOnce(
+  "return new Jc(this.pdfKitDoc,r.progressCallback).renderPages(a),this.pdfKitDoc",
+  "if(!r.specLayoutOnly)new Jc(this.pdfKitDoc,r.progressCallback).renderPages(a);return this.pdfKitDoc",
+);
+
 writeFileSync(file, bundle);
