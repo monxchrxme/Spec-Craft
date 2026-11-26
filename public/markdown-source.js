@@ -1,10 +1,20 @@
-// Offsets in the textarea can differ from the document because of folded
-// destinations and native textarea newline normalization.
+import { isExcalidraw } from "./excalidraw.js";
+
+const foldedLabel = /⟪(?:фото|Excalidraw) \d+⟫/g;
+
+// Folded assets and native textarea newlines change the displayed offsets.
 export function markdownSource(body, parts, compact) {
-  const changes = [];
+  const folded = [];
   if (compact) {
-    let number = 0;
+    const numbers = { фото: 0, Excalidraw: 0 };
     const allUrls = new Set();
+    function foldAsset(start, end, name) {
+      let value;
+      do {
+        value = "⟪" + name + " " + ++numbers[name] + "⟫";
+      } while (body.includes(value));
+      folded.push({ start, end, value, asset: true });
+    }
     function foldAt(urls, offset, angled) {
       const url = urls.find(
         (url) =>
@@ -13,17 +23,7 @@ export function markdownSource(body, parts, compact) {
             ? body[offset + url.length] === ">"
             : /[\s)]/.test(body[offset + url.length] || " ")),
       );
-      if (!url) return;
-      let label;
-      do {
-        label = "⟪фото " + ++number + "⟫";
-      } while (body.includes(label));
-      changes.push({
-        start: offset,
-        end: offset + url.length,
-        value: label,
-        image: true,
-      });
+      if (url) foldAsset(offset, offset + url.length, "фото");
     }
     // Reference definitions are outside the rendered block ranges.
     let previous = 0;
@@ -31,6 +31,14 @@ export function markdownSource(body, parts, compact) {
     for (const part of parts) {
       if (part.start > previous) gaps.push([previous, part.start]);
       previous = part.end;
+      if (isExcalidraw(part.t)) {
+        const opener = /^[^\r\n]*(?:\r\n|\r|\n)/.exec(part.text);
+        const closer = /(?:\r\n|\r|\n)[ \t]*(`{3,}|~{3,})[ \t]*$/.exec(part.text);
+        if (opener && closer?.[1].startsWith(part.t.markup) &&
+            closer.index - opener[0].length >= 256)
+          foldAsset(part.start + opener[0].length, part.start + closer.index, "Excalidraw");
+        continue;
+      }
       const urls = part.tokens
         .flatMap((token) =>
           (token.children || [])
@@ -57,9 +65,18 @@ export function markdownSource(body, parts, compact) {
           foldAt([...allUrls], from + match.index + match[0].length, match[1]);
       }
   }
-  for (const m of body.matchAll(/\r\n?/g))
-    changes.push({ start: m.index, end: m.index + m[0].length, value: "\n" });
-  changes.sort((a, b) => a.start - b.start);
+  const changes = [];
+  function visibleNewlines(from, to) {
+    for (const m of body.slice(from, to).matchAll(/\r\n?/g))
+      changes.push({ start: from + m.index, end: from + m.index + m[0].length, value: "\n" });
+  }
+  let visibleFrom = 0;
+  for (const item of folded.sort((a, b) => a.start - b.start)) {
+    visibleNewlines(visibleFrom, item.start);
+    changes.push(item);
+    visibleFrom = item.end;
+  }
+  visibleNewlines(visibleFrom, body.length);
   let end = 0,
     text = "";
   for (const item of changes) {
@@ -88,10 +105,8 @@ export function markdownSource(body, parts, compact) {
     map(pos, "from", "to", "start", "end", right);
   const display = (pos, right = false) =>
     map(pos, "start", "end", "from", "to", right);
-  const destinations = new Map(
-    changes
-      .filter((item) => item.image)
-      .map((item) => [item.value, body.slice(item.start, item.end)]),
+  const assets = new Map(
+    folded.map((item) => [item.value, body.slice(item.start, item.end)]),
   );
   return {
     text,
@@ -118,8 +133,8 @@ export function markdownSource(body, parts, compact) {
       const newline = body.match(/\r\n|\r|\n/)?.[0] || "\n";
       const expanded = (value) =>
         value
-          .replace(/⟪фото \d+⟫/g, (key) => destinations.get(key) ?? key)
-          .replaceAll("\n", newline);
+          .replaceAll("\n", newline)
+          .replace(foldedLabel, (key) => assets.get(key) ?? key);
       const inserted = expanded(next.slice(left, nextEnd));
       return {
         body: body.slice(0, start) + inserted + body.slice(finish),

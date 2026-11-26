@@ -61,7 +61,7 @@ button,
   justify-content: center;
   gap: 7px;
 }
-button svg,
+button svg:where(:not(.math-inline svg)),
 .rail a svg,
 .side-heading > svg {
   width: 17px;
@@ -196,20 +196,12 @@ button.primary:hover:enabled {
 }
 .brand {
   flex: none;
-  padding: 20px 22px;
-}
-.brand h1 {
   margin: 0;
+  padding: 20px 22px;
   font-weight: 750;
   font-size: 25px;
   letter-spacing: -1.3px;
   line-height: 1.1;
-}
-.brand p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
 }
 .sidebar-navigation > .topbar-toggle {
   display: none;
@@ -2496,6 +2488,9 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
   display: inline;
   max-width: 100%;
   height: auto;
+}
+:is(h1, h2, h3, h4, h5, h6, .outline-label, .document-toc) .math-inline {
+  font-size: 1em;
 }
 .math-display {
   font-size: var(--formula-display-size, 115%);

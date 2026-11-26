@@ -4359,7 +4359,6 @@ document.addEventListener("keydown", (e) => {
       if (e.repeat) return;
       document.getSelection().removeAllRanges();
       removeBlocks([span], span[0]);
-      host.children[selected]?.focus({ preventScroll: true });
       return;
     }
   }

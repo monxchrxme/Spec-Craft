@@ -275,13 +275,13 @@ export function sourceWorkspace({
     );
     selectedScrollTop = source.scrollTop;
   };
-  // Expand the selection to the whole folded destination before replacing it.
+  // Expand the selection to the whole folded asset before replacing it.
   source.addEventListener("beforeinput", (e) => {
     if (!markdown || !fold.checked || e.inputType.startsWith("history")) return;
     let a = source.selectionStart,
       b = source.selectionEnd;
     for (const item of markdown.changes) {
-      if (!item.image) continue;
+      if (!item.asset) continue;
       if (
         a === b &&
         ((a === item.to && e.inputType === "deleteContentBackward") ||

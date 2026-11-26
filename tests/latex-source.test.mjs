@@ -168,7 +168,7 @@ test("folded image destinations survive edits, CRLF conversion and full-source c
     "Last",
   ].join("\r\n\r\n");
   const short = markdownSource(body, parts(body), true);
-  assert.equal(short.changes.filter((item) => item.image).length, 2);
+  assert.equal(short.changes.filter((item) => item.asset).length, 2);
   assert.ok(short.text.includes("⟪фото 2⟫"));
   assert(!short.text.includes(url));
   assert.equal(short.apply(short.text).body, body);
@@ -198,7 +198,26 @@ test("image examples in code and ordinary hyperlinks retain their literal URLs",
     "[reference](" + url + ")",
   ].join("\n");
   const view = markdownSource(body, parts(body), true);
-  assert.equal(view.changes.filter((item) => item.image).length, 1);
+  assert.equal(view.changes.filter((item) => item.asset).length, 1);
   assert.ok(view.text.includes("`" + literal + "`"));
   assert.ok(view.text.endsWith("[reference](" + url + ")"));
+});
+
+test("folded Excalidraw keeps its fences, original JSON and source offsets during edits", () => {
+  const data = '{\r\n  "type":"excalidraw",\r\n  "text":"' + "x".repeat(280) + '"\r\n}';
+  const body = ["# Перед", "", "~~~~Excalidraw", data, "~~~~", "", "После"].join("\r\n");
+  const view = markdownSource(body, parts(body), true);
+  const marker = "⟪Excalidraw 1⟫";
+  const start = view.text.indexOf(marker);
+  const end = start + marker.length;
+  assert.match(view.text, /~~~~Excalidraw\n⟪Excalidraw 1⟫\n~~~~/);
+  assert.equal(body.slice(view.raw(start), view.raw(end, true)), data);
+  assert.equal(
+    view.apply(view.text.replace("Перед", "Начало").replace("После", "Конец")).body,
+    body.replace("Перед", "Начало").replace("После", "Конец"),
+  );
+  assert.equal(view.apply(view.text.replace(marker, "{}")).body, body.replace(data, "{}"));
+  assert.equal(markdownSource(body, parts(body), false).text, body.replaceAll("\r\n", "\n"));
+  const unfinished = "~~~excalidraw\n" + data + "\n~~~not-a-close";
+  assert.equal(markdownSource(unfinished, parts(unfinished), true).changes.some((item) => item.asset), false);
 });

@@ -78,10 +78,10 @@ async function imageBlock(element, widthLimit, heightLimit) {
   }
 }
 
-async function pdfFormula(element, settings, widthLimit, heightLimit) {
+async function pdfFormula(element, settings, widthLimit, heightLimit, headingSize) {
   const { math, note } = settings;
   const display = element.classList.contains("math-display");
-  const size =
+  const size = (!display && headingSize) ||
     (settings.size *
       (display ? math.formulaDisplaySize : math.formulaInlineSize)) /
     100;
@@ -195,6 +195,7 @@ async function markdownBlocks(html, settings) {
           settings,
           widthLimit,
           heightLimit,
+          defaults.fontSize ?? settings.tocFormulaSize,
         );
         if (node.classList.contains("math-display")) {
           flush();
@@ -506,12 +507,13 @@ async function markdownBlocks(html, settings) {
     const heading = /^h([1-6])$/.exec(tag);
     if (heading) {
       const level = Number(heading[1]);
+      const fontSize = size * [1.95, 1.43, 1.19, 1.1, 1, 1][level - 1];
       return {
-        stack: await flow(el),
+        stack: await flow(el, { fontSize }),
         headlineLevel: level,
         alignment: settings.headingAlign,
         color: settings.headingColor,
-        fontSize: size * [1.95, 1.43, 1.19, 1.1, 1, 1][level - 1],
+        fontSize,
         bold: true,
         lineHeight: 1.05,
         margin: [0, level === 1 ? 0 : 8, 0, 5],
@@ -724,7 +726,9 @@ async function contentsRows(meta, settings, pageNumbers, md) {
   for (const { marker, label, slug, depth, inline } of meta.entries) {
     const linkToDestination = headingDestinations.get(slug);
     const rich = inline?.length
-      ? await markdownBlocks(md.renderer.renderInline(inline, md.options, {}), settings)
+      ? await markdownBlocks(md.renderer.renderInline(inline, md.options, {}), {
+          ...settings, tocFormulaSize: size,
+        })
       : null;
     const runs = rich?.flatMap(({ text }) => text || []);
     rows.push({

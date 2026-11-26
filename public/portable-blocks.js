@@ -71,19 +71,14 @@ export function plainHeading(inline) {
 export function headingInline(inline, skip = 0) {
   const tokens = [];
   for (const child of inline?.children || []) {
-    // The rendered title is already inside a navigation link or button.
-    if (child.type === "link_open" || child.type === "link_close") continue;
     const breakToken = ["softbreak", "hardbreak"].includes(child.type);
     const content = breakToken ? " " : child.content;
-    if (content && skip) {
-      const length = Math.min(content.length, skip);
-      skip -= length;
-      if (length === content.length) continue;
-      const type = ["image", "wiki_link"].includes(child.type) ? "text" : child.type;
-      tokens.push({ ...child, type, content: content.slice(length) });
-    } else if (breakToken || ["image", "wiki_link"].includes(child.type)) {
-      tokens.push({ ...child, type: "text", content });
-    } else tokens.push(child);
+    if (!content) continue;
+    const length = Math.min(content.length, skip);
+    skip -= length;
+    if (length === content.length) continue;
+    if (child.type === "math_inline" && !length) tokens.push(child);
+    else tokens.push({ ...child, type: "text", content: content.slice(length) });
   }
   return tokens;
 }
@@ -178,6 +173,16 @@ export function tocMarkdown(entries, numbered) {
 }
 
 export function portableBlocks(md) {
+  const render = md.renderer.render;
+  md.renderer.render = function (tokens, options, env) {
+    // Keep the parsed inline markup available to the source editors.
+    const display = tokens.map((token, index) =>
+      token.type === "inline" && tokens[index - 1]?.type === "heading_open"
+        ? { ...token, children: headingInline(token) }
+        : token,
+    );
+    return render.call(this, display, options, env);
+  };
   const fence = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
     if (!isSpeakerNotes(tokens[index])) return fence(tokens, index, options, env, renderer);
@@ -240,7 +245,7 @@ export function portableBlocks(md) {
     { alt: ["paragraph"] },
   );
 
-  md.core.ruler.after("inline", "spec_heading_anchors", ({ tokens, env }) => {
+  md.core.ruler.push("spec_heading_anchors", ({ tokens, env }) => {
     if (env.portableFragment) return;
     const headings = [],
       used = new Set();

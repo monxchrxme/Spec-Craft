@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { latex, normalizeMathDelimiters } from "../public/math.js";
+import { portableBlocks } from "../public/portable-blocks.js";
+import { coloredHighlights } from "../public/formatting.js";
 
 const browser = vm.createContext({});
 vm.runInContext(
@@ -84,4 +86,25 @@ test("global conversion preserves code examples and math that needs bracket deli
   const adjacent = String.raw`\(n\)2`;
   const body = code + "\n\n" + adjacent + " и " + literal;
   assert.equal(normalizeMathDelimiters(body, md), code + "\n\n" + adjacent + " и $x$");
+});
+
+test("heading and contents render as text with math while the source keeps inline formatting", () => {
+  const mark = readFileSync(
+    new URL("../public/vendor/markdown-it-mark.min.js", import.meta.url), "utf8",
+  );
+  vm.runInContext(mark, browser);
+  const renderer = browser.markdownit()
+    .use(browser.markdownitMark)
+    .use(coloredHighlights)
+    .use(latex)
+    .use(portableBlocks);
+  const heading = "# **1. Задача** *A* ~~B~~ [C](https://example.com) ==D=={pink} " +
+    String.fromCharCode(96) + "E" + String.fromCharCode(96) + " $x^2$";
+  const source = heading + "\n\n<!-- spec-toc numbered -->\n\nСписок\n\n<!-- /spec-toc -->";
+  const parsed = renderer.parse(source, {});
+  assert.ok(parsed[1].children.some((token) => token.type === "strong_open"));
+  const html = renderer.renderer.render(parsed, renderer.options, {});
+  assert.match(html, /<h1[^>]*>1\. Задача A B C D E <span class="math-inline"/);
+  assert.match(html, /<span>Задача A B C D E <span class="math-inline"/);
+  assert.doesNotMatch(html, /<(strong|em|s|code|mark)[ >]|\{pink\}|https:\/\/example\.com/);
 });
