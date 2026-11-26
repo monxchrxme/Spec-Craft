@@ -86,6 +86,9 @@ export function paintMath(root) {
   );
 }
 
+const inlineDelimiters = [["$", "$"], ["\\(", "\\)"], ["\\\\(", "\\\\)"]];
+const blockDelimiters = [["$$", "$$"], ["\\[", "\\]"], ["\\\\[", "\\\\]"]];
+
 function inlineMath(state, silent) {
   const start = state.pos;
   const src = state.src;
@@ -97,16 +100,18 @@ function inlineMath(state, silent) {
       /\s/.test(src[start + 1] || "")
     )
       return false;
-  } else if (!src.startsWith("\\(", start)) return false;
-  const from = start + (dollar ? 1 : 2);
+  }
+  const delimiters = inlineDelimiters.find(([open]) => src.startsWith(open, start));
+  if (!delimiters) return false;
+  const [open, close] = delimiters;
+  const from = start + open.length;
   for (
     let pos = from;
     pos < state.posMax && pos - from <= maxFormulaLength;
     pos++
   ) {
-    if (src[pos] === "\n") return false;
-    const closing = dollar ? src[pos] === "$" : src.startsWith("\\)", pos);
-    if (closing) {
+    if (src[pos] === "\n" || src[pos] === "\r") return false;
+    if (src.startsWith(close, pos) && pos + close.length <= state.posMax) {
       // Dollar signs in prices and double-dollar delimiters are ordinary text here.
       if (
         dollar &&
@@ -117,8 +122,12 @@ function inlineMath(state, silent) {
         return false;
       const content = src.slice(from, pos).trim();
       if (!content) return false;
-      if (!silent) state.push("math_inline", "span", 0).content = content;
-      state.pos = pos + (dollar ? 1 : 2);
+      if (!silent) {
+        const token = state.push("math_inline", "span", 0);
+        token.content = content;
+        token.meta = { start, end: pos + close.length, delimiters };
+      }
+      state.pos = pos + close.length;
       return true;
     }
     if (src[pos] === "\\") pos++;
@@ -133,9 +142,9 @@ function blockMath(state, start, end, silent) {
       .slice(state.bMarks[line] + state.tShift[line], state.eMarks[line])
       .trimEnd();
   const first = lineAt(start);
-  const open = first.slice(0, 2);
-  if (open !== "$$" && open !== "\\[") return false;
-  const close = open === "$$" ? "$$" : "\\]";
+  const delimiters = blockDelimiters.find(([open]) => first.startsWith(open));
+  if (!delimiters) return false;
+  const [open, close] = delimiters;
   const lines = [];
   let length = 0;
   for (let line = start; line < end; line++) {
@@ -145,9 +154,9 @@ function blockMath(state, start, end, silent) {
       !state.isEmpty(line)
     )
       break;
-    const text = line === start ? first.slice(2) : lineAt(line);
+    const text = line === start ? first.slice(open.length) : lineAt(line);
     if (text.endsWith(close)) {
-      lines.push(text.slice(0, -2));
+      lines.push(text.slice(0, -close.length));
       const content = lines.join("\n").trim();
       if (!content) return false;
       if (silent) return true;
@@ -155,6 +164,7 @@ function blockMath(state, start, end, silent) {
       token.block = true;
       token.content = content;
       token.map = [start, line + 1];
+      token.meta = delimiters;
       state.line = line + 1;
       return true;
     }
@@ -163,6 +173,53 @@ function blockMath(state, start, end, silent) {
     lines.push(text);
   }
   return false;
+}
+
+export function normalizeMathDelimiters(body, md) {
+  const starts = [0];
+  for (const line of body.matchAll(/\r\n|\r|\n/g))
+    starts.push(line.index + line[0].length);
+  const protectedRanges = [];
+  const edits = [];
+  function replace(start, from, to) {
+    edits.push({ start, end: start + from.length, value: to });
+  }
+  for (const token of md.parse(body, {})) {
+    if (!["math_block", "fence", "code_block"].includes(token.type)) continue;
+    const [first, last] = token.map;
+    const start = starts[first];
+    const end = starts[last] ?? body.length;
+    protectedRanges.push([start, end]);
+    if (token.type !== "math_block" || token.meta[0] === "$$") continue;
+    const [open, close] = token.meta;
+    replace(body.indexOf(open, start), open, "$$");
+    replace(body.lastIndexOf(close, end - close.length), close, "$$");
+  }
+  function scanInline(start, end) {
+    if (start >= end) return;
+    const tokens = [];
+    md.inline.parse(body.slice(start, end), md, {}, tokens);
+    for (const token of tokens) {
+      if (token.type !== "math_inline" || token.meta.delimiters[0] === "$") continue;
+      const from = start + token.meta.start;
+      const to = start + token.meta.end;
+      const value = "$" + token.content + "$";
+      if (body[from - 1] === "$" || /[\d$]/.test(body[to] || "")) continue;
+      const converted = md.parseInline(value, {})[0].children;
+      if (converted.length !== 1 || converted[0].type !== "math_inline" ||
+          converted[0].content !== token.content) continue;
+      edits.push({ start: from, end: to, value });
+    }
+  }
+  let start = 0;
+  for (const [from, to] of protectedRanges) {
+    scanInline(start, from);
+    start = Math.max(start, to);
+  }
+  scanInline(start, body.length);
+  for (const { start, end, value } of edits.sort((a, b) => b.start - a.start))
+    body = body.slice(0, start) + value + body.slice(end);
+  return body;
 }
 
 export function latex(md) {

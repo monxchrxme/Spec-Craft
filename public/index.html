@@ -154,6 +154,10 @@
                   </button>
                 </h2>
                 <div class="side-actions">
+                  <button id="outline-remove" type="button" title="Удалить выбранные разделы"
+                    aria-label="Удалить выбранные разделы" hidden>
+                    <i data-lucide="trash-2" aria-hidden="true"></i>
+                  </button>
                   <button type="button" id="outline-search-toggle" title="Поиск по структуре"
                     aria-label="Поиск по структуре" aria-controls="outline-search" aria-expanded="false">
                     <i data-lucide="search" aria-hidden="true"></i>
@@ -215,6 +219,12 @@
             </button>
             <button data-action="ai">
               <i data-lucide="sparkles"></i>Для ИИ
+            </button>
+            <button data-action="normalize-math">
+              <i data-lucide="sigma"></i>Привести формулы к $ и $$
+            </button>
+            <button data-action="speaker-notes">
+              <i data-lucide="notebook-pen"></i>Заметки докладчика
             </button>
             <button data-action="trash">
               <i data-lucide="trash-2"></i>Корзина

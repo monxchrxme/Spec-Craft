@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import {
   headingSpan,
   outlineHierarchy,
+  removeMarkdownBlocks,
   reorderMarkdown,
 } from "../public/block-order.js";
 import { reorderTable } from "../public/table-order.js";
@@ -20,6 +21,7 @@ import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
   bibliographyMarkdown,
+  isSpeakerNotes,
   materializeToc,
   portableBlocks,
 } from "../public/portable-blocks.js";
@@ -32,6 +34,35 @@ import {
   mermaidPresentation,
   setMermaidPresentation,
 } from "../public/mermaid-presentation.js";
+
+test("overlapping section deletions preserve siblings, references and CRLF", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit().use(portableBlocks);
+  const body = [
+    "# Основной", "## Удаляемый", "Абзац.", "#### Вложенный", "Подраздел.",
+    "[ref]: https://example.com", "## Сохраняемый", "Ссылка [ref].",
+    "## Удалить тоже", "Конец.",
+  ].join("\r\n\r\n");
+  const parts = documentParts(md, body);
+  const spans = [1, 3, 7].map((index) => headingSpan(parts, index));
+  assert.deepEqual(removeMarkdownBlocks(body, parts, spans).split("\r\n").filter(Boolean), [
+    "# Основной", "[ref]: https://example.com", "## Сохраняемый", "Ссылка [ref].",
+  ]);
+});
+
+test("speaker note bodies remain in the source and stay out of rendered output", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit().use(portableBlocks);
+  const body = "### Секция\n\n```speaker-notes\nТолько докладчику\n```";
+  const part = documentParts(md, body)[1];
+  assert.ok(isSpeakerNotes(part.t));
+  assert.match(part.text, /Только докладчику/);
+  assert.doesNotMatch(md.render(body), /Заметка докладчика|Только докладчику/);
+  assert.match(md.render(body, { speakerNotes: true }), /Заметка докладчика/);
+  assert.doesNotMatch(md.render(body, { speakerNotes: true }), /Только докладчику/);
+});
 
 test("task markers round-trip in nested lists, standalone paragraphs and LaTeX", () => {
   const scope = {};

@@ -24,6 +24,44 @@ export function highlightSidebarMatches(label, text, pattern) {
   return true;
 }
 
+export function highlightSidebarContent(label, pattern) {
+  if (!pattern) return false;
+  const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+  const segments = [];
+  let text = "";
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const start = text.length;
+    text += node.data;
+    segments.push({ node, start, end: text.length });
+  }
+  const matches = [...text.matchAll(pattern)];
+  for (const { node, start, end } of segments) {
+    if (!matches.some((match) => match.index < end && match.index + match[0].length > start))
+      continue;
+    const formula = node.parentElement.closest("[data-tex]");
+    if (formula) {
+      formula.classList.add("sidebar-search-match");
+      continue;
+    }
+    const fragment = document.createDocumentFragment();
+    let offset = 0;
+    for (const match of matches) {
+      const from = Math.max(0, match.index - start);
+      const to = Math.min(node.length, match.index + match[0].length - start);
+      if (from >= to) continue;
+      const mark = document.createElement("mark");
+      mark.className = "sidebar-search-match";
+      mark.textContent = node.data.slice(from, to);
+      fragment.append(node.data.slice(offset, from), mark);
+      offset = to;
+    }
+    fragment.append(node.data.slice(offset));
+    node.replaceWith(fragment);
+  }
+  return matches.length > 0;
+}
+
 export function enableSidebarSearch(toggle, input, results) {
   function show(visible) {
     input.hidden = !visible;

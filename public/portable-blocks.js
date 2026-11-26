@@ -57,7 +57,7 @@ export function portableBlock(kind, content, options = {}) {
   return [open, "", content, "", markers[kind][1]].join("\n");
 }
 
-function plainHeading(inline) {
+export function plainHeading(inline) {
   return (inline?.children || [])
     .map((child) =>
       ["softbreak", "hardbreak"].includes(child.type)
@@ -66,6 +66,30 @@ function plainHeading(inline) {
     )
     .join("")
     .trim();
+}
+
+export function headingInline(inline, skip = 0) {
+  const tokens = [];
+  for (const child of inline?.children || []) {
+    // The rendered title is already inside a navigation link or button.
+    if (child.type === "link_open" || child.type === "link_close") continue;
+    const breakToken = ["softbreak", "hardbreak"].includes(child.type);
+    const content = breakToken ? " " : child.content;
+    if (content && skip) {
+      const length = Math.min(content.length, skip);
+      skip -= length;
+      if (length === content.length) continue;
+      const type = ["image", "wiki_link"].includes(child.type) ? "text" : child.type;
+      tokens.push({ ...child, type, content: content.slice(length) });
+    } else if (breakToken || ["image", "wiki_link"].includes(child.type)) {
+      tokens.push({ ...child, type: "text", content });
+    } else tokens.push(child);
+  }
+  return tokens;
+}
+
+export function isSpeakerNotes(token) {
+  return token?.type === "fence" && token.info.trim() === "speaker-notes";
 }
 
 export function headingSlug(title, used) {
@@ -98,7 +122,7 @@ export function tocEntries(
   const ancestors = [];
   const root = { prefix: "", count: 0 };
   const entries = [];
-  for (const { level, label, slug, id } of headings) {
+  for (const { level, label, slug, id, inline } of headings) {
     if (!levels.includes(level)) continue;
     while (ancestors.length && ancestors.at(-1).level >= level) ancestors.pop();
     const depth = ancestors.length;
@@ -123,7 +147,10 @@ export function tocEntries(
       children = { prefix: number, count: 0 };
     }
     ancestors.push({ level, children });
-    entries.push({ label: title || "Раздел", slug, depth, marker });
+    entries.push({
+      label: title || "Раздел", slug, depth, marker,
+      ...(inline ? { inline: headingInline(inline, authored?.[0].length) } : {}),
+    });
   }
   return entries;
 }
@@ -151,6 +178,13 @@ export function tocMarkdown(entries, numbered) {
 }
 
 export function portableBlocks(md) {
+  const fence = md.renderer.rules.fence;
+  md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
+    if (!isSpeakerNotes(tokens[index])) return fence(tokens, index, options, env, renderer);
+    return env.speakerNotes
+      ? '<aside class="speaker-notes"><strong>Заметка докладчика</strong></aside>'
+      : "";
+  };
   md.block.ruler.before(
     "html_block",
     "spec_portable_block",
@@ -239,6 +273,7 @@ export function portableBlocks(md) {
           slug,
           label,
           id: token.meta.tocId,
+          inline: tokens[index + 1],
         });
     }
     const titleTokens = new Set(titleIndexes.values());
@@ -257,11 +292,11 @@ export function portableBlocks(md) {
   });
 
   md.renderer.rules.spec_heading_id = () => "";
-  md.renderer.rules.spec_toc = (tokens, index) => {
+  md.renderer.rules.spec_toc = (tokens, index, options, env, renderer) => {
     const { entries, markdown } = tokens[index].meta;
     const escape = md.utils.escapeHtml;
     const rows = entries.map(
-      ({ slug, label, depth, marker }) =>
+      ({ slug, label, depth, marker, inline }) =>
         '<li style="--toc-depth:' +
         depth +
         '"><a href="#' +
@@ -269,7 +304,7 @@ export function portableBlocks(md) {
         '">' +
         (marker ? '<span class="toc-marker">' + marker + "</span> " : "") +
         "<span>" +
-        escape(label) +
+        (inline?.length ? renderer.renderInline(inline, options, env) : escape(label)) +
         "</span></a></li>",
     );
     return (

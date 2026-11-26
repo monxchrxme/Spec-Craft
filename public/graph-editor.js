@@ -1,6 +1,7 @@
 import { checkDiagram } from "./graph-check.js";
 import { layoutProposals, routeEdges } from "./auto-layout.js";
 import { downloadSvg } from "./diagram-download.js";
+import { finishEditingKey } from "./formatting.js";
 import {
   normalize,
   draw,
@@ -183,7 +184,12 @@ export function graphEditor(
     e.stopPropagation();
     if (!e.repeat) deleteSelection();
   }
-  panel.onkeydown = props.onkeydown = handleDelete;
+  panel.onkeydown = props.onkeydown = (event) => {
+    if (finishEditingKey(event) && !event.defaultPrevented) {
+      event.preventDefault();
+      panel.querySelector('[data-cmd="save"]').click();
+    } else handleDelete(event);
+  };
   function publish() {
     if (!dirty) return;
     dirty = false;

@@ -11,6 +11,28 @@ export function headingSpan(parts, start) {
   return [start, next < 0 ? parts.length : next];
 }
 
+export function removeMarkdownBlocks(body, parts, spans) {
+  const removed = new Set();
+  for (const [start, end] of spans)
+    for (let i = start; i < end; i++) removed.add(i);
+  const ranges = [];
+  for (const i of [...removed].sort((a, b) => a - b)) {
+    const { start, fullStart = start, end } = parts[i];
+    const next = parts[i + 1]?.fullStart ?? parts[i + 1]?.start ?? body.length;
+    // Preserve reference definitions and other unrendered source between blocks.
+    const limit = /^\s*$/.test(body.slice(end, next)) ? next : end;
+    if (ranges.at(-1)?.end === fullStart) ranges.at(-1).end = limit;
+    else ranges.push({ start: fullStart, end: limit });
+  }
+  const chunks = [];
+  let from = 0;
+  for (const { start, end } of ranges) {
+    chunks.push(body.slice(from, start));
+    from = end;
+  }
+  return chunks.join("") + body.slice(from);
+}
+
 export function outlineHierarchy(parts) {
   const headings = [];
   const ancestors = [];

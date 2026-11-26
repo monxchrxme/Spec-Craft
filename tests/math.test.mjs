@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
-import { latex } from "../public/math.js";
+import { latex, normalizeMathDelimiters } from "../public/math.js";
 
 const browser = vm.createContext({});
 vm.runInContext(
@@ -54,4 +54,34 @@ test("inline formulas work in table cells and source is escaped in HTML", () => 
   assert.match(html, /<td><span class="math-inline" data-tex="x&lt;y">/);
   assert.match(html, /data-tex="z\^2"/);
   assert.doesNotMatch(md.render('$x"<img>$'), /<img>/);
+});
+
+test("copied math renders in headings, tables and display blocks before conversion", () => {
+  const source = [
+    String.raw`## **Порядок** \\(C\ne 0\\)`,
+    "",
+    "| Имя | Значение |",
+    "| --- | --- |",
+    String.raw`| A | \(C\) |`,
+    "",
+    String.raw`\\[`,
+    String.raw`\frac{1}{2}`,
+    String.raw`\\]`,
+  ].join("\r\n");
+  assert.match(md.render(source), /<strong>Порядок<\/strong> <span class="math-inline"/);
+  assert.match(md.render(source), /<td><span class="math-inline" data-tex="C"/);
+  assert.match(md.render(source), /<div class="math-display"/);
+  const converted = normalizeMathDelimiters(source, md);
+  assert.equal(md.render(converted), md.render(source));
+  assert.match(converted, /\$\$\r\n\\frac\{1\}\{2\}\r\n\$\$/);
+});
+
+test("global conversion preserves code examples and math that needs bracket delimiters", () => {
+  const fence = String.fromCharCode(96);
+  const literal = String.raw`\\(x\\)`;
+  const code = fence + literal + fence + "\n\n" +
+    fence.repeat(3) + "text\n" + literal + "\n" + fence.repeat(3);
+  const adjacent = String.raw`\(n\)2`;
+  const body = code + "\n\n" + adjacent + " и " + literal;
+  assert.equal(normalizeMathDelimiters(body, md), code + "\n\n" + adjacent + " и $x$");
 });

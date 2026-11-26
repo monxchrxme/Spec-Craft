@@ -11,12 +11,13 @@ import { imageSizes, imageWidthMarkdown } from "./images.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
 import {
   coloredHighlights,
+  finishEditingKey,
   formatSelection,
   highlightColors,
   highlightSelection,
   wrapTypedSelection,
 } from "./formatting.js";
-import { latex, paintMath } from "./math.js";
+import { latex, normalizeMathDelimiters, paintMath } from "./math.js";
 import {
   isMermaid,
   keepMermaidImage,
@@ -66,6 +67,7 @@ import {
   dragOrder,
   headingSpan,
   outlineHierarchy,
+  removeMarkdownBlocks,
   reorderMarkdown,
 } from "./block-order.js";
 import { graphEditor } from "./graph-editor.js";
@@ -78,6 +80,9 @@ import {
   materializeToc,
   bindTocExceptions,
   formatHeadingIdentity,
+  headingInline,
+  isSpeakerNotes,
+  plainHeading,
   portableBlocks,
 } from "./portable-blocks.js";
 import { isProjectTree } from "./project-tree.js";
@@ -95,6 +100,7 @@ import { enablePanelResize } from "./panel-width.js";
 import {
   enableSidebarPanes,
   enableSidebarSearch,
+  highlightSidebarContent,
   highlightSidebarMatches,
   sidebarSearchPattern,
 } from "./sidebar-navigation.js";
@@ -471,6 +477,71 @@ function outline() {
   const toggleAll = $("#outline-toggle-all");
   const searchToggle = $("#outline-search-toggle");
   const empty = $("#outline-empty");
+  const remove = $("#outline-remove");
+  const chosen = new Set();
+  let selectionAnchor;
+  const visible = () => headings.filter((heading) => !entries.get(heading).row.hidden);
+  function paintSelection() {
+    for (const [heading, { button }] of entries)
+      if (mode === "edit")
+        button.setAttribute("aria-pressed", String(chosen.has(heading)));
+    remove.hidden = mode !== "edit" || !chosen.size;
+  }
+  function selectHeading(heading, event) {
+    if (event.shiftKey && selectionAnchor) {
+      const order = visible();
+      const from = order.indexOf(selectionAnchor);
+      const to = order.indexOf(heading);
+      if (from >= 0 && to >= 0) {
+        if (!event.metaKey && !event.ctrlKey) chosen.clear();
+        for (const item of order.slice(Math.min(from, to), Math.max(from, to) + 1))
+          chosen.add(item);
+        paintSelection();
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey) {
+      if (chosen.has(heading)) chosen.delete(heading);
+      else chosen.add(heading);
+    } else {
+      chosen.clear();
+      chosen.add(heading);
+    }
+    selectionAnchor = heading;
+    paintSelection();
+  }
+  function deleteSections(items) {
+    const spans = items.map(({ index }) => headingSpan(parts, index));
+    if (!spans.length) return;
+    const start = Math.min(...spans.map(([first]) => first));
+    removeBlocks(spans, start);
+    const remaining = [...panel.querySelectorAll(".outline-row:not([hidden]) > .outline-item")];
+    (remaining.find((item) => Number(item.dataset.idx) >= start) ??
+      remaining.at(-1) ?? $("#outline-section-toggle")).focus({ preventScroll: true });
+  }
+  remove.onclick = () => deleteSections(visible().filter((heading) => chosen.has(heading)));
+  panel.onkeydown = (event) => {
+    if (mode !== "edit" || event.isComposing || event.altKey) return;
+    const heading = headings.find((item) => entries.get(item).button === event.target);
+    if (!heading) return;
+    if (["Backspace", "Delete"].includes(event.key) && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      if (!event.repeat)
+        deleteSections(chosen.has(heading) ? visible().filter((item) => chosen.has(item)) : [heading]);
+    } else if (["ArrowUp", "ArrowDown"].includes(event.key)) {
+      const order = visible();
+      const next = order[order.indexOf(heading) + (event.key === "ArrowUp" ? -1 : 1)];
+      if (!next) return;
+      event.preventDefault();
+      if (event.shiftKey) selectionAnchor ??= heading;
+      selectHeading(next, event);
+      entries.get(next).button.focus();
+    } else if (event.key === "Escape" && chosen.size) {
+      chosen.clear();
+      selectionAnchor = undefined;
+      paintSelection();
+    }
+  };
   const branches = headings.filter((heading) => heading.hasChildren);
   const canCollapse = () =>
     branches.some((heading) => !heading.parent && !folded.has(heading.key));
@@ -494,8 +565,9 @@ function outline() {
     const pattern = sidebarSearchPattern(outlineSearch);
     const matches = new Set();
     for (const heading of headings) {
-      const { label } = entries.get(heading);
-      if (!highlightSidebarMatches(label, heading.title, pattern)) continue;
+      const { label, html } = entries.get(heading);
+      label.innerHTML = html;
+      if (!highlightSidebarContent(label, pattern)) continue;
       for (
         let entry = heading;
         entry && !matches.has(entry);
@@ -524,6 +596,7 @@ function outline() {
         : Boolean(
             parent && (entries.get(parent).row.hidden || folded.has(parent.key)),
           );
+      if (row.hidden) chosen.delete(heading);
       if (!toggle) continue;
       const expanded = !folded.has(heading.key);
       const label =
@@ -533,6 +606,8 @@ function outline() {
       toggle.setAttribute("aria-label", label);
       toggle.title = label;
     }
+    paintSelection();
+    void paintMath(panel);
     highlight(
       (mode === "edit" || mode === "read") &&
         outlineScrollPosition === undefined
@@ -567,11 +642,29 @@ function outline() {
     b.className = "outline-item";
     b.dataset.idx = index;
     const label = document.createElement("span");
+    label.className = "outline-label";
+    const inline = parts[index].tokens.find((token) => token.type === "inline");
+    const html = md.renderer.renderInline(headingInline(inline), md.options, {}) ||
+      md.utils.escapeHtml(heading.title);
+    const plain = plainHeading(inline) || "Заголовок";
+    b.setAttribute("aria-label", plain);
     b.append(label);
     if (mode === "edit") b.append(sortGrip("Перетащить раздел", false));
     b.onclick = (event) => {
       if (event.target.closest("[data-order-grip]")) return;
       flush();
+      if (!b.isConnected) {
+        const replacement = outlineHierarchy(parts).find((item) => item.key === key);
+        panel.querySelector('[data-idx="' + replacement?.index + '"]')?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, shiftKey: event.shiftKey,
+            metaKey: event.metaKey, ctrlKey: event.ctrlKey }),
+        );
+        return;
+      }
+      if (mode === "edit") {
+        selectHeading(heading, event);
+        if (event.shiftKey || event.metaKey || event.ctrlKey) return;
+      }
       selected = index;
       if (isSource()) {
         sourcePane.select(index);
@@ -584,7 +677,7 @@ function outline() {
       highlight(index);
     };
     row.append(b);
-    entries.set(heading, { row, toggle, label });
+    entries.set(heading, { row, toggle, button: b, label, html });
     panel.append(row);
   }
   outlineSearch.oninput = () => {
@@ -667,7 +760,6 @@ function moveOrder(state, index, below, section) {
     : host.children[selected]?.querySelector(".block-grip");
   destination?.scrollIntoView({ block: "nearest" });
   destination?.focus({ preventScroll: true });
-  notice(section ? "Раздел перемещён." : "Блок перемещён.");
 }
 const blockSorting = dragOrder({
   container: host,
@@ -697,6 +789,7 @@ function visibleBlock() {
   const top = viewport.getBoundingClientRect().top + 55;
   let index = 0;
   for (const block of host.children) {
+    if (block.hidden) continue;
     if (block.getBoundingClientRect().top > top) break;
     index = Number(block.dataset.idx);
   }
@@ -966,6 +1059,41 @@ function render() {
   paintDrawings(host);
   updateWordcount();
 }
+function removeBlocks(spans, focusIndex) {
+  const scrollTop = viewport.scrollTop;
+  setText(removeMarkdownBlocks(doc.body, parts, spans));
+  selected = focusIndex;
+  render();
+  viewport.scrollTop = scrollTop;
+}
+
+function canvasTextRange() {
+  const selection = document.getSelection();
+  if (!selection?.rangeCount || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  return range.intersectsNode(host) ? range : null;
+}
+
+function canvasBlockSpan(range) {
+  let first = -1, last = -1;
+  for (const block of host.children) {
+    if (!range.intersectsNode(block)) continue;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      if (!text.data || text.parentElement.closest("button,.inline-tools,.table-tools"))
+        continue;
+      if (!range.intersectsNode(text) ||
+        (range.startContainer === text && range.startOffset === text.length) ||
+        (range.endContainer === text && range.endOffset === 0)) continue;
+      last = Number(block.dataset.idx);
+      if (first < 0) first = last;
+      break;
+    }
+  }
+  return first < 0 ? null : [first, last + 1];
+}
+
 function deleteBlockButton(index, label, className) {
   const button = document.createElement("button");
   button.type = "button";
@@ -978,7 +1106,6 @@ function deleteBlockButton(index, label, className) {
     event.stopPropagation();
     const entry = parts[index];
     if (!entry || mode !== "edit") return;
-    const scrollTop = viewport.scrollTop;
     const length = doc.body.length;
     const editingBefore =
       editor?.i < index ? editor.end - parts[editor.i].end : 0;
@@ -988,13 +1115,7 @@ function deleteBlockButton(index, label, className) {
       entry.start + editingBefore + (cellBefore ? doc.body.length - length : 0);
     const nextIndex = parts.findIndex((part) => part.start === start);
     if (nextIndex < 0) return;
-    const { end, fullStart } = parts[nextIndex];
-    const nextStart = parts[nextIndex + 1]?.fullStart ?? doc.body.length;
-    const gap = doc.body.slice(end, nextStart);
-    patch(fullStart, /^\s*$/.test(gap) ? nextStart : end, "");
-    selected = nextIndex;
-    render();
-    viewport.scrollTop = scrollTop;
+    removeBlocks([[nextIndex, nextIndex + 1]], nextIndex);
   };
   return button;
 }
@@ -1238,6 +1359,7 @@ function buildBlock(p, i, expanded) {
   const box = document.createElement("div");
   box.className = "block";
   box.dataset.idx = i;
+  box.hidden = mode !== "edit" && isSpeakerNotes(p.t);
   box.onpointerdown = () => {
     selected = i;
   };
@@ -1337,7 +1459,7 @@ function buildBlock(p, i, expanded) {
   } else if (p.t.type === "table_open") {
     buildTable(box, p, i);
     return box;
-  } else box.innerHTML = md.renderer.render(p.tokens, md.options, {});
+  } else box.innerHTML = md.renderer.render(p.tokens, md.options, { speakerNotes: mode === "edit" });
   if (isExcalidraw(p.t)) {
     const card = box.querySelector("[data-excalidraw]");
     try {
@@ -1426,6 +1548,7 @@ function buildBlock(p, i, expanded) {
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools,.mermaid-figure,.task-checkbox")) return;
+      if (canvasTextRange()?.intersectsNode(box)) return;
       if (
         e.target.closest('a[href^="#"]') ||
         (e.target.closest("a") && (e.metaKey || e.ctrlKey))
@@ -1636,6 +1759,8 @@ function editBlock(i, selectAll = false) {
   const done = document.createElement("button");
   done.type = "button";
   done.className = "inline-done";
+  done.title = "Готово · Shift+Enter";
+  done.setAttribute("aria-keyshortcuts", "Shift+Enter Control+Enter Meta+Enter");
   done.innerHTML = icon("check");
   done.append("Готово");
   done.onmousedown = (event) => event.preventDefault();
@@ -1672,6 +1797,7 @@ function editBlock(i, selectAll = false) {
     }, 0);
   };
   ta.onkeydown = (e) => {
+    if (e.isComposing) return;
     if (wrapTypedSelection(e)) return;
     const shortcut =
       (e.ctrlKey || e.metaKey) &&
@@ -1683,19 +1809,9 @@ function editBlock(i, selectAll = false) {
       toolbar.querySelector('[aria-label="' + shortcut + '"]').click();
       return;
     }
-    if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "Enter")) {
+    if (e.key === "Escape" || finishEditingKey(e)) {
       e.preventDefault();
       finish();
-    } else if (
-      e.key === "Enter" &&
-      p.t.type !== "math_block" &&
-      !e.shiftKey &&
-      !ta.value.includes("\n") &&
-      !/^[-*\d>]/.test(ta.value) &&
-      ta.selectionStart === ta.value.length
-    ) {
-      e.preventDefault();
-      insertBlock("paragraph", i);
     }
   };
 }
@@ -2026,6 +2142,19 @@ function buildTable(box, p, i) {
       });
       field.onkeydown = (event) => {
         if (event.target !== field) return;
+        if (finishEditingKey(event)) {
+          event.preventDefault();
+          field.blur();
+          return;
+        }
+        if (
+          event.key === "Enter" && event.altKey &&
+          !event.ctrlKey && !event.metaKey && !event.isComposing
+        ) {
+          event.preventDefault();
+          document.execCommand("insertLineBreak");
+          return;
+        }
         if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey)
           return;
         if (event.key === "Backspace") {
@@ -2144,12 +2273,8 @@ function buildTable(box, p, i) {
   const formatting = document.createElement("div");
   formatting.className = "table-tool-group";
   formatting.append(alignLabel, reset);
-  actions.append(
-    structure,
-    formatting,
-    deleteBlockButton(i, "Удалить таблицу", "table-remove"),
-  );
-  box.append(actions);
+  actions.append(structure, formatting);
+  box.append(actions, deleteBlockButton(i, "Удалить таблицу", "block-remove"));
 }
 let sourceOutlineSignature;
 source.onfocus = () => {
@@ -2290,8 +2415,12 @@ function insertBlock(type, idx = insertionBlock(), content) {
   } else {
     restoreInsertion(anchor);
     host.children[selected]?.scrollIntoView({ block: "nearest" });
-    if (["paragraph", "heading", "code", "list", "math"].includes(type))
+    if (["paragraph", "heading", "code", "list", "math", "speakerNotes"].includes(type))
       editBlock(selected, true);
+    if (type === "speakerNotes" && editor) {
+      const { ta } = editor;
+      ta.setSelectionRange(ta.value.indexOf("\n") + 1, ta.value.lastIndexOf("\n"));
+    }
     if (type === "mermaid") editMermaidCode(selected, true);
     if (type === "excalidraw") openDrawing(selected);
     if (type === "math" && editor) {
@@ -2372,6 +2501,57 @@ function dialog(title, html) {
   if (!modal.open) modal.show();
   return modal.querySelector(".dialog-body");
 }
+function normalizeDocumentMath() {
+  if (!doc || mode === "read" || mode === "pdf") return;
+  flush();
+  const body = normalizeMathDelimiters(doc.body, md);
+  if (body === doc.body) {
+    notice("Совместимые разделители уже используются.");
+    return;
+  }
+  setText(body);
+  render();
+  notice("Разделители формул обновлены.");
+}
+
+function openSpeakerNotes() {
+  if (!doc) return;
+  flush();
+  const notes = document.createDocumentFragment();
+  let heading = "";
+  for (const { t, tokens } of parse()) {
+    if (t.type === "heading_open")
+      heading = plainHeading(tokens.find((token) => token.type === "inline"));
+    if (!isSpeakerNotes(t)) continue;
+    const section = document.createElement("section");
+    const title = document.createElement("h2");
+    title.textContent = heading || doc.name;
+    const text = document.createElement("p");
+    text.textContent = t.content.trimEnd();
+    section.append(title, text);
+    notes.append(section);
+  }
+  if (!notes.childElementCount) {
+    notice("Добавьте блок «Заметка докладчика» через меню «Вставить».");
+    return;
+  }
+  const popup = window.open("about:blank", "_blank", "popup,width=520,height=640");
+  if (!popup) {
+    notice("Браузер заблокировал окно заметок.");
+    return;
+  }
+  popup.opener = null;
+  const page = popup.document;
+  page.documentElement.lang = "ru";
+  page.title = "Заметки докладчика — " + doc.name;
+  const styles = page.createElement("style");
+  styles.textContent = "html{color-scheme:light dark}body{font:16px/1.55 system-ui;margin:24px}h1{font-size:24px}h2{font-size:18px}section+section{border-top:1px solid GrayText}p{white-space:pre-wrap;overflow-wrap:anywhere}";
+  const title = page.createElement("h1");
+  title.textContent = "Заметки докладчика";
+  page.head.append(styles);
+  page.body.append(title, notes);
+}
+
 function option(id, label, symbol) {
   return (
     '<button class="option" data-id="' +
@@ -2406,6 +2586,7 @@ function insertDialog() {
             projectTree: "folder-tree",
             toc: "list-ordered",
             bibliography: "book-open",
+            speakerNotes: "notebook-pen",
           }[k],
         ),
       )
@@ -4038,6 +4219,8 @@ for (const button of document.querySelectorAll("button[data-action]")) {
 }
 
 const actions = {
+  "normalize-math": normalizeDocumentMath,
+  "speaker-notes": openSpeakerNotes,
   "collaboration-people": toggleLivePeople,
   "collaboration-discussion": toggleLiveComments,
   "collaboration-exit": () =>
@@ -4163,6 +4346,23 @@ document.addEventListener("keydown", (e) => {
   }
   if (modal.open || !doc) return;
   const cmd = e.ctrlKey || e.metaKey;
+  if (
+    mode === "edit" && !editor && !tableEdit && !inlineGraph && !inlineDrawing &&
+    !inlineBibliography && !e.defaultPrevented && !e.isComposing && !cmd &&
+    !e.altKey && !e.shiftKey && ["Backspace", "Delete"].includes(e.key) &&
+    !e.target.closest("textarea,input,select,button,[contenteditable],.sidebar")
+  ) {
+    const range = canvasTextRange();
+    const span = range && canvasBlockSpan(range);
+    if (span) {
+      e.preventDefault();
+      if (e.repeat) return;
+      document.getSelection().removeAllRanges();
+      removeBlocks([span], span[0]);
+      host.children[selected]?.focus({ preventScroll: true });
+      return;
+    }
+  }
   if (cmd && e.key.toLowerCase() === "s") {
     e.preventDefault();
     flush();

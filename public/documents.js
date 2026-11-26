@@ -77,6 +77,10 @@ export const blocksToInsert = {
 \frac{a}{b} = c
 $$`,
   ],
+  speakerNotes: [
+    "Заметка докладчика",
+    "\x60\x60\x60speaker-notes\nТекст подсказки для выступления.\n\x60\x60\x60",
+  ],
 };
 const aiInstructions = [
   "Ответ для импорта",

@@ -1,6 +1,7 @@
 import { addHeightHandle, diagramHeight, setDiagramHeight } from "./diagram-height.js";
 import { enableDiagramPan } from "./diagram-pan.js";
 import { enableDiagramFitToggle } from "./diagram-zoom.js";
+import { finishEditingKey } from "./formatting.js";
 
 const images = new Map();
 
@@ -260,9 +261,18 @@ export function editDrawing(card, scene, { save, cancel, crop = false, fullscree
     hint.textContent = "Протяните рамку вокруг нужной области.";
     hint.hidden = false;
   }
+  function saveFromKeyboard(event) {
+    if (!finishEditingKey(event) || saveButton.disabled) return false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    saveButton.click();
+    return true;
+  }
+  actions.onkeydown = saveFromKeyboard;
   frame.onload = () => {
     try {
       frame.contentDocument.addEventListener("keydown", (event) => {
+        if (saveFromKeyboard(event)) return;
         if (event.key === "Escape" && exitFullscreen()) {
           event.preventDefault();
           event.stopImmediatePropagation();

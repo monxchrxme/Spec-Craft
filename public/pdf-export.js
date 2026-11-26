@@ -1,6 +1,7 @@
 import { formulaSettings, pageMargins } from "./document-style.js";
 import { highlightColors } from "./formatting.js";
 import { formulaSvg } from "./math.js";
+import { isSpeakerNotes } from "./portable-blocks.js";
 import { isMermaid, mermaidGraphic } from "./mermaid.js";
 import { drawingGraphic, drawingPrintImage } from "./excalidraw.js";
 import { specIndex } from "./spec-index.js";
@@ -717,26 +718,33 @@ async function mermaidBlock(source, options) {
   }
 }
 
-function contentsRows(meta, settings, pageNumbers) {
+async function contentsRows(meta, settings, pageNumbers, md) {
   const { size, accent, headingDestinations } = settings;
-  return meta.entries.map((entry) => {
-    const { marker, label, slug, depth } = entry;
+  const rows = [];
+  for (const { marker, label, slug, depth, inline } of meta.entries) {
     const linkToDestination = headingDestinations.get(slug);
-    return {
+    const rich = inline?.length
+      ? await markdownBlocks(md.renderer.renderInline(inline, md.options, {}), settings)
+      : null;
+    const runs = rich?.flatMap(({ text }) => text || []);
+    rows.push({
       columns: [
         ...(marker
           ? [{ width: "auto", text: marker, linkToDestination, noWrap: true }]
           : []),
         {
           width: "*",
-          text: [{ text: label, linkToDestination, specTocSlug: slug }],
+          text: (runs?.length ? runs : [{ text: label }]).map((run) => ({
+            ...run, linkToDestination, specTocSlug: slug,
+          })),
         },
       ],
       columnGap: size * 0.3,
       color: accent,
       margin: [depth * size * 1.45, 0, pageNumbers ? size * 3 : 0, size * 0.16],
-    };
-  });
+    });
+  }
+  return rows;
 }
 
 // Only the final layout knows where headings landed and where a wrapped title
@@ -774,6 +782,9 @@ function finishContentsPages(pages, headingPages) {
       }
       line.inlines.push({
         ...last,
+        inlineSvg: undefined,
+        background: undefined,
+        specCodeSpan: undefined,
         x: x - line.x,
         text,
         width,
@@ -839,6 +850,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     normal = [];
   };
   for (const [i, part] of parts.entries()) {
+    if (isSpeakerNotes(part.t)) continue;
     const rules = part.pdfRules || [];
     const forceLandscape = rules.includes("landscape-sheet");
     const separate = forceLandscape || rules.includes("separate-sheet");
@@ -880,7 +892,10 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       pageSize = rendered.pageSize || pageSize;
       blocks = [rendered.node];
     } else if (part.t.type === "spec_toc" && part.t.meta.entries.length) {
-      blocks = contentsRows(part.t.meta, settings, style.pdfPageNumbers);
+      blocks = await contentsRows(
+        part.t.meta, { ...settings, pageSize: pageSize || basePage, note },
+        style.pdfPageNumbers, md,
+      );
     } else {
       if (columns > 6 && profile === "a4")
         note("В таблице много столбцов для A4. Проверьте ширину и читаемость.");

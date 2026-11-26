@@ -1,4 +1,5 @@
 import { projectTreeMarkdown } from "./project-tree.js";
+import { finishEditingKey } from "./formatting.js";
 import {
   bibliographyMarkdown,
   bibliographyStyles,
@@ -255,6 +256,11 @@ export function projectTreeEditor(panel, root, save) {
     }
     save(projectTreeMarkdown(root));
   };
+  form.onkeydown = (event) => {
+    if (!finishEditingKey(event)) return;
+    event.preventDefault();
+    form.requestSubmit();
+  };
   render();
 }
 
@@ -328,6 +334,11 @@ export function bibliographyEditor(panel, { entries, style }, save, cancel) {
     save();
   };
   form.onkeydown = (event) => {
+    if (finishEditingKey(event)) {
+      event.preventDefault();
+      form.requestSubmit();
+      return;
+    }
     if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();

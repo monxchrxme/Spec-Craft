@@ -7,6 +7,11 @@ export const highlightColors = {
   orange: { label: "Оранжевый", color: "#ffdfbf" },
 };
 
+export function finishEditingKey(event) {
+  return event.key === "Enter" && !event.isComposing && !event.altKey &&
+    (event.shiftKey || event.metaKey || event.ctrlKey);
+}
+
 const suffixPattern = /^\{([a-z]+)\}/;
 
 export function coloredHighlights(md) {

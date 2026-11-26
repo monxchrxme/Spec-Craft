@@ -603,11 +603,18 @@ main {
 }
 .block:has(h2) {
   padding-top: 12px;
+  --block-control-top: calc(12px + 0.851em - 14px);
 }
 .block:has(h1) {
   border-bottom: 1px solid var(--line);
   padding-bottom: 17px;
   margin-bottom: 17px;
+  --block-control-top: calc(1.466em - 14px);
+}
+.speaker-notes {
+  padding: 8px 12px;
+  border-inline-start: 2px solid var(--line);
+  color: var(--muted);
 }
 .paper .block :is(h1, h2, h3, h4, h5, h6) {
   text-align: var(--heading-align, left);
@@ -899,11 +906,6 @@ table[data-auto-column-widths] :is(th, td) {
 .table-tool-group button {
   min-height: 28px;
   padding: 4px 7px;
-}
-.table-tools .table-remove {
-  width: 30px;
-  height: 30px;
-  padding: 0;
 }
 .table-tools button,
 .add-end {
@@ -1798,6 +1800,9 @@ select {
   .paper h1 {
     font-size: 2em;
   }
+  .block:has(h1) {
+    --block-control-top: calc(1.15em - 14px);
+  }
   #scroll {
     padding: 10px 6px;
   }
@@ -2423,7 +2428,7 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 }
 .block-remove {
   position: absolute;
-  top: 0;
+  inset-block-start: var(--block-control-top, 0px);
   right: -29px;
   opacity: 0;
 }
@@ -2431,7 +2436,6 @@ body:has(.inline-graph) .paper:not(:has(.diagram-expanded)) {
 .block:focus-within > .block-remove {
   opacity: 1;
 }
-.table-tools .table-remove,
 .block-remove:hover {
   color: var(--danger, #8b2841);
 }
@@ -2906,6 +2910,10 @@ g.workflow-anchored {
   padding-inline-end: 24px !important;
   overflow-wrap: anywhere;
 }
+.outline-item[aria-pressed="true"] {
+  background: var(--selection, #eae6f8);
+  color: var(--active-ink, #52449c);
+}
 .outline-row {
   position: relative;
   display: flex;
@@ -2949,7 +2957,7 @@ g.workflow-anchored {
   position: absolute;
   z-index: 1;
   inset-inline-start: -25px;
-  inset-block-start: 1px;
+  inset-block-start: var(--block-control-top, 0px);
   width: 22px;
   height: 28px;
   padding: 0;
