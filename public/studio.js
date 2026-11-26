@@ -180,6 +180,7 @@ const fileActionsUI = workspaceFileActions($(".documents-wrap"), {
 });
 let folders = [];
 let speakerNotesHidden = false;
+let speakerNotesWindow = null;
 try {
   speakerNotesHidden = sessionStorage.getItem(speakerNotesKey) === "1";
 } catch {
@@ -1083,34 +1084,57 @@ function focusBlockAt(index) {
   focusCanvasBlock(block);
 }
 
-function focusCanvasBlock(block) {
+function focusCanvasBlock(block, direction = 0) {
   if (!block) return;
   if (!block.hasAttribute("tabindex")) block.tabIndex = -1;
   block.dataset.canvasFocus = "";
   block.addEventListener("blur", () => delete block.dataset.canvasFocus, { once: true });
   block.focus({ preventScroll: true });
-  block.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (!direction) {
+    block.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return;
+  }
+  const bounds = block.getBoundingClientRect();
+  const viewportTop = viewport.getBoundingClientRect().top + viewport.clientTop;
+  const height = viewport.clientHeight;
+  const inset = Math.min(64, height * 0.12);
+  const above = bounds.top - viewportTop - inset;
+  const below = bounds.bottom - viewportTop - height + inset;
+  if (bounds.height > height - 2 * inset) {
+    // Show the edge encountered first when entering a block that cannot fit.
+    viewport.scrollTop += direction > 0 ? above : below;
+  } else if (above < 0) {
+    viewport.scrollTop += above;
+  } else if (below > 0) {
+    viewport.scrollTop += below;
+  }
 }
 
 host.addEventListener("keydown", (event) => {
   const box = event.target;
   if (
     mode !== "edit" || box.parentElement !== host || !box.matches(".block") ||
-    event.defaultPrevented || event.isComposing || event.shiftKey ||
-    event.altKey || event.metaKey || event.ctrlKey
+    event.defaultPrevented || event.isComposing || event.altKey ||
+    event.metaKey || event.ctrlKey
   ) return;
-  if (event.key === "Enter" && box.editText) {
+  if (event.key === "Enter" && !event.shiftKey && box.editText) {
     event.preventDefault();
     box.editText();
     return;
   }
-  const forward = event.key === "ArrowDown";
-  if (!forward && event.key !== "ArrowUp") return;
+  const direction = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+  if (!direction) return;
+  if (event.shiftKey) {
+    if (canvasTextRange()) return;
+    event.preventDefault();
+    viewport.scrollTop += direction * 48;
+    return;
+  }
   event.preventDefault();
-  const sibling = forward ? "nextElementSibling" : "previousElementSibling";
+  const sibling = direction > 0 ? "nextElementSibling" : "previousElementSibling";
   for (let next = box[sibling]; next; next = next[sibling]) {
     if (next.hidden || !next.editText) continue;
-    focusCanvasBlock(next);
+    focusCanvasBlock(next, direction);
     return;
   }
 });
@@ -1603,7 +1627,7 @@ function buildBlock(p, i, expanded) {
     box.tabIndex = 0;
     box.editText = isMermaid(p.t) ? () => editMermaidCode(i) : () => editBlock(i);
     box.title = "Нажмите, чтобы редактировать";
-    box.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown Enter");
+    box.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Enter");
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools,.mermaid-figure,.task-checkbox")) return;
@@ -2571,7 +2595,23 @@ function normalizeDocumentMath() {
   notice("Разделители формул обновлены.");
 }
 
-function openSpeakerNotes() {
+function setSpeakerNotesWindow(popup) {
+  speakerNotesWindow = popup;
+  $('[data-action="speaker-notes"]').setAttribute("aria-pressed", String(!!popup));
+}
+
+function closeSpeakerNotesWindow() {
+  const popup = speakerNotesWindow;
+  setSpeakerNotesWindow(null);
+  if (popup && !popup.closed) popup.close();
+}
+
+function toggleSpeakerNotes() {
+  if (speakerNotesWindow && !speakerNotesWindow.closed) {
+    closeSpeakerNotesWindow();
+    return;
+  }
+  if (speakerNotesWindow) setSpeakerNotesWindow(null);
   if (!doc) return;
   flush();
   const notes = document.createDocumentFragment();
@@ -2592,14 +2632,18 @@ function openSpeakerNotes() {
     notice("Добавьте блок «Заметка докладчика» через меню «Вставить».");
     return;
   }
-  setSpeakerNotesHidden(true);
-  if (isSource()) setMode("edit");
   const popup = window.open("about:blank", "_blank", "popup,width=520,height=640");
   if (!popup) {
     notice("Браузер заблокировал окно заметок.");
     return;
   }
   popup.opener = null;
+  setSpeakerNotesWindow(popup);
+  popup.addEventListener("pagehide", () => {
+    if (speakerNotesWindow === popup) setSpeakerNotesWindow(null);
+  }, { once: true });
+  setSpeakerNotesHidden(true);
+  if (isSource()) setMode("edit");
   const page = popup.document;
   page.documentElement.lang = "ru";
   page.title = "Заметки докладчика — " + doc.name;
@@ -2613,6 +2657,7 @@ function openSpeakerNotes() {
 
 function setSpeakerNotesHidden(hidden) {
   if (speakerNotesHidden === hidden) return;
+  if (!hidden) closeSpeakerNotesWindow();
   flush();
   speakerNotesHidden = hidden;
   try {
@@ -4319,7 +4364,7 @@ for (const button of document.querySelectorAll("button[data-action]")) {
 
 const actions = {
   "normalize-math": normalizeDocumentMath,
-  "speaker-notes": openSpeakerNotes,
+  "speaker-notes": toggleSpeakerNotes,
   "hide-speaker-notes": () => setSpeakerNotesHidden(!speakerNotesHidden),
   "collaboration-people": toggleLivePeople,
   "collaboration-discussion": toggleLiveComments,
@@ -4552,6 +4597,7 @@ window.addEventListener("storage", (event) => {
   if (event.key?.startsWith(prefix) || event.key === folderStorageKey) privateSync?.queue();
 });
 window.addEventListener("pagehide", () => {
+  closeSpeakerNotesWindow();
   finishDrawing(true, false);
   inlineGraph?.editor?.publish();
   closeBibliography();
