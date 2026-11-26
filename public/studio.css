@@ -736,6 +736,41 @@ main {
   margin-block-start: 2px;
   white-space: pre-wrap;
 }
+.pdf-spacer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pdf-spacer > span,
+.pdf-spacer label,
+.pdf-spacer-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pdf-spacer svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.pdf-spacer input,
+.pdf-spacer-size input {
+  width: 5em;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+.pdf-spacer-size {
+  font-size: 13px;
+}
 .paper .block :is(h1, h2, h3, h4, h5, h6) {
   text-align: var(--heading-align, left);
   color: var(--heading-color, inherit);

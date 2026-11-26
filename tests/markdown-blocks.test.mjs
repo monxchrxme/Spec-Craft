@@ -17,7 +17,9 @@ import { mergeFolders, readFolders } from "../public/workspace-folders.js";
 import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
 import { enableDiagramPan } from "../public/diagram-pan.js";
 import { enableDiagramFitToggle } from "../public/diagram-zoom.js";
-import { formatPdfRules, pdfRules } from "../public/pdf-rules.js";
+import {
+  formatPdfRules, formatPdfSpacer, isPdfSpacer, pdfRules, pdfSpacerDefault,
+} from "../public/pdf-rules.js";
 import {
   bibliographyEntries,
   bibliographyMarkdown,
@@ -66,6 +68,27 @@ test("speaker note bodies remain in the source and stay out of rendered output",
   assert.doesNotMatch(md.render(body), /Заметка докладчика|Только докладчику/);
   assert.match(md.render(body, { speakerNotes: true }), /Заметка докладчика/);
   assert.match(md.render(body, { speakerNotes: true }), /Только докладчику\n.*\nПродолжение заметки/);
+});
+
+test("PDF spacers stay independently editable and inherit the document height", () => {
+  const scope = {};
+  runInNewContext(readFileSync(new URL("../public/vendor/markdown-it.min.js", import.meta.url), "utf8"), scope);
+  const md = scope.markdownit({ html: false }).use(pdfRules);
+  const body = [
+    "Начало", formatPdfSpacer(), formatPdfRules(["break-before"], "\r\n").trimEnd(),
+    formatPdfSpacer(25), formatPdfSpacer(0), "~~~html\r\n" + formatPdfSpacer(8) + "\r\n~~~",
+    "Конец",
+  ].join("\r\n\r\n");
+  const parts = documentParts(md, body);
+  assert.deepEqual(parts.filter(({ t }) => isPdfSpacer(t)).map(({ t }) => t.meta), [null, 25, 0]);
+  assert.equal(parts[2].pdfRules[0], "break-before");
+  assert.equal(parts[2].text, formatPdfSpacer(25));
+  assert.equal(parts[4].t.type, "fence");
+  assert.ok(!isPdfSpacer(documentParts(md, formatPdfSpacer(101))[0].t));
+  assert.doesNotMatch(md.render(formatPdfSpacer()), /spec-pdf-spacer/);
+  assert.equal(pdfSpacerDefault({}), 10);
+  assert.equal(pdfSpacerDefault({ pdfSpacerHeight: 0 }), 0);
+  assert.equal(pdfSpacerDefault({ pdfSpacerHeight: 101 }), 10);
 });
 
 test("task markers round-trip in nested lists, standalone paragraphs and LaTeX", () => {

@@ -60,12 +60,14 @@ test("template style imports only supported values and legacy margins retain exa
     pdfMarginRight: 50,
     pdfMarginLeft: 25,
     pdfMarginBottom: 5,
+    pdfSpacerHeight: 0,
     unknown: "ignore",
   });
   assert.deepEqual(style, {
     pdfPageNumbers: false,
     pdfMarginLeft: 25,
     pdfMarginBottom: 5,
+    pdfSpacerHeight: 0,
   });
   assert.deepEqual(pageMargins(style), [
     (25 * 72) / 25.4,

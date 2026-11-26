@@ -1,5 +1,6 @@
 import { previewCanvas, openPdfTask } from "./pdf-pages.js";
 import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
+import { maxPdfSpacerHeight } from "./pdf-rules.js";
 export function printPdf(blob, filename, onFallback) {
   const url = URL.createObjectURL(blob);
   const frame = document.createElement("iframe");
@@ -50,7 +51,7 @@ function formatSheet({ width, height }) {
 
 export function pdfPreview(
   root,
-  { profile, numbering, download, print, edit, select, rules },
+  { profile, numbering, download, print, edit, select, rules, resizeSpacer },
 ) {
   const by = (name) => root.querySelector('[data-pdf="' + name + '"]');
   const pagePicker = by("page");
@@ -60,6 +61,9 @@ export function pdfPreview(
   const thumbnails = by("thumbnails");
   const blockPicker = by("block");
   const syncBlockPicker = enhanceDocumentPicker(blockPicker);
+  const spacerSize = by("spacer-size");
+  const spacerHeight = by("spacer-height");
+  spacerHeight.max = maxPdfSpacerHeight;
   const warnings = by("warnings");
   const placementRule = by("placement-rule");
   const placementInfo = by("placement-info");
@@ -135,6 +139,11 @@ export function pdfPreview(
     syncBlockPicker();
     by("edit").disabled = placementRule.disabled = !entry;
     placementInfo.hidden = !entry;
+    spacerSize.hidden = !entry?.spacer;
+    if (entry?.spacer) {
+      spacerHeight.placeholder = entry.spacer.fallback;
+      spacerHeight.value = entry.spacer.height ?? "";
+    }
     const activeRules = entry?.rules || [];
     placementRule.value =
       ["landscape-sheet", "separate-sheet", "break-before", "break-after"].find(
@@ -488,6 +497,10 @@ export function pdfPreview(
     if (selected !== null) rules(selected, []);
   };
   blockPicker.onchange = () => selectBlock(Number(blockPicker.value));
+  spacerHeight.onchange = () => {
+    if (!spacerHeight.reportValidity() || selected === null || !byIndex.get(selected)?.spacer) return;
+    resizeSpacer(selected, spacerHeight.value === "" ? null : spacerHeight.valueAsNumber);
+  };
   profilePicker.onchange = () => profile(profilePicker.value);
   numberingToggle.onchange = () => numbering(numberingToggle.checked);
   const saveRule = () => {
@@ -535,6 +548,7 @@ export function pdfPreview(
       stop();
       layout = null;
       state(false);
+      spacerSize.hidden = true;
       placementInfo.hidden = true;
       by("clear").hidden = true;
       by("placement").textContent = by("placement-help").textContent = "";

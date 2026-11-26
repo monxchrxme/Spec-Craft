@@ -1,3 +1,5 @@
+import { defaultPdfSpacerHeight, isPdfSpacerHeight, maxPdfSpacerHeight } from "./pdf-rules.js";
+
 const typography = [
   [
     "font",
@@ -103,6 +105,7 @@ function choices(values) {
 }
 export function templateStyle(input = {}) {
   const style = formulaSettings(input, false);
+  if (isPdfSpacerHeight(input?.pdfSpacerHeight)) style.pdfSpacerHeight = input.pdfSpacerHeight;
   for (const [key, , initial, values] of [...typography, ...printOptions]) {
     const value = input?.[key];
     if (
@@ -235,6 +238,15 @@ export function styleControls(container, style = {}, openGroup = "text") {
     el.value = style[key] ?? "";
     field(box, key, title, el, () => (el.value ? el.valueAsNumber : undefined));
   }
+  const spacer = document.createElement("input");
+  spacer.type = "number";
+  spacer.min = "0";
+  spacer.max = maxPdfSpacerHeight;
+  spacer.placeholder = String(defaultPdfSpacerHeight);
+  spacer.value = isPdfSpacerHeight(style.pdfSpacerHeight) ? style.pdfSpacerHeight : "";
+  field(print, "pdfSpacerHeight", "Общая высота пустых интервалов, мм", spacer, () =>
+    spacer.value === "" ? undefined : spacer.valueAsNumber,
+  );
   for (const [key, title, fallback] of checks) {
     const el = document.createElement("input");
     el.type = "checkbox";

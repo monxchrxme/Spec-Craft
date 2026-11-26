@@ -1,6 +1,7 @@
 import { paintFormulaStyle } from "./document-style.js";
 import { paintMath } from "./math.js";
 import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
+import { isPdfSpacer } from "./pdf-rules.js";
 import { mermaidControls, paintMermaid } from "./mermaid.js";
 import { paintDrawings } from "./excalidraw.js";
 import { specIndex } from "./spec-index.js";
@@ -467,6 +468,7 @@ export function showReview({
     for (const [i, block] of parts.entries()) {
       const el = element("div", undefined, "block");
       if (live) el.dataset.workIndex = i;
+      el.hidden = isPdfSpacer(block.t);
       if (
         block.t.type === "fence" &&
         block.t.info.trim() === "studio-diagram"

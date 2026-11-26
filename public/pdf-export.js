@@ -9,6 +9,7 @@ import { draw, normalize, frameLayout } from "./graph.js";
 import { tableMeasurer } from "./pdf-table-flow.js";
 import { readColumnWidths } from "./table-widths.js";
 import { codeLines } from "./code-highlight.js";
+import { isPdfSpacer, pdfSpacerDefault } from "./pdf-rules.js";
 
 const a4 = { width: 595.28, height: 841.89 };
 const landscape = { width: a4.height, height: a4.width };
@@ -855,6 +856,9 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
   };
   for (const [i, part] of parts.entries()) {
     if (isSpeakerNotes(part.t)) continue;
+    const spacer = isPdfSpacer(part.t);
+    const spacerHeight = spacer ? part.t.meta ?? pdfSpacerDefault(style) : 0;
+    if (spacer && !spacerHeight) continue;
     const rules = part.pdfRules || [];
     const forceLandscape = rules.includes("landscape-sheet");
     const separate = forceLandscape || rules.includes("separate-sheet");
@@ -882,7 +886,12 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     if (forceLandscape || (columns > 6 && profile === "screen"))
       pageSize = landscape;
     let blocks;
-    if (diagram || mermaid) {
+    if (spacer) {
+      blocks = [{ canvas: [{
+        type: "rect", x: 0, y: 0, w: 1, h: spacerHeight * 72 / 25.4,
+        color: "#ffffff", fillOpacity: 0, lineWidth: 0,
+      }] }];
+    } else if (diagram || mermaid) {
       const options = {
         ...pageLayout,
         basePage: forceLandscape ? landscape : basePage,
@@ -938,6 +947,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       stack: blocks,
       specKeep: heading || rules.includes("keep-next"),
       heading,
+      spacer,
       manualBreak,
     };
     if (pageSize) {
@@ -971,7 +981,7 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
       if (!unit.specKeep) return;
       let next = index + 1;
       if (unit.heading) {
-        while (units[next]?.heading && units[next + 1]) next++;
+        while ((units[next]?.heading || units[next]?.spacer) && units[next + 1]) next++;
       }
       if (units[next]) nextBlock.set(unit.id, units[next].id);
     });
