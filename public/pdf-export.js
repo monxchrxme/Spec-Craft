@@ -10,6 +10,7 @@ import { tableMeasurer } from "./pdf-table-flow.js";
 import { readColumnWidths } from "./table-widths.js";
 import { codeLines } from "./code-highlight.js";
 import { isPdfSpacer, pdfSpacerDefault } from "./pdf-rules.js";
+import { makePagePainter } from "./pdf-paint.js";
 
 const a4 = { width: 595.28, height: 841.89 };
 const landscape = { width: a4.height, height: a4.width };
@@ -829,12 +830,10 @@ async function measuredGroups(sections, createPdf, definition, warnings) {
         positions.set(id, new Set(placed.map((p) => p.pageNumber)));
   };
   // Measure only the candidate groups, each starting on a fresh sheet.
-  const measurement = await createPdf(
+  await createPdf(
     { ...definition, content: copyPdfNode(groups), pageBreakBefore: measure },
     { specLayoutOnly: true },
   ).getStream();
-  measurement.resume();
-  measurement.end();
   for (const { section: units } of groups) {
     const ids = units.map((unit) => unit.id);
     const page = positions.get(ids[0])?.values().next().value;
@@ -907,7 +906,7 @@ function finishContentsPages(pages, headingPages) {
   }
 }
 
-export async function exportPdf(parts, md, doc, profile = "screen") {
+export async function preparePdf(parts, md, doc, profile = "screen") {
   await import("./vendor/pdf/pdfmake.min.js");
   const style = doc.style || {};
   const margins = pageMargins(style);
@@ -1202,7 +1201,8 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
     for (const id of members)
       if (!members.has(nextBlock.get(id))) nextBlock.delete(id);
   }
-  const blob = await createPdf({
+  let pages, Renderer;
+  const output = createPdf({
       ...definition,
       info: { title: doc.name.replace(/\.md$/i, ""), creator: "SpecCraft" },
       footer: style.pdfPageNumbers
@@ -1216,14 +1216,32 @@ export async function exportPdf(parts, md, doc, profile = "screen") {
         : null,
       content: sections.length ? sections : [{ text: "" }],
       pageBreakBefore,
-    })
-    .getBlob();
+    }, {
+      specLayoutOnly: true,
+      specReceiveLayout(layout, renderer) {
+        pages = layout;
+        Renderer = renderer;
+      },
+    });
+  const pdfDocument = await output.getStream();
+  let file;
   return {
-    blob,
+    paintPage: makePagePainter(pages, pdfDocument, Renderer, fonts),
+    getBlob() {
+      return file ??= Promise.resolve().then(() => {
+        new Renderer(pdfDocument).renderPages(pages);
+        return output.getBlob();
+      });
+    },
     warnings,
     blocksOnPages,
     pageSizes,
     locations,
     automaticSheets,
   };
+}
+
+export async function exportPdf(parts, md, doc, profile) {
+  const { getBlob, paintPage: _paintPage, ...layout } = await preparePdf(parts, md, doc, profile);
+  return { ...layout, blob: await getBlob() };
 }

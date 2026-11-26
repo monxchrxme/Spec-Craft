@@ -2901,7 +2901,8 @@ function imageDialog(index, initial, anchor) {
 function download(name, body, type = "text/markdown;charset=utf-8") {
   const a = document.createElement("a");
   a.download = name;
-  a.href = URL.createObjectURL(new Blob([body], { type }));
+  const file = body instanceof Blob && body.type === type ? body : new Blob([body], { type });
+  a.href = URL.createObjectURL(file);
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -3275,8 +3276,8 @@ function requestPdf(force = false) {
   const data = { name: doc.name, body: doc.body, style: { ...doc.style } };
   const blocks = isSource() ? parts : parse(data.body);
   const profile = currentPdfProfile();
-  const result = import("./pdf-export.js").then(async ({ exportPdf }) => ({
-    ...(await exportPdf(blocks, md, data, profile)),
+  const result = import("./pdf-export.js").then(async ({ preparePdf }) => ({
+    ...(await preparePdf(blocks, md, data, profile)),
     name: data.name.replace(/\.md$/i, "") + ".pdf",
     blocks: blocks.map((part, index) => {
       if (isPdfSpacer(part.t)) {
@@ -3536,7 +3537,8 @@ function exportDialog() {
     status.hidden = false;
     status.textContent = "Подготовка PDF…";
     try {
-      const result = await requestPdf();
+      const layout = await requestPdf();
+      const result = { name: layout.name, blob: await layout.getBlob() };
       if (!b.isConnected || !modal.open) return;
       if (action === "print") printGeneratedPdf(result);
       else savePdf(result);

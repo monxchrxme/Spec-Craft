@@ -124,8 +124,20 @@ replaceOnce(
 );
 
 replaceOnce(
+  "return r.embed(this),this._imageRegistry[t]=r,r",
+  // Size measurement needs the image header. PDFKit embeds the asset when
+  // Renderer later calls .image(), which checks whether an XObject exists.
+  "return this.options.specLayoutOnly||r.embed(this),this._imageRegistry[t]=r,r",
+);
+
+replaceOnce(
+  "bufferPages:r.bufferPages||!1,autoFirstPage:!1",
+  "bufferPages:r.bufferPages||!1,specLayoutOnly:r.specLayoutOnly,autoFirstPage:!1",
+);
+
+replaceOnce(
   "return new Jc(this.pdfKitDoc,r.progressCallback).renderPages(a),this.pdfKitDoc",
-  "if(!r.specLayoutOnly)new Jc(this.pdfKitDoc,r.progressCallback).renderPages(a);return this.pdfKitDoc",
+  "r.specReceiveLayout?.(a,Jc);if(!r.specLayoutOnly)new Jc(this.pdfKitDoc,r.progressCallback).renderPages(a);return this.pdfKitDoc",
 );
 
 writeFileSync(file, bundle);

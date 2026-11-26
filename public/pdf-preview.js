@@ -1,4 +1,4 @@
-import { previewCanvas, openPdfTask } from "./pdf-pages.js";
+import { previewCanvas } from "./pdf-pages.js";
 import { documentOption, enhanceDocumentPicker } from "./document-picker.js";
 import { maxPdfSpacerHeight } from "./pdf-rules.js";
 export function printPdf(blob, filename, onFallback) {
@@ -95,8 +95,9 @@ export function pdfPreview(
   const profilePicker = by("profile");
   const numberingToggle = by("numbering");
   const retry = by("retry");
-  let task, pdf, layout, request, sheetObserver, thumbnailObserver, scrollFrame;
+  let layout, request, sheetObserver, thumbnailObserver, scrollFrame;
   let paintedDocument;
+  let exporting;
   let sheets = [],
     byIndex = new Map();
   const thumbnailDrawings = new Map();
@@ -109,8 +110,6 @@ export function pdfPreview(
 
   function clearSheet(sheet, keepCanvas = false) {
     sheet.pending = null;
-    sheet.drawing?.cancel();
-    sheet.drawing = null;
     if (keepCanvas) {
       if (sheet.canvas) {
         sheet.fallback = sheet.canvas;
@@ -126,14 +125,11 @@ export function pdfPreview(
   function stop(keepView = false) {
     sheetObserver?.disconnect();
     thumbnailObserver?.disconnect();
-    for (const thumbnail of thumbnailDrawings.values())
-      thumbnail.drawing?.cancel();
     thumbnailDrawings.clear();
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
     for (const sheet of sheets) clearSheet(sheet, keepView);
-    if (task) void task.destroy().catch(() => {});
-    task = pdf = request = null;
+    layout = request = null;
     selected = null;
     groupStart = null;
     pendingReveal = null;
@@ -278,7 +274,7 @@ export function pdfPreview(
     selectBlock(option ? Number(option.value) : null);
   }
   function jump(next, preferred) {
-    if (!pdf || !sheets.length) return;
+    if (!layout || !sheets.length) return;
     const number = Math.max(1, Math.min(sheets.length, next));
     const sheet = sheets[number - 1];
     stage.scrollTop = Math.max(0, sheet.element.offsetTop - 8);
@@ -300,7 +296,7 @@ export function pdfPreview(
     return true;
   }
   function onScroll() {
-    if (!pdf || !sheets.length || Math.abs(stage.scrollTop - (jumpedTo ?? -10)) < 1)
+    if (!layout || !sheets.length || Math.abs(stage.scrollTop - (jumpedTo ?? -10)) < 1)
       return;
     jumpedTo = undefined;
     const target = stage.scrollTop + Math.min(stage.clientHeight * 0.32, 180);
@@ -327,14 +323,12 @@ export function pdfPreview(
   );
 
   async function drawSheet(sheet) {
-    if (!pdf || sheet.pending || sheet.canvas) return;
-    const current = pdf;
+    if (!layout || sheet.pending || sheet.canvas) return;
     const token = {};
     sheet.pending = token;
+    const valid = () => sheet.pending === token;
     try {
-      const source = await current.getPage(sheet.number);
-      if (sheet.pending !== token) return;
-      const view = source.getViewport({ scale: sheet.scale });
+      const view = { width: sheet.width * sheet.scale, height: sheet.height * sheet.scale };
       const pixels = Math.min(
         Math.max(1.5, (devicePixelRatio || 1) * 1.25),
         3,
@@ -343,29 +337,20 @@ export function pdfPreview(
       const canvas = previewCanvas(view, pixels);
       canvas.setAttribute("role", "img");
       canvas.setAttribute("aria-label", "Страница " + sheet.number);
-      sheet.drawing = source.render({
-        canvas,
-        viewport: view,
-        transform: [pixels, 0, 0, pixels, 0, 0],
-      });
-      await sheet.drawing.promise;
-      if (sheet.pending !== token) return;
+      await layout.paintPage(sheet.number, canvas, valid);
+      if (!valid()) return;
       sheet.fallback?.remove();
       sheet.fallback = null;
       sheet.canvas = canvas;
       sheet.paper.prepend(canvas);
       stage.setAttribute("aria-busy", "false");
     } catch (error) {
-      if (
-        sheet.pending !== token ||
-        error.name === "RenderingCancelledException"
-      )
-        return;
+      if (!valid()) return;
       stage.setAttribute("aria-busy", "false");
       status.textContent =
         "Не удалось показать страницу " + sheet.number + ". PDF можно скачать.";
     } finally {
-      if (sheet.pending === token) sheet.pending = sheet.drawing = null;
+      if (valid()) sheet.pending = null;
     }
   }
   function layoutSheets() {
@@ -396,10 +381,10 @@ export function pdfPreview(
     }
   }
   function makeSheets(previous) {
-    const current = pdf;
+    const current = layout;
     sheetObserver = new IntersectionObserver(
       (entries) => {
-        if (pdf !== current) return;
+        if (layout !== current) return;
         for (const { target, isIntersecting } of entries) {
           const sheet = sheets[Number(target.dataset.page) - 1];
           sheet.near = isIntersecting;
@@ -410,7 +395,7 @@ export function pdfPreview(
       { root: stage, rootMargin: "440px 0px" },
     );
     const fragment = document.createDocumentFragment();
-    for (let number = 1; number <= current.numPages; number++) {
+    for (let number = 1; number <= current.pageSizes.length; number++) {
       const {
         width,
         height,
@@ -448,7 +433,7 @@ export function pdfPreview(
       }
       sheets.push(sheet);
       paper.onclick = (event) => {
-        if (!pdf) return;
+        if (!layout) return;
         const blocks = layout.locations.get(number) || [];
         const position =
           (event.clientY - paper.getBoundingClientRect().top) / sheet.scale;
@@ -462,50 +447,41 @@ export function pdfPreview(
     sheets.forEach((sheet) => sheetObserver.observe(sheet.paper));
   }
   function makeThumbnails() {
-    const current = pdf;
+    const current = layout;
     thumbnailObserver = new IntersectionObserver(
       (entries) => {
-        if (pdf !== current) return;
+        if (layout !== current) return;
         for (const { isIntersecting, target } of entries) {
           const surface = target.firstElementChild;
           const pending = thumbnailDrawings.get(target);
           if (!isIntersecting) {
-            pending?.drawing?.cancel();
             thumbnailDrawings.delete(target);
             surface.replaceChildren();
             continue;
           }
           if (pending || surface.firstChild) continue;
-          const request = {};
-          thumbnailDrawings.set(target, request);
+          const token = {};
+          thumbnailDrawings.set(target, token);
+          const valid = () => thumbnailDrawings.get(target) === token;
           void (async () => {
-            const sheet = await current.getPage(Number(target.dataset.page));
-            if (thumbnailDrawings.get(target) !== request) return;
-            const { width, height } = sheet.getViewport({ scale: 1 });
-            const viewport = sheet.getViewport({
-              scale: Math.min(96 / width, 128 / height),
-            });
+            const number = Number(target.dataset.page);
+            const { width, height } = current.pageSizes[number - 1];
+            const scale = Math.min(96 / width, 128 / height);
+            const viewport = { width: width * scale, height: height * scale };
             const density = Math.max(2.5, Math.min(3, devicePixelRatio || 1));
             const canvas = previewCanvas(viewport, density);
-            request.drawing = sheet.render({
-              canvas,
-              viewport,
-              transform: [density, 0, 0, density, 0, 0],
-            });
-            await request.drawing.promise;
-            if (thumbnailDrawings.get(target) === request)
-              surface.append(canvas);
+            await current.paintPage(number, canvas, valid);
+            if (valid()) surface.append(canvas);
           })()
             .catch(() => {})
             .finally(() => {
-              if (thumbnailDrawings.get(target) === request)
-                thumbnailDrawings.delete(target);
+              if (valid()) thumbnailDrawings.delete(target);
             });
         }
       },
       { root: thumbnails, rootMargin: "128px 0px" },
     );
-    for (let number = 1; number <= current.numPages; number++) {
+    for (let number = 1; number <= current.pageSizes.length; number++) {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.page = number;
@@ -540,7 +516,7 @@ export function pdfPreview(
   }
   new ResizeObserver(() => {
     if (
-      pdf &&
+      layout &&
       sheets.length &&
       zoom.value === "fit" &&
       stage.clientWidth &&
@@ -554,12 +530,27 @@ export function pdfPreview(
   };
   by("previous").onclick = () => jump(page - 1);
   by("next").onclick = () => jump(page + 1);
-  by("download").onclick = () => {
-    if (layout) download(layout);
-  };
-  by("print").onclick = () => {
-    if (layout) print(layout);
-  };
+  async function output(action) {
+    if (!layout || exporting === layout) return;
+    const current = layout;
+    exporting = current;
+    by("download").disabled = by("print").disabled = true;
+    status.textContent = "Подготовка PDF…";
+    let message = "Страниц: " + current.pageSizes.length;
+    try {
+      action({ name: current.name, blob: await current.getBlob() });
+    } catch (error) {
+      message = "Не удалось создать PDF. " + error.message;
+    } finally {
+      if (exporting === current) exporting = null;
+      if (layout === current) {
+        by("download").disabled = by("print").disabled = false;
+        status.textContent = message;
+      }
+    }
+  }
+  by("download").onclick = () => void output(download);
+  by("print").onclick = () => void output(print);
   by("edit").onclick = () => {
     if (selected !== null) edit(selected);
   };
@@ -632,7 +623,7 @@ export function pdfPreview(
   });
   return {
     reveal(index) {
-      if (pdf && sheets.length) revealBlock(index);
+      if (layout && sheets.length) revealBlock(index);
       else pendingReveal = index;
     },
     hide() {
@@ -645,13 +636,12 @@ export function pdfPreview(
       root.hidden = false;
       numberingToggle.checked = settings.numbering;
       if (request === pending && !force) {
-        if (pdf && sheets.length && layout.blocksOnPages.has(block))
+        if (layout && sheets.length && layout.blocksOnPages.has(block))
           jump(layout.blocksOnPages.get(block)[0], block);
         return;
       }
       const keepView = paintedDocument === settings.documentId && sheets.some((sheet) => sheet.canvas || sheet.fallback);
       stop(keepView);
-      layout = null;
       state(false);
       placementInfo.hidden = true;
       by("clear").hidden = true;
@@ -660,21 +650,10 @@ export function pdfPreview(
       stage.setAttribute("aria-busy", "true");
       profilePicker.value = settings.profile;
       request = pending;
-      status.textContent = keepView ? "Обновляем страницы…" : "Формируем PDF…";
+      status.textContent = keepView ? "Обновляем страницы…" : "Размечаем страницы…";
       retry.onclick = () => profile(settings.profile, true);
       try {
         const data = await pending;
-        if (request !== pending) return;
-        layout = includeZeroSpacers(data);
-        byIndex = new Map(data.blocks.map((entry) => [entry.index, entry]));
-        by("download").disabled = by("print").disabled = false;
-        const nextTask = await openPdfTask(data.blob);
-        if (request !== pending) {
-          void nextTask.destroy().catch(() => {});
-          return;
-        }
-        task = nextTask;
-        const loaded = await task.promise;
         if (request !== pending) return;
         const previous = sheets;
         const old = previous.findLast((sheet) => sheet.element.offsetTop <= stage.scrollTop);
@@ -684,16 +663,17 @@ export function pdfPreview(
         sheets = [];
         stage.replaceChildren();
         thumbnails.replaceChildren();
-        pdf = loaded;
+        layout = includeZeroSpacers(data);
+        byIndex = new Map(data.blocks.map((entry) => [entry.index, entry]));
         paintedDocument = settings.documentId;
         state(true);
         pagePicker.replaceChildren(
           ...Array.from(
-            { length: pdf.numPages },
+            { length: layout.pageSizes.length },
             (_, i) => new Option("Страница " + (i + 1), i + 1),
           ),
         );
-        status.textContent = "Страниц: " + pdf.numPages;
+        status.textContent = "Страниц: " + layout.pageSizes.length;
         makeSheets(previous);
         makeThumbnails();
         listWarnings();

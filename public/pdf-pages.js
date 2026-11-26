@@ -22,11 +22,10 @@ export async function openPdfTask(blob) {
     enableXfa: false,
   });
 }
-// Page dimensions and block locations come from the same export as the PDF bytes.
+// The source pane uses the same page layout as the main preview and export.
 export function sourcePages(stage, onSelect) {
   let loading,
     layoutRequest,
-    task,
     layout,
     observer,
     version = 0,
@@ -34,9 +33,7 @@ export function sourcePages(stage, onSelect) {
     lastWidth = 0,
     pendingBlock;
   function clear(sheet) {
-    sheet.job?.cancel();
     sheet.revision++;
-    sheet.job = null;
     sheet.canvas = null;
     sheet.element.replaceChildren();
   }
@@ -44,8 +41,6 @@ export function sourcePages(stage, onSelect) {
     observer?.disconnect();
     sheets.forEach(clear);
     sheets = [];
-    if (task) void task.destroy().catch(() => {});
-    task = null;
     layout = layoutRequest = null;
   }
   function hide() {
@@ -54,29 +49,21 @@ export function sourcePages(stage, onSelect) {
     pendingBlock = undefined;
     dispose();
   }
-  async function draw(sheet, pdf) {
+  async function draw(sheet, data) {
     if (sheet.canvas || !sheet.visible) return;
     const revision = ++sheet.revision;
     try {
-      const page = await pdf.getPage(sheet.number);
-      if (revision !== sheet.revision || !sheet.visible) return;
-      const view = page.getViewport({
-        scale: sheet.element.clientWidth / sheet.width,
-      });
+      const width = Math.max(1, sheet.element.clientWidth);
+      const height = (width * sheet.height) / sheet.width;
       const scale = Math.min(
         Math.max(1.5, devicePixelRatio || 1),
         3,
-        Math.sqrt(10e6 / (view.width * view.height)),
+        Math.sqrt(10e6 / (width * height)),
       );
-      const canvas = previewCanvas(view, scale);
-      sheet.job = page.render({
-        canvas,
-        viewport: view,
-        transform: [scale, 0, 0, scale, 0, 0],
-      });
-      await sheet.job.promise;
-      if (revision !== sheet.revision) return;
-      sheet.job = null;
+      const canvas = previewCanvas({ width, height }, scale);
+      const active = () => revision === sheet.revision && sheet.visible;
+      await data.paintPage(sheet.number, canvas, active);
+      if (!active()) return;
       sheet.canvas = canvas;
       sheet.element.replaceChildren(canvas);
     } catch (error) {
@@ -91,7 +78,7 @@ export function sourcePages(stage, onSelect) {
     for (const sheet of sheets)
       if (sheet.visible) {
         clear(sheet);
-        void draw(sheet, sheet.pdf);
+        void draw(sheet, layout);
       }
   }).observe(stage);
   function pageY(index) {
@@ -137,20 +124,9 @@ export function sourcePages(stage, onSelect) {
       const key = ++version;
       const active = () => key === version && valid();
       if (!layout) stage.textContent = "Подготовка PDF…";
-      let next;
       try {
         const data = await pending;
         if (!active()) return;
-        next = await openPdfTask(data.blob);
-        if (!active()) {
-          await next.destroy();
-          return;
-        }
-        const pdf = await next.promise;
-        if (!active()) {
-          await next.destroy();
-          return;
-        }
         const pos = stage.scrollTop,
           old = sheets.findLast((s) => s.element.offsetTop <= pos);
         const fraction = old
@@ -161,7 +137,6 @@ export function sourcePages(stage, onSelect) {
           (sheet) => sheet.element.firstElementChild,
         );
         dispose();
-        task = next;
         layout = data;
         layoutRequest = pending;
         const fragment = document.createDocumentFragment();
@@ -182,7 +157,7 @@ export function sourcePages(stage, onSelect) {
             if (row) onSelect(row.index);
           };
           if (previousCanvases[i]) element.append(previousCanvases[i]);
-          sheets.push({ number, width, element, pdf, revision: 0 });
+          sheets.push({ number, width, height, element, revision: 0 });
           fragment.append(element);
         }
         stage.replaceChildren(fragment);
@@ -196,11 +171,11 @@ export function sourcePages(stage, onSelect) {
         }
         observer = new IntersectionObserver(
           (entries) => {
-            if (task !== next) return;
+            if (layout !== data) return;
             for (const entry of entries) {
               const sheet = sheets[Number(entry.target.dataset.page) - 1];
               sheet.visible = entry.isIntersecting;
-              if (sheet.visible) void draw(sheet, pdf);
+              if (sheet.visible) void draw(sheet, data);
               else clear(sheet);
             }
           },
@@ -208,7 +183,6 @@ export function sourcePages(stage, onSelect) {
         );
         sheets.forEach((s) => observer.observe(s.element));
       } catch (error) {
-        if (next && next !== task) void next.destroy().catch(() => {});
         if (active()) {
           dispose();
           loading = null;
