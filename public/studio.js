@@ -1059,12 +1059,18 @@ function render() {
   paintDrawings(host);
   updateWordcount();
 }
-function removeBlocks(spans, focusIndex) {
+function removeBlocks(spans, focusIndex, { focusCanvas = false } = {}) {
   const scrollTop = viewport.scrollTop;
   setText(removeMarkdownBlocks(doc.body, parts, spans));
   selected = focusIndex;
   render();
   viewport.scrollTop = scrollTop;
+  const block = focusCanvas && host.children[selected];
+  if (!block) return;
+  if (!block.hasAttribute("tabindex")) block.tabIndex = -1;
+  block.dataset.focusAfterDelete = "";
+  block.addEventListener("blur", () => delete block.dataset.focusAfterDelete, { once: true });
+  block.focus({ preventScroll: true });
 }
 
 function canvasTextRange() {
@@ -1115,7 +1121,7 @@ function deleteBlockButton(index, label, className) {
       entry.start + editingBefore + (cellBefore ? doc.body.length - length : 0);
     const nextIndex = parts.findIndex((part) => part.start === start);
     if (nextIndex < 0) return;
-    removeBlocks([[nextIndex, nextIndex + 1]], nextIndex);
+    removeBlocks([[nextIndex, nextIndex + 1]], nextIndex, { focusCanvas: true });
   };
   return button;
 }
@@ -4358,7 +4364,7 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       if (e.repeat) return;
       document.getSelection().removeAllRanges();
-      removeBlocks([span], span[0]);
+      removeBlocks([span], span[0], { focusCanvas: true });
       return;
     }
   }

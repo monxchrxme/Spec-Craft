@@ -584,7 +584,7 @@ main {
   position: relative;
   overflow-wrap: anywhere;
 }
-.block[tabindex]:focus-visible {
+.block[tabindex]:is(:focus-visible, [data-focus-after-delete]:focus) {
   border-radius: 8px;
   outline: 1px solid color-mix(in srgb, var(--line) 55%, var(--focus-outline));
   outline-offset: 3px;
