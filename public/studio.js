@@ -1016,12 +1016,59 @@ const documentSearch = enableDocumentSearch({
     const body = materializeToc(file.body, md);
     return markdownSource(body, parse(body), true);
   },
-  showFileMatch({ id, from, to }) {
+  showFileMatch({ id, from, to, text, start, end }, searchMode, pattern) {
     const file = docs.get(id);
     if (!file || file.trashed || liveEdit) return;
+    const indexedBody = materializeToc(file.body, md);
+    if (indexedBody.slice(from, to).replace(/\r\n?/g, "\n") !== text.slice(start, end)) {
+      documentSearch.schedule();
+      return;
+    }
+    const indexedParts = parse(indexedBody);
+    const blockIndex = Math.max(0, indexedParts.findLastIndex((part) => part.start <= from));
+    const indexedPart = indexedParts[blockIndex];
+    const occurrences = [...(indexedPart?.text || "").matchAll(pattern)];
+    const occurrence = occurrences.findIndex((item) => indexedPart.start + item.index === from);
     if (id !== doc?.id) switchDoc(file);
-    if (mode !== "source") setMode("source");
-    sourcePane.showMatch(sourcePane.displayOffset(from), sourcePane.displayOffset(to));
+    else flush();
+    if (mode !== searchMode) setMode(searchMode);
+
+    if (mode === "source") {
+      if (indexedBody === doc.body) {
+        sourcePane.showMatch(sourcePane.displayOffset(from), sourcePane.displayOffset(to));
+        return;
+      }
+      const part = parts[blockIndex];
+      if (part && indexedPart?.text === part.text) {
+        const offset = part.start - indexedPart.start;
+        sourcePane.showMatch(sourcePane.displayOffset(from + offset), sourcePane.displayOffset(to + offset));
+      } else sourcePane.showMatch(...sourcePane.span(blockIndex));
+      return;
+    }
+    if (mode === "latex") {
+      const [first, last] = sourcePane.span(blockIndex);
+      const matches = [...source.value.slice(first, last).matchAll(pattern)];
+      const exact = matches.length === occurrences.length ? matches[occurrence] : null;
+      if (exact) sourcePane.showMatch(first + exact.index, first + exact.index + exact[0].length);
+      else sourcePane.showMatch(first, last);
+      return;
+    }
+
+    if (isSpeakerNotes(parts[blockIndex]?.t) &&
+        (mode !== "edit" || speakerNotesHidden)) {
+      notice("Совпадение находится в скрытой заметке докладчика.");
+      return;
+    }
+    selected = blockIndex;
+    if (mode === "pdf") {
+      pdfViewer.reveal(blockIndex);
+      return;
+    }
+    const block = host.children[blockIndex];
+    if (block && !block.hidden) {
+      highlight(blockIndex);
+      return { block, occurrence, count: occurrences.length };
+    }
   },
 });
 $("#source-fold").addEventListener("change", documentSearch.schedule);
@@ -1055,7 +1102,7 @@ function render() {
   editor = tableEdit = null;
   const notesToggle = $('[data-action="hide-speaker-notes"]');
   notesToggle.setAttribute("aria-pressed", String(speakerNotesHidden));
-  documentSearch.update(doc?.id, isSource(), !!doc && mode !== "pdf", !liveEdit && !!doc);
+  documentSearch.update(doc?.id, mode, !!doc && mode !== "pdf", !liveEdit && !!doc);
   $("#empty-workspace").hidden = !!doc;
   $(".paper").hidden = !doc || mode === "pdf";
   $(".controls").hidden = !doc;

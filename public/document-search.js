@@ -1,8 +1,8 @@
 import { sidebarSearchPattern } from "./sidebar-navigation.js";
 
-function textRanges(root, pattern) {
+function textRanges(blocks, pattern) {
   const ranges = [];
-  for (const block of root.children) {
+  for (const block of blocks) {
     if (block.hidden) continue;
     const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
     const segments = [];
@@ -49,6 +49,7 @@ export function enableDocumentSearch({
   const projections = new Map();
   const pageSize = 30;
   let id, inSource, returnFocus, frame, currentBlock, fromResult = -1;
+  let currentMode, searchMode, canvasResult;
   let allFiles = false, localEnabled = false, filesEnabled = false;
   let matches = [], index = 0;
 
@@ -112,7 +113,8 @@ export function enableDocumentSearch({
   }
 
   function paintActive() {
-    const range = !allFiles && !inSource && matches[index];
+    if (canvasResult && !canvasResult.block.isConnected) canvasResult = null;
+    const range = allFiles ? canvasResult?.range : inSource ? null : matches[index];
     currentBlock?.removeAttribute("data-find-active");
     currentBlock = null;
     if (range && highlights) {
@@ -121,10 +123,9 @@ export function enableDocumentSearch({
       highlights.set("document-find-active", active);
     } else {
       highlights?.delete("document-find-active");
-      if (range) {
-        currentBlock = range.startContainer.parentElement.closest(".block");
-        currentBlock?.setAttribute("data-find-active", "");
-      }
+      currentBlock = allFiles ? canvasResult?.block
+        : range && range.startContainer.parentElement.closest(".block");
+      currentBlock?.setAttribute("data-find-active", "");
     }
     const counter = matches.length ? `${index + 1} / ${matches.length}`
       : input.value.trim() ? "Нет совпадений" : "";
@@ -143,7 +144,11 @@ export function enableDocumentSearch({
       showSourceMatch(match.index, match.index + match[0].length);
       return;
     }
-    const bounds = match.getBoundingClientRect();
+    revealOnCanvas(match);
+  }
+
+  function revealOnCanvas(target) {
+    const bounds = target.getBoundingClientRect();
     const view = viewport.getBoundingClientRect();
     if (bounds.top < view.top + 24 || bounds.bottom > view.bottom - 24)
       viewport.scrollTop += bounds.top - view.top - viewport.clientHeight / 3;
@@ -152,9 +157,10 @@ export function enableDocumentSearch({
   function refresh(revealFirst = false) {
     cancelAnimationFrame(frame);
     if (panel.hidden) return;
+    if (revealFirst) canvasResult = null;
     const pattern = sidebarSearchPattern(input);
     matches = !pattern ? [] : allFiles ? fileMatches(pattern)
-      : inSource ? [...source.value.matchAll(pattern)] : textRanges(blocks, pattern);
+      : inSource ? [...source.value.matchAll(pattern)] : textRanges(blocks.children, pattern);
     index = revealFirst ? 0 : Math.min(index, Math.max(0, matches.length - 1));
     if (highlights) {
       if (allFiles || inSource || !matches.length) highlights.delete("document-find");
@@ -194,6 +200,7 @@ export function enableDocumentSearch({
     cancelAnimationFrame(frame);
     toggle.setAttribute("aria-expanded", "false");
     highlights?.delete("document-find");
+    canvasResult = null;
     matches = [];
     index = 0;
     input.value = "";
@@ -206,6 +213,7 @@ export function enableDocumentSearch({
   function open(searchAll = false) {
     if (searchAll ? !filesEnabled : !localEnabled) return;
     const changedScope = allFiles !== searchAll;
+    if (searchAll) searchMode = currentMode;
     allFiles = searchAll;
     scope.setAttribute("aria-pressed", String(allFiles));
     const label = allFiles ? "Найти во всех файлах" : "Найти в документе";
@@ -225,7 +233,16 @@ export function enableDocumentSearch({
   function openResult() {
     const match = matches[index];
     if (!match) return;
-    showFileMatch(match);
+    const pattern = sidebarSearchPattern(input);
+    const target = showFileMatch(match, searchMode, pattern);
+    if (target) {
+      const { block, occurrence, count } = target;
+      const ranges = textRanges([block], pattern);
+      const range = ranges.length === count ? ranges[occurrence] : null;
+      canvasResult = { block, range };
+      revealOnCanvas(range || block);
+    } else canvasResult = null;
+    paintActive();
     input.focus({ preventScroll: true });
   }
 
@@ -260,10 +277,11 @@ export function enableDocumentSearch({
   return {
     open,
     schedule,
-    update(documentId, sourceMode, documentEnabled, workspaceEnabled) {
+    update(documentId, mode, documentEnabled, workspaceEnabled) {
       if (allFiles ? !workspaceEnabled : (!documentEnabled || id !== documentId)) close();
       id = documentId;
-      inSource = sourceMode;
+      currentMode = mode;
+      inSource = mode === "source" || mode === "latex";
       localEnabled = documentEnabled;
       filesEnabled = workspaceEnabled;
       scope.hidden = !filesEnabled;

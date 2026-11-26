@@ -74,7 +74,8 @@ export function pdfPreview(
   let page = 0,
     selected = null,
     lastWidth = 0,
-    jumpedTo;
+    jumpedTo,
+    pendingReveal = null;
 
   function clearSheet(sheet) {
     sheet.pending = null;
@@ -95,6 +96,7 @@ export function pdfPreview(
     if (task) void task.destroy().catch(() => {});
     task = pdf = request = null;
     selected = null;
+    pendingReveal = null;
     page = 0;
     sheets = [];
     byIndex = new Map();
@@ -212,6 +214,20 @@ export function pdfPreview(
     stage.scrollTop = Math.max(0, sheet.element.offsetTop - 8);
     jumpedTo = stage.scrollTop;
     setPage(number, preferred);
+  }
+  function revealBlock(index) {
+    const number = layout.blocksOnPages.get(index)?.[0];
+    if (!number) return false;
+    jump(number, index);
+    const sheet = sheets[number - 1];
+    const position = layout.locations.get(number)?.find((item) => item.index === index);
+    if (position) {
+      stage.scrollTop += sheet.paper.getBoundingClientRect().top -
+        stage.getBoundingClientRect().top + position.top * sheet.scale -
+        Math.min(stage.clientHeight / 4, 130);
+      jumpedTo = stage.scrollTop;
+    }
+    return true;
   }
   function onScroll() {
     if (!sheets.length || Math.abs(stage.scrollTop - (jumpedTo ?? -10)) < 1)
@@ -499,6 +515,10 @@ export function pdfPreview(
     placementInfo.querySelector("summary").focus();
   });
   return {
+    reveal(index) {
+      if (sheets.length) revealBlock(index);
+      else pendingReveal = index;
+    },
     hide() {
       if (!root.hidden) stop();
       placementInfo.open = false;
@@ -550,7 +570,9 @@ export function pdfPreview(
         makeSheets();
         makeThumbnails();
         listWarnings();
-        jump(layout.blocksOnPages.get(block)?.[0] || 1, block);
+        const revealed = pendingReveal !== null && revealBlock(pendingReveal);
+        pendingReveal = null;
+        if (!revealed) jump(layout.blocksOnPages.get(block)?.[0] || 1, block);
       } catch (error) {
         if (request !== pending) return;
         stage.setAttribute("aria-busy", "false");
