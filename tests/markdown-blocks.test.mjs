@@ -14,7 +14,7 @@ import { documentParts } from "../public/document-parts.js";
 import { latexProjection } from "../public/latex-source.js";
 import { setTaskChecked, taskLists } from "../public/task-lists.js";
 import { mergeFolders, readFolders } from "../public/workspace-folders.js";
-import { isMermaid, mermaidMarkdown } from "../public/mermaid.js";
+import { isMermaid, mermaidMarkdown, pastedMermaid } from "../public/mermaid.js";
 import { enableDiagramPan } from "../public/diagram-pan.js";
 import { enableDiagramFitToggle } from "../public/diagram-zoom.js";
 import {
@@ -362,6 +362,16 @@ test("raw Mermaid imports use a fence longer than fence-like lines in the source
   assert(isMermaid({ type: "fence", info: " Mermaid " }));
   assert(!isMermaid({ type: "code_block", info: "mermaid" }));
   assert(!isMermaid({ type: "fence", info: "javascript" }));
+});
+
+test("pasted Mermaid sources become diagram fences while Markdown and ordinary text stay intact", () => {
+  const flow = "flowchart TD\n  Start --> End";
+  const sequence = "---\ntitle: Demo\n---\n%% note\nsequenceDiagram\n  A->>B: Hello";
+  const state = "%%{\ninit: {}\n}%%\nstateDiagram-v2\n  [*] --> Ready";
+  for (const diagram of [flow, sequence, state])
+    assert.equal(pastedMermaid(diagram), mermaidMarkdown(diagram));
+  for (const text of ["pie", "graph explanation", mermaidMarkdown(flow), "# flowchart TD"])
+    assert.equal(pastedMermaid(text), null);
 });
 
 test("PDF rules apply after paragraphs and move with the annotated block", () => {

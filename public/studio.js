@@ -10,7 +10,8 @@ import { enableDocumentSearch } from "./document-search.js";
 import { markdownSource } from "./markdown-source.js";
 import { documentLabel } from "./document-picker.js";
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
-import { imageSizes, imageWidthMarkdown } from "./images.js";
+import { imageFilesMarkdown, imageSizes, imageWidthMarkdown } from "./images.js";
+import { clipboardBlocks } from "./clipboard-blocks.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
 import {
   coloredHighlights,
@@ -2575,6 +2576,51 @@ function insertBlockSource(pos, body) {
   patch(pos, pos, add);
   return pos + add.length;
 }
+function insertClipboardSource(index, body) {
+  const position = parts[index]?.end ?? 0;
+  const end = insertBlockSource(position, liveEdit ? identifyDiagrams(body) : body);
+  render();
+  const last = parts.findLastIndex((part) => part.start < end && part.end > position);
+  focusBlockAt(last < 0 ? index : last);
+}
+
+document.addEventListener("paste", async (event) => {
+  if (!doc || mode !== "edit" || stopReview || modal.open ||
+      inlineDrawing || inlineGraph || event.defaultPrevented || !event.clipboardData)
+    return;
+  const field = event.target.closest?.("textarea,input,select,[contenteditable]");
+  if (field && !host.contains(field)) return;
+  const content = clipboardBlocks(event.clipboardData);
+  if (!content || (field && !content.images)) return;
+  event.preventDefault();
+  const target = doc;
+  let { index } = prepareInsertion(parts.length ? selected : -1);
+  if (!content.files) {
+    insertClipboardSource(index, content.body);
+    return;
+  }
+  const original = doc.body;
+  const saved = blockAnchor(parts, original, index);
+  try {
+    const body = await imageFilesMarkdown(content.files);
+    if (doc !== target || mode !== "edit") {
+      notice("Вернитесь в исходный документ и вставьте изображения снова.");
+      return;
+    }
+    if (saved && original !== doc.body) {
+      flush();
+      const match = resolveAnchor(host, parts, workflowSections(parts, doc.body), saved.anchor);
+      if (!match) throw Error("Исходный блок изменился. Вставьте изображения снова.");
+      index = match.index;
+    } else if (editor || tableEdit || inlineDrawing || inlineGraph || inlineBibliography) {
+      ({ index } = prepareInsertion(index));
+    }
+    insertClipboardSource(index, body);
+  } catch (error) {
+    notice(error.message);
+  }
+});
+
 function insertBlock(type, idx = insertionBlock(), content) {
   const anchor = prepareInsertion(idx);
   idx = anchor.index;
@@ -2871,7 +2917,10 @@ function imageDialog(index, initial, anchor) {
   const id = doc.id;
   const panel = dialog(
     initial ? "Изменить изображение" : "Вставить изображение",
-    '<form class="template-form"><label>Файл изображения<input name="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>' +
+    '<form class="template-form"><label>' +
+      (initial ? "Файл изображения" : "Файлы изображений") +
+      '<input name="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"' +
+      (initial ? "" : " multiple") + "></label>" +
       '<label>Или ссылка на изображение<input name="url" type="url" placeholder="https://"></label>' +
       '<label>Описание для изображения<input name="alt" placeholder="Например, схема подключения"></label>' +
       '<div class="image-crop-actions" hidden><button type="button" data-crop>Обрезать</button><button type="button" data-reset-crop hidden>Сбросить обрезку</button></div>' +

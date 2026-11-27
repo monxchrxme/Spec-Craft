@@ -4,6 +4,7 @@ import {
   cropPixels,
   embeddedImage,
   fullCrop,
+  imageFilesMarkdown,
   imageMarkdown,
   imageUrl,
   loadImage,
@@ -181,6 +182,7 @@ export function imageCropForm(panel, initial, onSave) {
   const reset = panel.querySelector("[data-reset-crop]");
   const status = panel.querySelector("[role=status]");
   const submit = form.querySelector("[type=submit]");
+  const singleSubmitLabel = submit.textContent;
   const surface = document.createElement("div"),
     frame = document.createElement("div");
   const dimensions = document.createElement("output");
@@ -363,6 +365,14 @@ export function imageCropForm(panel, initial, onSave) {
     const next = ++generation;
     clearPreview();
     status.textContent = "";
+    const batch = file.files.length > 1;
+    url.closest("label").hidden = alt.closest("label").hidden = batch;
+    submit.textContent = batch ? "Вставить изображения" : singleSubmitLabel;
+    if (batch) {
+      status.textContent = "Выбрано файлов: " + file.files.length;
+      loading = null;
+      return;
+    }
     const entry = source();
     if (debounce)
       timer = setTimeout(() => {
@@ -389,8 +399,14 @@ export function imageCropForm(panel, initial, onSave) {
     submit.disabled = true;
     status.textContent = "";
     const entry = source(),
+      files = [...file.files],
       ticket = generation;
     try {
+      if (files.length > 1) {
+        const markdown = await imageFilesMarkdown(files);
+        if (current(ticket)) onSave(markdown);
+        return;
+      }
       let src;
       if (typeof entry !== "string") {
         await loading;

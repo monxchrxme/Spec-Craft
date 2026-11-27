@@ -31,6 +31,29 @@ export function mermaidMarkdown(source) {
   );
 }
 
+const mermaidHeaders = new Set([
+  "sequenceDiagram", "classDiagram", "classDiagram-v2", "stateDiagram", "stateDiagram-v2",
+  "erDiagram", "journey", "gantt", "mindmap", "timeline", "requirementDiagram",
+  "gitGraph", "C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment",
+  "sankey", "sankey-beta", "xychart", "xychart-beta", "block", "block-beta",
+  "packet", "packet-beta", "architecture-beta", "kanban", "pie", "radar-beta",
+  "treemap", "treemap-beta", "venn-beta", "ishikawa-beta",
+]);
+
+export function pastedMermaid(source) {
+  const candidate = source.trim().replace(/\r\n?/g, "\n");
+  const { clean, bodyStart } = mermaidPresentation(candidate);
+  const first = clean.slice(bodyStart).replace(/^\s*%%\{[\s\S]*?\}%%\s*/gm, "");
+  const [heading = "", next] = first.split("\n").map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("%%"));
+  const known = (next && mermaidHeaders.has(heading)) ||
+    /^(?:flowchart(?:-elk)?|graph)\s+(?:TB|TD|BT|RL|LR)\b/.test(heading) ||
+    /^pie\s+(?:showData|title)\b/.test(heading) ||
+    /^xychart(?:-beta)?\s+horizontal$/.test(heading) ||
+    /^gitGraph\s+(?:TB|BT|LR)\s*:?$/.test(heading);
+  return known ? mermaidMarkdown(candidate) : null;
+}
+
 export function mermaidBlocks(md) {
   const original = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, index, options, env, self) => {

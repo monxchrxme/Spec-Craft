@@ -174,3 +174,23 @@ export async function embeddedImage(file, image, crop = fullCrop) {
     URL.revokeObjectURL(url);
   }
 }
+
+export async function imageFilesMarkdown(files) {
+  const blocks = [];
+  for (const file of files) {
+    if (!supportedImage(file))
+      throw Error("Поддерживаются изображения PNG, JPEG, WebP и GIF.");
+    const url = URL.createObjectURL(file);
+    try {
+      const image = await loadImage(url);
+      const data = await embeddedImage(file, image);
+      const label = file.name.replace(/\.[a-z0-9]+$/i, "").trim() || "Изображение";
+      blocks.push(imageMarkdown(data, label));
+    } catch (error) {
+      throw Error("Не удалось добавить «" + (file.name || "изображение") + "». " + error.message, { cause: error });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  return blocks.join("\n\n");
+}
