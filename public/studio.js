@@ -1229,6 +1229,21 @@ function focusCanvasBlock(block, direction = 0) {
   }
 }
 
+function focusedCanvasIndex(element) {
+  return element === document.activeElement && element.parentElement === host &&
+    element.matches(".block:not([hidden])") ? Number(element.dataset.idx) : -1;
+}
+
+host.addEventListener("copy", (event) => {
+  if (mode !== "edit" || event.defaultPrevented || !event.clipboardData ||
+      document.getSelection()?.isCollapsed === false || !event.target.editText)
+    return;
+  const part = parts[focusedCanvasIndex(event.target)];
+  if (!part) return;
+  event.clipboardData.setData("text/plain", part.text);
+  event.preventDefault();
+});
+
 host.addEventListener("keydown", (event) => {
   const box = event.target;
   if (
@@ -1327,6 +1342,8 @@ function block(p, i, expanded = expandAll) {
     onExpand: updateExpandButton,
   });
   if (mode === "edit") {
+    if (!box.hasAttribute("aria-keyshortcuts"))
+      box.setAttribute("aria-keyshortcuts", "Backspace");
     box.querySelector(
       ":scope > :is(h1,h2,h3,h4,h5,h6,hr,pre,.diagram-card,.math-display," +
       ".document-toc,.document-bibliography,.speaker-notes), " +
@@ -1746,7 +1763,10 @@ function buildBlock(p, i, expanded) {
     box.tabIndex = 0;
     box.editText = isMermaid(p.t) ? () => editMermaidCode(i) : () => editBlock(i);
     box.title = "Нажмите, чтобы редактировать";
-    box.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Enter");
+    box.setAttribute(
+      "aria-keyshortcuts",
+      "ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Enter Backspace Control+C Meta+C",
+    );
     box.append(deleteBlockButton(i, "Удалить блок", "block-remove"));
     box.onclick = (e) => {
       if (e.target.closest("textarea,.inline-tools,.mermaid-figure,.task-checkbox")) return;
@@ -4813,7 +4833,10 @@ document.addEventListener("keydown", (e) => {
     !e.target.closest("textarea,input,select,button,[contenteditable],.sidebar")
   ) {
     const range = canvasTextRange();
-    const span = range && canvasBlockSpan(range);
+    const index = e.key === "Backspace" && !blockSorting.active() && !outlineSorting.active()
+      ? focusedCanvasIndex(e.target) : -1;
+    const span = (range && canvasBlockSpan(range)) ||
+      (index >= 0 ? [index, index + 1] : null);
     if (span) {
       e.preventDefault();
       if (e.repeat) return;
