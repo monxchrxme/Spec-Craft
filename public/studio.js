@@ -15,6 +15,7 @@ import { clipboardBlocks } from "./clipboard-blocks.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
 import { enableImageDrop } from "./image-drop.js";
 import { keepBlockTextInView } from "./block-text-scroll.js";
+import { enableMiddleScroll } from "./middle-scroll.js";
 import {
   coloredHighlights,
   finishEditingKey,
@@ -855,6 +856,7 @@ viewport.onscroll = () => {
   outlineScrollPosition = undefined;
   if (mode === "edit" || mode === "read") highlight(visibleBlock());
 };
+enableMiddleScroll(viewport);
 viewport.addEventListener("click", (event) => {
   if (
     editor &&

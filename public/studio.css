@@ -633,6 +633,10 @@ main {
 #scroll:has(.source-edit:focus) {
   overflow-anchor: none;
 }
+[data-middle-scroll],
+[data-middle-scroll] :is(.block, .source-edit, .pdf-sheet-paper) {
+  cursor: ns-resize;
+}
 .paper {
   --paper-inline-padding: clamp(24px, 4.4vw, 72px);
   max-width: 1000px;
