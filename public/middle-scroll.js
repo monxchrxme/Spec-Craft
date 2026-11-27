@@ -20,8 +20,10 @@ export function enableMiddleScroll(root) {
       stop();
       return;
     }
-    const speed = Math.min(3200, (Math.abs(distance) - deadZone) * 14);
-    if (speed <= 0) return;
+    const offset = Math.abs(distance) - deadZone;
+    if (offset <= 0) return;
+    const rate = 1.7 * offset ** 1.5;
+    const speed = rate / (1 + rate / 16_000);
     if (distance < 0 ? surface.scrollTop <= 0 :
       surface.scrollTop >= surface.scrollHeight - surface.clientHeight - 1) return;
     const elapsed = Math.max(0, Math.min(40, now - last)) / 1000;
