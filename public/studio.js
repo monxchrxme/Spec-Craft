@@ -10,9 +10,11 @@ import { enableDocumentSearch } from "./document-search.js";
 import { markdownSource } from "./markdown-source.js";
 import { documentLabel } from "./document-picker.js";
 import { readTemplates, restoreTemplates, templateTools } from "./templates.js";
-import { imageFilesMarkdown, imageSizes, imageWidthMarkdown } from "./images.js";
+import { imageFilesMarkdown, imageSizes, imageWidthMarkdown, supportedImage } from "./images.js";
 import { clipboardBlocks } from "./clipboard-blocks.js";
 import { imageCropForm, imageInspector } from "./image-editor.js";
+import { enableImageDrop } from "./image-drop.js";
+import { keepBlockTextInView } from "./block-text-scroll.js";
 import {
   coloredHighlights,
   finishEditingKey,
@@ -1964,12 +1966,7 @@ function editBlock(i, selectAll = false) {
   box.replaceChildren(toolbar, ta, preview);
   updatePreview();
   icons();
-  const resizeText = () => {
-    ta.style.height = "auto";
-    const height = Math.max(52, ta.scrollHeight + 4);
-    ta.style.height = (embeddedImage ? Math.min(height, 84) : height) + "px";
-  };
-  resizeText();
+  keepBlockTextInView(ta, viewport, embeddedImage ? 84 : Infinity);
   ta.focus({ preventScroll: true });
   if (mermaidTop === null)
     ta.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -1979,7 +1976,6 @@ function editBlock(i, selectAll = false) {
   ta.oninput = () => {
     liveBlock();
     schedulePreview();
-    resizeText();
     if (ta.value === "/") {
       ta.value = "";
       liveBlock();
@@ -2576,7 +2572,7 @@ function insertBlockSource(pos, body) {
   patch(pos, pos, add);
   return pos + add.length;
 }
-function insertClipboardSource(index, body) {
+function insertCanvasSource(index, body) {
   const position = parts[index]?.end ?? 0;
   const end = insertBlockSource(position, liveEdit ? identifyDiagrams(body) : body);
   render();
@@ -2584,42 +2580,54 @@ function insertClipboardSource(index, body) {
   focusBlockAt(last < 0 ? index : last);
 }
 
-document.addEventListener("paste", async (event) => {
-  if (!doc || mode !== "edit" || stopReview || modal.open ||
-      inlineDrawing || inlineGraph || event.defaultPrevented || !event.clipboardData)
+const canInsertOnCanvas = () =>
+  doc && mode === "edit" && !stopReview && !inlineDrawing && !inlineGraph;
+
+document.addEventListener("paste", (event) => {
+  if (!canInsertOnCanvas() || modal.open || event.defaultPrevented || !event.clipboardData)
     return;
   const field = event.target.closest?.("textarea,input,select,[contenteditable]");
   if (field && !host.contains(field)) return;
   const content = clipboardBlocks(event.clipboardData);
   if (!content || (field && !content.images)) return;
   event.preventDefault();
-  const target = doc;
-  let { index } = prepareInsertion(parts.length ? selected : -1);
-  if (!content.files) {
-    insertClipboardSource(index, content.body);
+  const index = parts.length ? selected : -1;
+  if (content.files) void insertImageFiles(index, content.files);
+  else insertCanvasSource(prepareInsertion(index).index, content.body);
+});
+
+async function insertImageFiles(index, selection) {
+  const files = selection.filter(supportedImage);
+  if (!files.length) {
+    notice("Поддерживаются изображения PNG, JPEG, WebP и GIF.");
     return;
   }
+  const target = doc;
+  ({ index } = prepareInsertion(index));
   const original = doc.body;
   const saved = blockAnchor(parts, original, index);
   try {
-    const body = await imageFilesMarkdown(content.files);
+    const body = await imageFilesMarkdown(files);
     if (doc !== target || mode !== "edit") {
-      notice("Вернитесь в исходный документ и вставьте изображения снова.");
+      notice("Вернитесь в исходный документ и добавьте изображения снова.");
       return;
     }
     if (saved && original !== doc.body) {
       flush();
       const match = resolveAnchor(host, parts, workflowSections(parts, doc.body), saved.anchor);
-      if (!match) throw Error("Исходный блок изменился. Вставьте изображения снова.");
+      if (!match) throw Error("Блок в месте вставки изменился. Добавьте изображения снова.");
       index = match.index;
     } else if (editor || tableEdit || inlineDrawing || inlineGraph || inlineBibliography) {
       ({ index } = prepareInsertion(index));
     }
-    insertClipboardSource(index, body);
+    insertCanvasSource(index, body);
+    if (files.length !== selection.length)
+      notice("Файлы других форматов пропущены.");
   } catch (error) {
     notice(error.message);
   }
-});
+}
+enableImageDrop(viewport, host, canInsertOnCanvas, insertImageFiles);
 
 function insertBlock(type, idx = insertionBlock(), content) {
   const anchor = prepareInsertion(idx);

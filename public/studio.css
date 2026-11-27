@@ -629,7 +629,8 @@ main {
   overflow: auto;
   padding: 30px clamp(16px, 3.8vw, 68px) 45px;
 }
-#scroll[data-graph-transition] {
+#scroll[data-graph-transition],
+#scroll:has(.source-edit:focus) {
   overflow-anchor: none;
 }
 .paper {
@@ -1864,6 +1865,9 @@ select {
   padding: 10px 16px;
   font-size: 14px;
   z-index: 10;
+}
+#notice {
+  pointer-events: none;
 }
 .graph-tools {
   display: flex;
@@ -3228,7 +3232,8 @@ g.workflow-anchored {
   cursor: grabbing;
   user-select: none;
 }
-:is(.block, .outline-item):is(.drop-before, .drop-after)::after {
+:is(.block, .outline-item):is(.drop-before, .drop-after, .image-drop-before, .image-drop-after)::after,
+#blocks.image-drop-empty::after {
   content: "";
   position: absolute;
   z-index: 5;
@@ -3238,10 +3243,10 @@ g.workflow-anchored {
   background: var(--accent);
   pointer-events: none;
 }
-.block.drop-before::after {
+.block:is(.drop-before, .image-drop-before)::after {
   top: -6px;
 }
-.block.drop-after::after {
+.block:is(.drop-after, .image-drop-after)::after {
   bottom: -6px;
 }
 .outline-item.drop-before::after {
@@ -3249,6 +3254,12 @@ g.workflow-anchored {
 }
 .outline-item.drop-after::after {
   bottom: 0;
+}
+#blocks.image-drop-empty {
+  position: relative;
+}
+#blocks.image-drop-empty::after {
+  top: 0;
 }
 @media (hover: none), (max-width: 760px) {
   .paper:has(> #blocks > .block > .block-grip) {
